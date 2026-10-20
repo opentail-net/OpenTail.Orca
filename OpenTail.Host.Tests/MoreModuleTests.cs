@@ -443,6 +443,20 @@ public class CalendarModuleTests
         System.Text.Json.JsonSerializer.Serialize(new { start = DateTimeOffset.UtcNow, end = DateTimeOffset.UtcNow.AddDays(days) });
 
     [Fact]
+    public void Calendar_writes_carry_their_risk_and_ReadOnly_removes_them()
+    {
+        var (host, _) = Build();
+        ToolRisk Risk(string tool) => host.Catalog.TryGet(tool, out var t) ? t.Descriptor.Risk : throw new KeyNotFoundException(tool);
+        Assert.Equal(ToolRisk.ExternalEffect, Risk("calendar.create_event"));
+        Assert.Equal(ToolRisk.ExternalEffect, Risk("calendar.respond"));
+        Assert.Equal(ToolRisk.Destructive, Risk("calendar.delete_event"));
+
+        var readOnly = new OpenTailHostBuilder().AddModule(new CalendarModule(new FakeCalendar(), new CalendarModuleOptions { ReadOnly = true })).Build();
+        Assert.Equal(["calendar.list_calendars", "calendar.list_events"],
+            readOnly.Catalog.All.Select(t => t.Descriptor.Name).Where(n => n.StartsWith("calendar.", StringComparison.Ordinal)).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
     public async Task Listing_events_returns_data_with_a_notice_and_taints()
     {
         var (host, _) = Build();
