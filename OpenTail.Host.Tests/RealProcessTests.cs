@@ -82,8 +82,9 @@ public class RealProcessTests
 
             await client.DisposeAsync();
 
-            // The queue is in the database file, so a restarted process would still see it.
-            var store = new SqliteActionStore(dbPath);
+            // The queue is in the database file, so a restarted process would still see it. Disposing the client does not wait for
+            // the child to finish closing the file, and on Windows opening it meanwhile can fail, so retry briefly.
+            var store = await OpenWhenReleasedAsync(dbPath);
             var pending = await store.QueryAsync(new ActionQuery { Status = ActionStatus.Pending });
             Assert.Equal("files.write", Assert.Single(pending).ToolName);
         }
@@ -132,4 +133,21 @@ public class RealProcessTests
     }
 
     private static string Text(CallToolResult r) => r.Content.OfType<TextContentBlock>().First().Text;
+
+    private static async Task<SqliteActionStore> OpenWhenReleasedAsync(string dbPath)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            try
+            {
+                return new SqliteActionStore(dbPath);
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException) when (DateTime.UtcNow < deadline)
+            {
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                await Task.Delay(200);
+            }
+        }
+    }
 }
