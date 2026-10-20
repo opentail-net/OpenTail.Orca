@@ -1,0 +1,117 @@
+{
+  "Profile": 1,
+  "Name": "jira",
+  "Version": "0.1",
+  "Spec": "jira.openapi.json",
+  "DisplayName": "Jira (read only)",
+  "Publisher": "OpenTail",
+  "Description": "Search issues in the allowed projects, read an issue and its comments. Read only.",
+  "Hosts": [ "*.atlassian.net" ],
+  "Credential": { "Name": "jira", "Kind": "Basic", "Description": "An API token (id.atlassian.com); set the Jira account's email as UserName" },
+  "Errors": {
+    "Retryable": [ 429, 500, 502, 503 ],
+    "Messages": {
+      "400": "Jira rejected the search (400): a filter value may not exist in this site (an unknown status, label or project).",
+      "401": "Jira refused the credential (401). The operator should check the email and API token.",
+      "403": "Jira refused this (403): the account cannot see it.",
+      "404": "Not found (no such issue, or the account cannot see it)."
+    }
+  },
+  "Config": {
+    "Projects": { "Type": "string[]", "Required": true, "Description": "Project keys a search may cover (OPS, IT). Searches always name one." }
+  },
+  "Notes": [
+    "Set Config.ServerUrl to the site, for example https://acme.atlassian.net, and list that host in Network.Hosts.",
+    "Searches are limited to Config.Projects, but get_issue and list_comments read any issue the account can see: use an account that sees only the allowed projects. Issue-level security in Jira is honoured for that account, not for the person asking.",
+    "Issue text and comments are written by people inside and outside the company: every result taints the caller.",
+    "Search results are the newest 50 at most (the next-page token is not passed on). No creating, editing, transitions or comments: those need previews and are not in this profile."
+  ],
+  "Tools": {
+    "search_issues": {
+      "Operation": "searchAndReconsileIssuesUsingJql",
+      "Description": "Search issues in one project, newest update first. Set only the filters you need.",
+      "Risk": "Read",
+      "Parameters": {
+        "maxResults": { "Min": 1, "Max": 50, "Default": 20 },
+        "fields": { "Fixed": "summary,status,assignee,priority,issuetype,labels,updated" },
+        "*": { "Forbidden": true }
+      },
+      "Query": {
+        "Language": "jql",
+        "Target": "jql",
+        "OrderBy": "ORDER BY updated DESC",
+        "Filters": {
+          "project": { "Field": "project", "AllowedFrom": "Config.Projects", "Required": true, "Description": "The project key." },
+          "status": { "Field": "status", "Description": "A status name, as the site shows it (Open, In Progress, Done)." },
+          "type": { "Field": "issuetype", "Description": "An issue type name (Bug, Task, Story)." },
+          "priority": { "Field": "priority", "Description": "A priority name (High, Medium)." },
+          "assignee": { "Field": "assignee", "MaxLength": 128, "Description": "The assignee's Atlassian account id." },
+          "labels": { "Field": "labels", "Type": "list", "MaxItems": 10, "MaxLength": 255, "Description": "Any of these labels." },
+          "updated_since": { "Field": "updated", "Type": "date", "Op": "ge", "Description": "Updated on or after this date (yyyy-MM-dd)." },
+          "created_since": { "Field": "created", "Type": "date", "Op": "ge", "Description": "Created on or after this date (yyyy-MM-dd)." },
+          "text": { "Type": "text", "MaxLength": 200, "Description": "Words to look for in the summary, description and comments." }
+        }
+      },
+      "Response": {
+        "Items": "$.issues",
+        "MaxTextChars": 500,
+        "Fields": {
+          "key": "$.key",
+          "summary": "$.fields.summary",
+          "status": "$.fields.status.name",
+          "type": "$.fields.issuetype.name",
+          "priority": "$.fields.priority.name",
+          "assignee": "$.fields.assignee.displayName",
+          "labels": "$.fields.labels",
+          "updated": "$.fields.updated"
+        }
+      }
+    },
+    "get_issue": {
+      "Operation": "getIssue",
+      "Description": "Read one issue by key (OPS-123): summary, status, people, dates and description.",
+      "Risk": "Read",
+      "Parameters": {
+        "issueIdOrKey": { "Pattern": "^[A-Z][A-Z0-9_]{0,19}-[0-9]{1,9}$", "Description": "The issue key, like OPS-123." },
+        "fields": { "Fixed": "summary,status,assignee,reporter,priority,issuetype,labels,created,updated,description" },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "MaxTextChars": 8000,
+        "Fields": {
+          "key": "$.key",
+          "summary": "$.fields.summary",
+          "status": "$.fields.status.name",
+          "type": "$.fields.issuetype.name",
+          "priority": "$.fields.priority.name",
+          "assignee": "$.fields.assignee.displayName",
+          "reporter": "$.fields.reporter.displayName",
+          "labels": "$.fields.labels",
+          "created": "$.fields.created",
+          "updated": "$.fields.updated",
+          "description": "$.fields.description"
+        }
+      }
+    },
+    "list_comments": {
+      "Operation": "getComments",
+      "Description": "Read an issue's comments, newest first.",
+      "Risk": "Read",
+      "Parameters": {
+        "issueIdOrKey": { "Pattern": "^[A-Z][A-Z0-9_]{0,19}-[0-9]{1,9}$", "Description": "The issue key, like OPS-123." },
+        "maxResults": { "Min": 1, "Max": 50, "Default": 20 },
+        "orderBy": { "Fixed": "-created" },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "Items": "$.comments",
+        "MaxTextChars": 4000,
+        "Fields": {
+          "author": "$.author.displayName",
+          "created": "$.created",
+          "text": "$.body"
+        }
+      }
+    }
+  }
+}

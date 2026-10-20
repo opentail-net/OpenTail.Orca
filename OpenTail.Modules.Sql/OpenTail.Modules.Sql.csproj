@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Sql</PackageId>
+    <Description>OpenTail Host module: read-only SQL queries and (optionally) previewed, queued writes over any ADO.NET provider. From code (a connection factory) or modules.json (sqlite built in; sqlserver, postgres, mysql when the deployment references the driver). Use a least-privilege login.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="System.ComponentModel" />
+  </ItemGroup>
+</Project>

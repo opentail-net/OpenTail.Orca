@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- An integration profile as a package: no code, only the profile and its spec as resources (profiles/x/...).
+       Enable it with "Config": { "Profile": "package:OpenTail.Profiles.X/x" } on a "Type": "openapi" module. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Profiles.X</PackageId>
+    <Description>OpenTail integration profile for X (read only), for the openapi module. Enable with "Profile": "package:OpenTail.Profiles.X/x". See PROFILES.md.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Modules.OpenApi\OpenTail.Modules.OpenApi.csproj" />
+    <EmbeddedResource Include="..\profiles\x\*.json" LogicalName="profiles/x/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

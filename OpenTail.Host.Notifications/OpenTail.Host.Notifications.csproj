@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Host.Notifications</PackageId>
+    <Description>Tells reviewers about pending OpenTail Host actions (signed webhook, Slack) from a durable outbox with retries, reminders and reconciliation. Never puts argument values in a message unless a route asks for the preview summary.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <InternalsVisibleTo Include="OpenTail.Host.Tests" />
+  </ItemGroup>
+</Project>

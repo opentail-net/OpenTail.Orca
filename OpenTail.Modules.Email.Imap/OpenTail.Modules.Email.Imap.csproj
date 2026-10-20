@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Email.Imap</PackageId>
+    <Description>OpenTail Host module provider: the Email module over IMAP and SMTP (MailKit), enabled from modules.json as "email-imap". Sending is ExternalEffect, so the Host queues it for review by policy.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Email\OpenTail.Modules.Email.csproj" />
+    <PackageReference Include="OpenTail.Connectivity.Inbox.Imap" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Connectivity.Files.Contracts" />
+  </ItemGroup>
+</Project>

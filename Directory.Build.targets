@@ -1,0 +1,7 @@
+<Project>
+  <Target Name="DisableAspNetCoreOpenApiSourceGeneratorForOpenApiV3" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <Analyzer Remove="$(NuGetPackageRoot)microsoft.aspnetcore.openapi\*\analyzers\dotnet\cs\Microsoft.AspNetCore.OpenApi.SourceGenerators.dll" />
+    </ItemGroup>
+  </Target>
+</Project>

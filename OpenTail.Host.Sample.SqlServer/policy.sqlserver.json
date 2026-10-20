@@ -1,0 +1,15 @@
+{
+  // Read only (SQL_WRITE_CONNECTION not set): the schema and SELECT queries run immediately. Rows are outside content, so reading
+  // them taints the caller. With a write login, use policy.sqlserver-writes.json instead.
+  "DefaultReadMode": "Execute",
+  "MaxPendingPerRequester": 10,
+  "Tools": {
+    "sql.schema": { "Mode": "Execute" },
+    "sql.query":  { "Mode": "Execute" }
+  },
+
+  // Agent profiles: what each agent identity may call, when served over HTTP (an API key names one with "Profile").
+  "Agents": {
+    "sql-reader": { "Tools": [ "sql.schema", "sql.query" ] }
+  }
+}

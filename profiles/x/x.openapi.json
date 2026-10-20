@@ -1,0 +1,40 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "X API v2 (subset)",
+    "version": "2",
+    "description": "The two read operations the x profile uses, with the operation ids of X's published OpenAPI document (https://api.x.com/2/openapi.json), so the full document can replace this file without changing the profile."
+  },
+  "servers": [ { "url": "https://api.x.com" } ],
+  "paths": {
+    "/2/tweets/search/recent": {
+      "get": {
+        "operationId": "tweetsRecentSearch",
+        "summary": "Search posts from the last seven days.",
+        "parameters": [
+          { "name": "query", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "start_time", "in": "query", "schema": { "type": "string" } },
+          { "name": "end_time", "in": "query", "schema": { "type": "string" } },
+          { "name": "max_results", "in": "query", "schema": { "type": "integer" } },
+          { "name": "sort_order", "in": "query", "schema": { "type": "string", "enum": [ "recency", "relevancy" ] } },
+          { "name": "next_token", "in": "query", "schema": { "type": "string" } },
+          { "name": "tweet.fields", "in": "query", "schema": { "type": "string" } },
+          { "name": "expansions", "in": "query", "schema": { "type": "string" } },
+          { "name": "user.fields", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/2/tweets/{id}": {
+      "get": {
+        "operationId": "findTweetById",
+        "summary": "Read one post by id.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "tweet.fields", "in": "query", "schema": { "type": "string" } },
+          { "name": "expansions", "in": "query", "schema": { "type": "string" } },
+          { "name": "user.fields", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    }
+  }
+}

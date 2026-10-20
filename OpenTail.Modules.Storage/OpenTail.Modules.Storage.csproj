@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Storage</PackageId>
+    <Description>OpenTail Host module: list and read objects in one S3 bucket (or an S3-compatible store), inside a prefix allow-list, with capped reads and text extraction, through OpenTail.Connectivity.Storage. Read only.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="OpenTail.Connectivity.Storage" />
+    <PackageReference Include="OpenTail.Connectivity.Storage.S3" />
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="System.ComponentModel" />
+  </ItemGroup>
+</Project>

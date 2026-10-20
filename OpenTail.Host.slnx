@@ -1,0 +1,52 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="MCP-HOST-PLAN.md" />
+    <File Path="MCP-HOST-V2-PLAN.md" />
+    <File Path="MCP-HOST-V3-PLAN.md" />
+    <File Path="Directory.Build.props" />
+  </Folder>
+  <Folder Name="/Host/">
+    <Project Path="OpenTail.Host.Abstractions/OpenTail.Host.Abstractions.csproj" />
+    <Project Path="OpenTail.Host/OpenTail.Host.csproj" />
+    <Project Path="OpenTail.Host.Admin/OpenTail.Host.Admin.csproj" />
+    <Project Path="OpenTail.Host.Http/OpenTail.Host.Http.csproj" />
+    <Project Path="OpenTail.Host.Notifications/OpenTail.Host.Notifications.csproj" />
+    <Project Path="OpenTail.Host.Server/OpenTail.Host.Server.csproj" />
+  </Folder>
+  <Folder Name="/Modules/">
+    <Project Path="OpenTail.Modules.Calendar/OpenTail.Modules.Calendar.csproj" />
+    <Project Path="OpenTail.Modules.Calendar.Ics/OpenTail.Modules.Calendar.Ics.csproj" />
+    <Project Path="OpenTail.Modules.Csv/OpenTail.Modules.Csv.csproj" />
+    <Project Path="OpenTail.Modules.Skills/OpenTail.Modules.Skills.csproj" />
+    <Project Path="OpenTail.Modules.Email/OpenTail.Modules.Email.csproj" />
+    <Project Path="OpenTail.Modules.Email.Imap/OpenTail.Modules.Email.Imap.csproj" />
+    <Project Path="OpenTail.Modules.Files/OpenTail.Modules.Files.csproj" />
+    <Project Path="OpenTail.Modules.GitHubIssues/OpenTail.Modules.GitHubIssues.csproj" />
+    <Project Path="OpenTail.Modules.Google/OpenTail.Modules.Google.csproj" />
+    <Project Path="OpenTail.Modules.Microsoft365/OpenTail.Modules.Microsoft365.csproj" />
+    <Project Path="OpenTail.Modules.OpenApi/OpenTail.Modules.OpenApi.csproj" />
+    <Project Path="OpenTail.Modules.ServiceNow/OpenTail.Modules.ServiceNow.csproj" />
+    <Project Path="OpenTail.Modules.Storage/OpenTail.Modules.Storage.csproj" />
+    <Project Path="OpenTail.Modules.Social/OpenTail.Modules.Social.csproj" />
+    <Project Path="OpenTail.Modules.Sql/OpenTail.Modules.Sql.csproj" />
+    <Project Path="OpenTail.Modules.Web/OpenTail.Modules.Web.csproj" />
+  </Folder>
+  <Folder Name="/Profiles/">
+    <Project Path="OpenTail.Profiles.YouTube/OpenTail.Profiles.YouTube.csproj" />
+    <Project Path="OpenTail.Profiles.X/OpenTail.Profiles.X.csproj" />
+    <Project Path="OpenTail.Profiles.Jira/OpenTail.Profiles.Jira.csproj" />
+    <Project Path="OpenTail.Profiles.Confluence/OpenTail.Profiles.Confluence.csproj" />
+  </Folder>
+  <Folder Name="/Samples/">
+    <Project Path="OpenTail.Host.Sample.EmailOnly/OpenTail.Host.Sample.EmailOnly.csproj" />
+    <Project Path="OpenTail.Host.Sample.FilesOpenApi/OpenTail.Host.Sample.FilesOpenApi.csproj" />
+    <Project Path="OpenTail.Host.Sample.SqlServer/OpenTail.Host.Sample.SqlServer.csproj" />
+    <Project Path="OpenTail.Host.Sample.TeamHttp/OpenTail.Host.Sample.TeamHttp.csproj" />
+  </Folder>
+  <Folder Name="/Tests/">
+    <Project Path="OpenTail.Host.Abstractions.Tests/OpenTail.Host.Abstractions.Tests.csproj" />
+    <Project Path="OpenTail.Host.Tests/OpenTail.Host.Tests.csproj" />
+    <Project Path="OpenTail.Host.Tests.Worker/OpenTail.Host.Tests.Worker.csproj" />
+    <Project Path="OpenTail.Host.Tests.SqlServers/OpenTail.Host.Tests.SqlServers.csproj" />
+  </Folder>
+</Solution>

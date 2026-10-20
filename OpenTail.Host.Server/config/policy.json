@@ -1,0 +1,16 @@
+{
+  // Reads run immediately; anything not named here (and not a read) is denied. Add a module in modules.json, look at what it
+  // offers with --list-modules, then adopt its suggested policy (it lands in policy.d/<id>.json); see DEPLOY.md.
+  "DefaultReadMode": "Execute",
+  "MaxPendingPerRequester": 10,
+  "TaintWindow": "30m",
+  "Tools": {
+  },
+  // Agent profiles: what each agent identity may call. Each API key in http.json names one with "Profile"; a key without one may
+  // call every tool the policy allows, and is refused in a later release. Start narrow: list the tools each agent's job needs.
+  "Agents": {
+    // "assistant": { "Tools": [ "mail.read", "mail.send" ] },
+    // The skills workbench proposes skill versions and holds nothing else (skills.publish is an administration tool):
+    // "workbench": { "Tools": [ "skills.publish" ] }
+  }
+}

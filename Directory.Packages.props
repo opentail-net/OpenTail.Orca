@@ -1,0 +1,39 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Lets the pins at the end lift vulnerable transitive packages. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- 1.6.30 fixes GHSA-7pxr-59rr-hqj2 (YAML alias expansion). -->
+    <PackageVersion Include="Microsoft.OpenApi.Readers" Version="1.6.31" />
+    <PackageVersion Include="MinVer" Version="7.0.0" />
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
+    <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
+    <PackageVersion Include="ModelContextProtocol.Extensions.Tasks" Version="2.2.0" />
+    <PackageVersion Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+    <!-- Database drivers for the real-server Sql tests only; deployments reference their own. -->
+    <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
+    <PackageVersion Include="Npgsql" Version="10.0.3" />
+    <PackageVersion Include="MySqlConnector" Version="2.6.2" />
+    <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.8.3" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="4.0.0-pre.4" />
+    <PackageVersion Include="xunit.v3" Version="4.0.0-pre.108" />
+    <!-- From opentail-connectivity (GitHub Packages, see nuget.config). One version for all of them. -->
+    <PackageVersion Include="OpenTail.Connectivity.Files" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Web" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Inbox.Imap" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Inbox.Graph" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Inbox.Gmail" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Calendar.Ics" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Storage" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Storage.S3" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.RichText" Version="0.0.1" />
+    <PackageVersion Include="Google.Apis.Drive.v3" Version="1.75.0.4218" />
+    <!-- Transitive pin for GHSA-846f-f764-76mx and GHSA-2fmv-rv2c-59x7 (fixed in 10.0.13). -->
+    <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+  </ItemGroup>
+</Project>

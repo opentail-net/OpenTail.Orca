@@ -1,0 +1,32 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Confluence Cloud REST API (subset)",
+    "version": "1+2",
+    "description": "The two read operations the confluence profile uses, written from Atlassian's Confluence Cloud REST reference: CQL search (v1, which v2 has no replacement for) and reading a page (v2, body-format=storage gives the storage format, turned into text by the |storage converter). Not yet run against a live site."
+  },
+  "servers": [ { "url": "https://your-site.atlassian.net" } ],
+  "paths": {
+    "/wiki/rest/api/search": {
+      "get": {
+        "operationId": "searchByCQL",
+        "summary": "Searches for content using the Confluence Query Language (CQL).",
+        "parameters": [
+          { "name": "cql", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer" } },
+          { "name": "excerpt", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/wiki/api/v2/pages/{id}": {
+      "get": {
+        "operationId": "getPageById",
+        "summary": "Returns a specific page.",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "body-format", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    }
+  }
+}

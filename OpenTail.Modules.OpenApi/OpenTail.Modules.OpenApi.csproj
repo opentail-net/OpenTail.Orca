@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.OpenApi</PackageId>
+    <Description>OpenTail Host module: turns an OpenAPI document into tools (one per operation) with risk derived from the HTTP verb. No dependency on OpenTail.Core or Semantic Kernel.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <PackageReference Include="Microsoft.OpenApi.Readers" />
+    <PackageReference Include="OpenTail.Connectivity.RichText" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+  </ItemGroup>
+</Project>

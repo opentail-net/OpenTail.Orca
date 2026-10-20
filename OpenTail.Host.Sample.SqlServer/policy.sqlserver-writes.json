@@ -1,0 +1,16 @@
+{
+  // With SQL_WRITE_CONNECTION set. Reads run immediately; every write waits for a reviewer, who sees the rows it would affect (a trial
+  // run, rolled back); a DELETE needs two different people. A write after reading rows (outside content) always waits, whatever a rule says.
+  "DefaultReadMode": "Execute",
+  "MaxPendingPerRequester": 10,
+  "Tools": {
+    "sql.schema": { "Mode": "Execute" },
+    "sql.query":  { "Mode": "Execute" },
+    "sql.write":  { "Mode": "Queue", "Reviewer": "Human", "ExpireAfter": "08:00:00" },
+    "sql.delete": { "Mode": "Queue", "Reviewer": "Human", "ExpireAfter": "08:00:00", "RequiredApprovals": 2, "SelfApproval": "Forbid" }
+  },
+  "Agents": {
+    "sql-reader": { "Tools": [ "sql.schema", "sql.query" ] },
+    "sql-writer": { "Tools": [ "sql.*" ] }
+  }
+}

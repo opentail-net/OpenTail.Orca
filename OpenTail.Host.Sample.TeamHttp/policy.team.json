@@ -1,0 +1,29 @@
+{
+  // Reads run immediately. Writes wait for a reviewer, except the narrow case below. Anything not named here (and not a read) is denied.
+  "DefaultReadMode": "Execute",
+  "MaxPendingPerRequester": 10,
+  // After a caller reads untrusted content (files, web, mail), every session of that caller is treated as tainted for this long,
+  // and a tainted caller never gets a high-impact tool run without a reviewer, whatever the rules below say.
+  "TaintWindow": "30m",
+  "Tools": {
+    "files.write": {
+      "Mode": "Queue", "Reviewer": "Human", "ExpireAfter": "24:00:00",
+      "Rules": [
+        // Scratch files are fine without a person: one file name directly inside drafts/, at most 20 a day per agent.
+        // (The pattern is anchored and forbids '/', so "drafts/../secret.txt" does not match. Prefer matches over startsWith for paths.)
+        {
+          "Name": "scratch-drafts", "Mode": "Execute", "IgnoreArgs": ["content"],
+          "When": { "arg": "/path", "matches": "^drafts/[A-Za-z0-9._-]+$" },
+          "Budget": { "Per": "24h", "MaxCount": 20, "Scope": "Requester" }
+        },
+        // Never touch anything that looks like a credential, even if a reviewer would say yes.
+        { "Name": "no-secrets", "Mode": "Deny", "When": { "arg": "/path", "matches": "(?i)(secret|password|credential|\\.pem$|\\.key$|\\.env$)" } }
+      ]
+    }
+  },
+  // Agent profiles: each API key in http.team.json names one with "Profile", and sees and may call only its tools.
+  // Add "api.*" to a profile when the OpenAPI module is configured (OPENAPI_SPEC).
+  "Agents": {
+    "team-agent": { "Tools": [ "files.*" ] }
+  }
+}

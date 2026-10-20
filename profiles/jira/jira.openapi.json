@@ -1,0 +1,45 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Jira Cloud platform REST API v2 (subset)",
+    "version": "2",
+    "description": "The three read operations the jira profile uses, written from the Jira Cloud REST API v2 reference. Version 2 returns descriptions and comments as plain text (version 3 returns Atlassian Document Format). Operation ids follow Atlassian's published spec. Not yet run against a live site."
+  },
+  "servers": [ { "url": "https://your-site.atlassian.net" } ],
+  "paths": {
+    "/rest/api/2/search/jql": {
+      "get": {
+        "operationId": "searchAndReconsileIssuesUsingJql",
+        "summary": "Searches for issues using JQL.",
+        "parameters": [
+          { "name": "jql", "in": "query", "schema": { "type": "string" } },
+          { "name": "nextPageToken", "in": "query", "schema": { "type": "string" } },
+          { "name": "maxResults", "in": "query", "schema": { "type": "integer" } },
+          { "name": "fields", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/rest/api/2/issue/{issueIdOrKey}": {
+      "get": {
+        "operationId": "getIssue",
+        "summary": "Returns the details for an issue.",
+        "parameters": [
+          { "name": "issueIdOrKey", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "fields", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    },
+    "/rest/api/2/issue/{issueIdOrKey}/comment": {
+      "get": {
+        "operationId": "getComments",
+        "summary": "Returns all comments for an issue.",
+        "parameters": [
+          { "name": "issueIdOrKey", "in": "path", "required": true, "schema": { "type": "string" } },
+          { "name": "startAt", "in": "query", "schema": { "type": "integer" } },
+          { "name": "maxResults", "in": "query", "schema": { "type": "integer" } },
+          { "name": "orderBy", "in": "query", "schema": { "type": "string" } }
+        ]
+      }
+    }
+  }
+}

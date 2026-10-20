@@ -1,0 +1,6 @@
+# HTTPS for the Host. Caddy obtains and renews the certificate for OPENTAIL_DOMAIN and forwards everything to the Host,
+# setting X-Forwarded-Proto/For/Host (the Host reads them because http.json has TrustProxy).
+{$OPENTAIL_DOMAIN} {
+	encode gzip
+	reverse_proxy host:8080
+}

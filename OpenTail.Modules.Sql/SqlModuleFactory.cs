@@ -1,0 +1,176 @@
+using System.Data.Common;
+using System.Reflection;
+using Microsoft.Data.Sqlite;
+
+[assembly: HostModuleFactory(typeof(OpenTail.Modules.Sql.SqlModuleFactory))]
+
+namespace OpenTail.Modules.Sql;
+
+/// <summary>
+/// <c>"Type": "sql"</c> in modules.json.
+/// <code>
+/// "Config": { "Provider": "sqlserver", "ConnectionString": "Server=db1;Database=crm;User Id=agent_ro;Encrypt=true" },
+/// "Credentials": { "password": { "Env": "CRM_DB_PASSWORD", "Kind": "Secret" } }
+/// </code>
+/// Providers: <c>sqlite</c> (built in), <c>sqlserver</c>, <c>postgres</c>, <c>mysql</c> (the deployment references the driver package),
+/// or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
+/// the <c>password</c> credential, or the whole string from the <c>connection</c> credential, both read when a tool runs.
+/// With <c>AllowWrites</c> on a server database, write and delete use a second login: <c>Config.WriteConnectionString</c> with the
+/// <c>write-password</c> credential, or the <c>write-connection</c> credential. <c>SharedLoginForWrites: true</c> opts out.
+/// </summary>
+public sealed class SqlModuleFactory : IHostModuleFactory
+{
+    public string Type => "sql";
+
+    private static readonly Dictionary<string, (string TypeName, string Package)> Providers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["sqlserver"] = ("Microsoft.Data.SqlClient.SqlClientFactory, Microsoft.Data.SqlClient", "Microsoft.Data.SqlClient"),
+        ["postgres"] = ("Npgsql.NpgsqlFactory, Npgsql", "Npgsql"),
+        ["mysql"] = ("MySqlConnector.MySqlConnectorFactory, MySqlConnector", "MySqlConnector"),
+    };
+
+    public ModuleManifest Describe(string id, System.Text.Json.JsonElement config)
+    {
+        var writes = config.ValueKind == System.Text.Json.JsonValueKind.Object
+            && config.EnumerateObject().Any(p => p.Name.Equals("AllowWrites", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.True);
+        return new()
+        {
+            Id = id,
+            DisplayName = "SQL database",
+            Publisher = "OpenTail",
+            Description = "Read-only SELECT queries" + (writes ? ", and previewed INSERT/UPDATE/DELETE." : "."),
+            Credentials =
+            [
+                new CredentialRequirement("password", CredentialKind.Secret, "Database password, added to the connection string") { Optional = true },
+                new CredentialRequirement("connection", CredentialKind.Secret, "The whole connection string, instead of Config.ConnectionString") { Optional = true },
+                new CredentialRequirement("write-password", CredentialKind.Secret, "Password of the write login, added to Config.WriteConnectionString") { Optional = true },
+                new CredentialRequirement("write-connection", CredentialKind.Secret, "The write login's whole connection string, instead of Config.WriteConnectionString") { Optional = true },
+            ],
+            Notes =
+            [
+                "Connects with the login you configure; give it the least privilege. schema and query use a read-only login; with AllowWrites, write and delete use a second login.",
+                "Database traffic does not go through the Host's HTTP guard; the database server is whatever the connection string names.",
+                "Row values count as outside content (they taint the caller) unless ContentIsUntrusted is false.",
+                writes ? "write (INSERT/UPDATE) is Write risk, which taint does not hold: queue it. delete is Destructive." : "Writes are off (AllowWrites false).",
+            ],
+            SuggestedPolicyJson = writes
+                ? $$"""{ "Tools": { "{{id}}.schema": { "Mode": "Execute" }, "{{id}}.query": { "Mode": "Execute" }, "{{id}}.write": { "Mode": "Queue" }, "{{id}}.delete": { "Mode": "Queue" } } }"""
+                : $$"""{ "Tools": { "{{id}}.schema": { "Mode": "Execute" }, "{{id}}.query": { "Mode": "Execute" } } }""",
+        };
+    }
+
+    public ValueTask<IHostModule> CreateAsync(ModuleContext context, CancellationToken ct = default)
+    {
+        var c = context.Bind<Config>();
+        var hasConnection = context.Credentials.Names.Contains("connection");
+        if (!hasConnection && string.IsNullOrWhiteSpace(c.ConnectionString))
+            throw new ArgumentException("Config.ConnectionString is required (or map the 'connection' credential).");
+        var sqlite = string.Equals(c.Provider, "sqlite", StringComparison.OrdinalIgnoreCase);
+        var factory = sqlite ? SqliteFactory.Instance : ResolveProvider(c);
+
+        if (!hasConnection && ContainsSecret(factory, c.ConnectionString!))
+            throw new ArgumentException("Config.ConnectionString must not contain a password; map the 'password' credential instead.");
+
+        var credentials = context.Credentials;
+        var hasWriteConnection = credentials.Names.Contains("write-connection");
+        var hasWriteLogin = hasWriteConnection || !string.IsNullOrWhiteSpace(c.WriteConnectionString);
+        if (!hasWriteConnection && hasWriteLogin && ContainsSecret(factory, c.WriteConnectionString!))
+            throw new ArgumentException("Config.WriteConnectionString must not contain a password; map the 'write-password' credential instead.");
+        if (c.AllowWrites && !sqlite && !hasWriteLogin && !c.SharedLoginForWrites)
+            throw new ArgumentException(
+                "AllowWrites on a server database needs a second login for writes: set Config.WriteConnectionString (with the 'write-password' credential) " +
+                "or map the 'write-connection' credential, and keep the main login read-only. SharedLoginForWrites: true opts out, " +
+                "so a statement the guard misreads could then write through the query tool.");
+
+        var baseDirectory = context.BaseDirectory;
+        async ValueTask<DbConnection> OpenAsync(bool write, CancellationToken token)
+        {
+            var useWriteLogin = write && hasWriteLogin;
+            var (connectionName, passwordName, configured) = useWriteLogin
+                ? ("write-connection", "write-password", c.WriteConnectionString)
+                : ("connection", "password", c.ConnectionString);
+            var whole = useWriteLogin ? hasWriteConnection : hasConnection;
+            var b = factory.CreateConnectionStringBuilder() ?? new DbConnectionStringBuilder();
+            b.ConnectionString = whole ? (await credentials.GetAsync(connectionName, token)).Secret : configured;
+            if (!whole && credentials.Names.Contains(passwordName)) b["Password"] = (await credentials.GetAsync(passwordName, token)).Secret;
+            if (b is SqliteConnectionStringBuilder s)
+            {
+                if (!Path.IsPathRooted(s.DataSource) && s.DataSource != ":memory:") s.DataSource = Path.GetFullPath(Path.Combine(baseDirectory, s.DataSource));
+                // SQLite needs no second login: schema and query always open the file read-only.
+                s.Mode = write && c.AllowWrites ? SqliteOpenMode.ReadWrite : SqliteOpenMode.ReadOnly;
+            }
+            var conn = factory.CreateConnection() ?? throw new InvalidOperationException("The provider did not create a connection.");
+            conn.ConnectionString = b.ConnectionString;
+            return conn;
+        }
+
+        var dialect = sqlite ? SqlDialect.Sqlite : DialectOf(c);
+
+        IHostModule module = new SqlModule(new SqlModuleOptions
+        {
+            Name = context.Id,
+            Manifest = Describe(context.Id, context.Config),
+            ConnectionFactoryAsync = token => OpenAsync(false, token),
+            WriteConnectionFactoryAsync = token => OpenAsync(true, token),
+            Dialect = dialect,
+            ReadOnlyQueryTransaction = c.ReadOnlyQueryTransaction ?? dialect is SqlDialect.Postgres or SqlDialect.MySql,
+            AllowWrites = c.AllowWrites,
+            MaxRows = c.MaxRows,
+            MaxCellChars = c.MaxCellChars,
+            CommandTimeoutSeconds = c.CommandTimeoutSeconds,
+            PreviewByRollback = c.PreviewByRollback,
+            ContentIsUntrusted = c.ContentIsUntrusted,
+            SchemaQuery = c.SchemaQuery,
+            MaxSchemaRows = c.MaxSchemaRows,
+            Schemas = c.Schemas,
+        });
+        return ValueTask.FromResult(module);
+    }
+
+    private static SqlDialect DialectOf(Config c) => c.ProviderFactory is { Length: > 0 } ? SqlDialect.Unknown : c.Provider?.ToLowerInvariant() switch
+    {
+        "sqlserver" => SqlDialect.SqlServer,
+        "postgres" => SqlDialect.Postgres,
+        "mysql" => SqlDialect.MySql,
+        _ => SqlDialect.Unknown,
+    };
+
+    private static DbProviderFactory ResolveProvider(Config c)
+    {
+        string typeName, hint;
+        if (c.ProviderFactory is { Length: > 0 } custom) (typeName, hint) = (custom, "the package that contains it");
+        else if (c.Provider is { } p && Providers.TryGetValue(p, out var known)) (typeName, hint) = (known.TypeName, "package " + known.Package);
+        else throw new ArgumentException($"Config.Provider must be sqlite, {string.Join(", ", Providers.Keys)}, or set ProviderFactory.");
+
+        var type = System.Type.GetType(typeName, throwOnError: false)
+            ?? throw new ArgumentException($"Provider type '{typeName}' was not found: reference {hint} in the deployment.");
+        var instance = type.GetField("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as DbProviderFactory;
+        return instance ?? throw new ArgumentException($"'{typeName}' is not a DbProviderFactory with a static Instance field.");
+    }
+
+    private static bool ContainsSecret(DbProviderFactory factory, string connectionString)
+    {
+        var b = factory.CreateConnectionStringBuilder() ?? new DbConnectionStringBuilder();
+        b.ConnectionString = connectionString;
+        return new[] { "Password", "Pwd" }.Any(k => b.TryGetValue(k, out var v) && v is string s && s.Length > 0);
+    }
+
+    private sealed class Config
+    {
+        public string? Provider { get; init; }
+        public string? ProviderFactory { get; init; }
+        public string? ConnectionString { get; init; }
+        public bool AllowWrites { get; init; }
+        public string? WriteConnectionString { get; init; }
+        public bool SharedLoginForWrites { get; init; }
+        public bool? ReadOnlyQueryTransaction { get; init; }
+        public int MaxRows { get; init; } = 200;
+        public int MaxCellChars { get; init; } = 2000;
+        public int CommandTimeoutSeconds { get; init; } = 15;
+        public bool PreviewByRollback { get; init; } = true;
+        public bool ContentIsUntrusted { get; init; } = true;
+        public string? SchemaQuery { get; init; }
+        public int MaxSchemaRows { get; init; } = 2000;
+        public List<string> Schemas { get; init; } = [];
+    }
+}

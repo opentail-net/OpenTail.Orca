@@ -1,0 +1,10 @@
+bin/
+obj/
+out/
+*.user
+.vs/
+TestResults/
+*.db
+*.db-wal
+*.db-shm
+opentail-teams-app.zip

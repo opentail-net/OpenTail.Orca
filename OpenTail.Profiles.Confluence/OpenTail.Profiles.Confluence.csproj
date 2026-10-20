@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- An integration profile as a package: no code, only the profile and its spec as resources (profiles/confluence/...).
+       Enable it with "Config": { "Profile": "package:OpenTail.Profiles.Confluence/confluence" } on a "Type": "openapi" module. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Profiles.Confluence</PackageId>
+    <Description>OpenTail integration profile for Confluence (read only: search pages, read a page), for the openapi module. Enable with "Profile": "package:OpenTail.Profiles.Confluence/confluence". See PROFILES.md.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Modules.OpenApi\OpenTail.Modules.OpenApi.csproj" />
+    <EmbeddedResource Include="..\profiles\confluence\*.json" LogicalName="profiles/confluence/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

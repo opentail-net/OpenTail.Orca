@@ -1,0 +1,9 @@
+{
+  // Local trial: loopback, no TLS needed. For a real team set Urls to your https address, PublicBaseUrl to what users type,
+  // and sign agents in with Jwt (your identity provider) and/or ApiKeys (hashes made with --new-api-key).
+  "Urls": [ "http://127.0.0.1:5600" ],
+  "ApiKeys": [
+    // { "Name": "alice-agent", "Hash": "sha256:...from --new-api-key alice-agent...", "Profile": "team-agent" }
+  ],
+  "RateLimitPerMinute": 120
+}

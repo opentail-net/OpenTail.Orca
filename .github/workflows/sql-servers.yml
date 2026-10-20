@@ -1,0 +1,108 @@
+name: Sql on real servers
+
+# The Sql module against real SQL Server, Postgres and MySQL in service containers (OpenTail.Host.Tests.SqlServers).
+# Linux only and never on every push, to save Actions minutes: run it by hand, or it runs when the Sql module or these tests change.
+# Each server gets two logins, as the module expects in production: a read login (SELECT only) and a write login.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'OpenTail.Modules.Sql/**'
+      - 'OpenTail.Host.Tests.SqlServers/**'
+      - '.github/workflows/sql-servers.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sql-servers-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+  # Throwaway passwords for throwaway containers; they guard nothing.
+  SA_PASSWORD: Ci_Admin_Pass_1234x
+  READ_PASSWORD: Ci_Read_Pass_1234x
+  WRITE_PASSWORD: Ci_Write_Pass_1234x
+
+jobs:
+  sql-servers:
+    name: SQL Server, Postgres, MySQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: Ci_Admin_Pass_1234x
+        ports: [ '1433:1433' ]
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: Ci_Admin_Pass_1234x
+          POSTGRES_DB: otail
+        ports: [ '5432:5432' ]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 20
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: Ci_Admin_Pass_1234x
+          MYSQL_DATABASE: otail
+        ports: [ '3306:3306' ]
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pCi_Admin_Pass_1234x" --health-interval 5s --health-timeout 5s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Build
+        run: dotnet build OpenTail.Host.Tests.SqlServers -c Release
+
+      - name: Logins on SQL Server
+        run: |
+          id=${{ job.services.sqlserver.id }}
+          sql() { docker exec "$id" /opt/mssql-tools18/bin/sqlcmd -C -b -S localhost -U sa -P "$SA_PASSWORD" "$@"; }
+          for i in $(seq 1 60); do sql -Q "SELECT 1" > /dev/null 2>&1 && break; sleep 2; done
+          sql -Q "CREATE DATABASE otail"
+          sql -d otail -Q "
+            CREATE LOGIN ot_reader WITH PASSWORD = '$READ_PASSWORD'; CREATE USER ot_reader FOR LOGIN ot_reader;
+            ALTER ROLE db_datareader ADD MEMBER ot_reader;
+            CREATE LOGIN ot_writer WITH PASSWORD = '$WRITE_PASSWORD'; CREATE USER ot_writer FOR LOGIN ot_writer;
+            ALTER ROLE db_datareader ADD MEMBER ot_writer; ALTER ROLE db_datawriter ADD MEMBER ot_writer;
+            ALTER ROLE db_ddladmin ADD MEMBER ot_writer;"
+
+      - name: Logins on Postgres
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -v ON_ERROR_STOP=1 -U postgres -d otail -c "
+            CREATE ROLE ot_reader LOGIN PASSWORD '$READ_PASSWORD';
+            CREATE ROLE ot_writer LOGIN PASSWORD '$WRITE_PASSWORD';
+            GRANT USAGE ON SCHEMA public TO ot_reader;
+            GRANT USAGE, CREATE ON SCHEMA public TO ot_writer;
+            ALTER DEFAULT PRIVILEGES FOR ROLE ot_writer IN SCHEMA public GRANT SELECT ON TABLES TO ot_reader;"
+
+      - name: Logins on MySQL
+        run: |
+          docker exec ${{ job.services.mysql.id }} mysql -uroot -p"$SA_PASSWORD" -e "
+            CREATE USER 'ot_reader'@'%' IDENTIFIED BY '$READ_PASSWORD'; GRANT SELECT ON otail.* TO 'ot_reader'@'%';
+            CREATE USER 'ot_writer'@'%' IDENTIFIED BY '$WRITE_PASSWORD';
+            GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP ON otail.* TO 'ot_writer'@'%';"
+
+      - name: Test
+        env:
+          OTAIL_SQL_SQLSERVER_READ: Server=localhost,1433;Database=otail;User Id=ot_reader;Password=${{ env.READ_PASSWORD }};TrustServerCertificate=True
+          OTAIL_SQL_SQLSERVER_WRITE: Server=localhost,1433;Database=otail;User Id=ot_writer;Password=${{ env.WRITE_PASSWORD }};TrustServerCertificate=True
+          OTAIL_SQL_POSTGRES_READ: Host=localhost;Port=5432;Database=otail;Username=ot_reader;Password=${{ env.READ_PASSWORD }}
+          OTAIL_SQL_POSTGRES_WRITE: Host=localhost;Port=5432;Database=otail;Username=ot_writer;Password=${{ env.WRITE_PASSWORD }}
+          OTAIL_SQL_MYSQL_READ: Server=localhost;Port=3306;Database=otail;User ID=ot_reader;Password=${{ env.READ_PASSWORD }};AllowPublicKeyRetrieval=True
+          OTAIL_SQL_MYSQL_WRITE: Server=localhost;Port=3306;Database=otail;User ID=ot_writer;Password=${{ env.WRITE_PASSWORD }};AllowPublicKeyRetrieval=True
+        # A skipped server test here means a connection string is missing: fail rather than pass quietly.
+        run: |
+          dotnet test --project OpenTail.Host.Tests.SqlServers -c Release --no-build 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          if grep -Eq "skipped: [1-9]" test.log; then echo "::error::Some server tests were skipped"; exit 1; fi
+          exit $status

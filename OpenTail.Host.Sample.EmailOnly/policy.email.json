@@ -1,0 +1,22 @@
+{
+  // Reading mail is allowed. Reading taints the session, so anything risky afterwards is held for review.
+  "DefaultReadMode": "Execute",
+
+  // A person can have at most this many sends waiting at once.
+  "MaxPendingPerRequester": 5,
+
+  "Tools": {
+    "email.send": {
+      "Mode": "Queue",
+      "Reviewer": "Human",
+      "ExpireAfter": "08:00:00",
+      "RateLimit": { "PerHour": 10, "PerDay": 50 }
+    }
+  },
+
+  // Agent profiles: what each agent identity may call. Over stdio there is one local operator and profiles do not apply; served over
+  // HTTP, give each API key "Profile": "email-assistant" (or a narrower profile of your own).
+  "Agents": {
+    "email-assistant": { "Tools": [ "email.*" ] }
+  }
+}

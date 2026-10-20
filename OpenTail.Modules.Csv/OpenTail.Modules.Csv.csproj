@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Csv</PackageId>
+    <Description>OpenTail Host module: describe and read rows from CSV files inside one configured root folder. No dependency on OpenTail.Core.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="System.ComponentModel" />
+  </ItemGroup>
+</Project>

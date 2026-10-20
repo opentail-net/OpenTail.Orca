@@ -1,0 +1,114 @@
+{
+  "Profile": 1,
+  "Name": "youtube",
+  "Version": "1.0",
+  "Spec": "youtube.openapi.json",
+  "DisplayName": "YouTube (read only)",
+  "Publisher": "OpenTail",
+  "Description": "Search public videos, read a video and its comments. Read only.",
+  "Server": "https://www.googleapis.com/youtube/v3",
+  "Hosts": [ "www.googleapis.com" ],
+  "Credential": { "Name": "youtube", "Kind": "Header", "HeaderName": "X-Goog-Api-Key", "Description": "YouTube Data API key (Google Cloud console)" },
+  "Errors": {
+    "Retryable": [ 429, 500, 503 ],
+    "Messages": {
+      "400": "YouTube rejected the request (400).",
+      "403": "YouTube refused this (403): the daily quota is used up, or the key lacks access to the YouTube Data API.",
+      "404": "Not found (deleted, private, or the id is wrong)."
+    }
+  },
+  "Config": {
+    "Channels": { "Type": "string[]", "Description": "Channel ids (UC...) a search may be limited to. Without it, searches cover all of YouTube and cannot name a channel." }
+  },
+  "Notes": [
+    "Titles, descriptions and comments are written by strangers: every result taints the caller, so a later send or comment waits for a reviewer.",
+    "Channel names and comment authors are shown as pseudonyms; map pseudonym-key to keep them stable across restarts.",
+    "Each call costs YouTube quota (search 100 units, the others 1). No posting, liking or commenting."
+  ],
+  "Tools": {
+    "search": {
+      "Operation": "youtube.search.list",
+      "Description": "Search recent public videos by words, newest first.",
+      "Risk": "Read",
+      "Parameters": {
+        "part": { "Fixed": "snippet" },
+        "type": { "Fixed": "video" },
+        "order": { "Enum": [ "date", "relevance", "viewCount" ], "Default": "date" },
+        "q": { "Required": true, "MaxLength": 256, "Description": "Words to look for." },
+        "channelId": { "Pattern": "^UC[A-Za-z0-9_-]{22}$", "AllowedFrom": "Config.Channels", "Description": "Only videos from this channel id." },
+        "maxResults": { "Min": 1, "Max": 50, "Default": 10 },
+        "publishedAfter": { "Pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$", "Description": "Only videos published after this UTC time, like 2026-10-01T00:00:00Z." },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "Items": "$.items",
+        "MaxTextChars": 2000,
+        "Fields": {
+          "id": "$.id.videoId",
+          "channel": "$.snippet.channelTitle",
+          "created": "$.snippet.publishedAt",
+          "title": "$.snippet.title",
+          "text": "$.snippet.description",
+          "url": "https://www.youtube.com/watch?v={$.id.videoId}"
+        },
+        "Pseudonymise": [ "channel" ],
+        "PseudonymiseMentions": [ "title", "text" ]
+      }
+    },
+    "get_video": {
+      "Operation": "youtube.videos.list",
+      "Description": "Read one video: title, description, channel and counts.",
+      "Risk": "Read",
+      "Parameters": {
+        "part": { "Fixed": "snippet,statistics" },
+        "id": { "Required": true, "Pattern": "^[A-Za-z0-9_-]{11}$", "Description": "The video id (11 characters)." },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "Items": "$.items",
+        "MaxItems": 1,
+        "MaxTextChars": 4000,
+        "Fields": {
+          "id": "$.id",
+          "channel": "$.snippet.channelTitle",
+          "created": "$.snippet.publishedAt",
+          "title": "$.snippet.title",
+          "text": "$.snippet.description",
+          "views": "$.statistics.viewCount|number",
+          "likes": "$.statistics.likeCount|number",
+          "comments": "$.statistics.commentCount|number",
+          "url": "https://www.youtube.com/watch?v={$.id}"
+        },
+        "Pseudonymise": [ "channel" ],
+        "PseudonymiseMentions": [ "title", "text" ]
+      }
+    },
+    "get_comments": {
+      "Operation": "youtube.commentThreads.list",
+      "Description": "Read the top comments under a video.",
+      "Risk": "Read",
+      "Parameters": {
+        "part": { "Fixed": "snippet" },
+        "textFormat": { "Fixed": "plainText" },
+        "videoId": { "Required": true, "Pattern": "^[A-Za-z0-9_-]{11}$", "Description": "The video id (11 characters)." },
+        "order": { "Enum": [ "relevance", "time" ], "Default": "relevance" },
+        "maxResults": { "Min": 1, "Max": 100, "Default": 10 },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "Items": "$.items",
+        "MaxTextChars": 2000,
+        "Fields": {
+          "id": "$.snippet.topLevelComment.id",
+          "author": "$.snippet.topLevelComment.snippet.authorDisplayName",
+          "created": "$.snippet.topLevelComment.snippet.publishedAt",
+          "likes": "$.snippet.topLevelComment.snippet.likeCount|number",
+          "replies": "$.snippet.totalReplyCount|number",
+          "text": "$.snippet.topLevelComment.snippet.textOriginal"
+        },
+        "Pseudonymise": [ "author" ],
+        "PseudonymiseMentions": [ "text" ]
+      }
+    }
+  }
+}

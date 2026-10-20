@@ -1,0 +1,18 @@
+{
+  // Who hears about what. Secrets are never written here: a channel names the environment variable that holds its secret.
+  // Run with:  --notifications notifications.team.json
+  //   SLACK_REVIEW_WEBHOOK   a Slack incoming-webhook URL (the URL is the secret)
+  //   AUDIT_HOOK_SECRET      16+ characters; signs every webhook body (header X-OpenTail-Signature: t=...,v1=...)
+  "PublicBaseUrl": "https://approvals.example",
+  "Channels": [
+    { "Name": "reviewers", "Type": "slack", "UrlEnv": "SLACK_REVIEW_WEBHOOK" },
+    { "Name": "audit", "Type": "webhook", "Url": "https://hooks.example/opentail", "SecretEnv": "AUDIT_HOOK_SECRET" }
+  ],
+  "Routes": [
+    // Tell reviewers when something needs a decision, and nudge them if it sits.
+    { "On": ["queued", "reminder"], "MinRisk": "Write", "To": ["reviewers"] },
+    // Tell a bot (or an agent runner that resumes work) how things ended.
+    { "On": ["decided"], "To": ["audit"] }
+  ],
+  "Reminder": { "After": "15m", "Every": "1h", "Max": 3 }
+}

@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Web</PackageId>
+    <Description>OpenTail Host module: fetch web pages from an explicit host allow-list as readable text, with SSRF protection (no private addresses, no unchecked redirects).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <PackageReference Include="OpenTail.Connectivity.Web" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="System.ComponentModel" />
+  </ItemGroup>
+</Project>

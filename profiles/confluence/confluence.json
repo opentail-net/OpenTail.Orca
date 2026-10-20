@@ -1,0 +1,87 @@
+{
+  "Profile": 1,
+  "Name": "confluence",
+  "Version": "0.1",
+  "Spec": "confluence.openapi.json",
+  "DisplayName": "Confluence (read only)",
+  "Publisher": "OpenTail",
+  "Description": "Search pages in the allowed spaces and read a page as text. Read only.",
+  "Hosts": [ "*.atlassian.net" ],
+  "Credential": { "Name": "confluence", "Kind": "Basic", "Description": "An API token (id.atlassian.com); set the Confluence account's email as UserName" },
+  "Errors": {
+    "Retryable": [ 429, 500, 502, 503 ],
+    "Messages": {
+      "400": "Confluence rejected the search (400): a filter value may not exist in this site.",
+      "401": "Confluence refused the credential (401). The operator should check the email and API token.",
+      "403": "Confluence refused this (403): the account cannot see it.",
+      "404": "Not found (no such page, or the account cannot see it)."
+    }
+  },
+  "Config": {
+    "Spaces": { "Type": "string[]", "Required": true, "Description": "Space keys a search may cover (ENG, HR). Searches always name one." }
+  },
+  "Notes": [
+    "Set Config.ServerUrl to the site, for example https://acme.atlassian.net, and list that host in Network.Hosts.",
+    "Searches are limited to Config.Spaces, but get_page reads any page the account can see by id: use an account that sees only the allowed spaces. Page restrictions are honoured for that account, not for the person asking.",
+    "Page text is written by many people: every result taints the caller.",
+    "Read only: no creating or editing pages, no comments."
+  ],
+  "Tools": {
+    "search_pages": {
+      "Operation": "searchByCQL",
+      "Description": "Search pages in one space by words, newest change first.",
+      "Risk": "Read",
+      "Parameters": {
+        "limit": { "Min": 1, "Max": 25, "Default": 10 },
+        "excerpt": { "Fixed": "highlight" },
+        "*": { "Forbidden": true }
+      },
+      "Query": {
+        "Language": "cql",
+        "Target": "cql",
+        "Where": "type = page",
+        "OrderBy": "ORDER BY lastmodified DESC",
+        "Filters": {
+          "space": { "Field": "space", "AllowedFrom": "Config.Spaces", "Required": true, "Description": "The space key." },
+          "text": { "Type": "text", "MaxLength": 200, "Description": "Words to look for in titles and page text." },
+          "title": { "Field": "title", "Type": "text", "MaxLength": 200, "Description": "Words to look for in titles only." },
+          "label": { "Field": "label", "Type": "list", "MaxItems": 5, "MaxLength": 100, "Description": "Any of these labels." },
+          "modified_since": { "Field": "lastmodified", "Type": "date", "Op": "ge", "Description": "Changed on or after this date (yyyy-MM-dd)." }
+        }
+      },
+      "Response": {
+        "Items": "$.results",
+        "MaxTextChars": 500,
+        "Fields": {
+          "id": "$.content.id",
+          "title": "$.content.title",
+          "space": "$.resultGlobalContainer.title",
+          "excerpt": "$.excerpt|html",
+          "modified": "$.lastModified",
+          "url": "$.url"
+        }
+      }
+    },
+    "get_page": {
+      "Operation": "getPageById",
+      "Description": "Read one page by id (from search_pages) as plain text.",
+      "Risk": "Read",
+      "Parameters": {
+        "id": { "Pattern": "^[0-9]{1,20}$", "Description": "The page id, digits only." },
+        "body-format": { "Fixed": "storage" },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "MaxTextChars": 20000,
+        "Fields": {
+          "id": "$.id",
+          "title": "$.title",
+          "space_id": "$.spaceId",
+          "version": "$.version.number|number",
+          "modified": "$.version.createdAt",
+          "text": "$.body.storage.value|storage"
+        }
+      }
+    }
+  }
+}

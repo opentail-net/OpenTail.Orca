@@ -1,0 +1,21 @@
+{
+  // Everything that only reads runs immediately: files.list, files.read and the API's GET operations.
+  "DefaultReadMode": "Execute",
+  "MaxPendingPerRequester": 10,
+
+  // Tool names for the OpenAPI module are "<namespace>.<operationId>". The names below assume OPENAPI_NAMESPACE=crm
+  // and an API with createCustomer and updateCustomer operations; the Host refuses to start if a name here does not exist.
+  "Tools": {
+    "files.write":         { "Mode": "Queue", "Reviewer": "Human", "ExpireAfter": "24:00:00" },
+    "crm.createCustomer":  { "Mode": "Queue", "Reviewer": "Human", "ExpireAfter": "08:00:00" },
+    "crm.updateCustomer":  { "Mode": "Queue", "Reviewer": "Human", "ExpireAfter": "08:00:00" }
+    // deleteCustomer has no entry, so it is denied and is not even offered to the model.
+  },
+
+  // Agent profiles: what each agent identity may call (an API key names one with "Profile" when the Host is served over HTTP).
+  // A profile only narrows: crm.createCustomer is still queued for a reviewer.
+  "Agents": {
+    "files-reader":  { "Tools": [ "files.list", "files.read" ] },
+    "files-and-crm": { "Tools": [ "files.*", "crm.*" ] }
+  }
+}

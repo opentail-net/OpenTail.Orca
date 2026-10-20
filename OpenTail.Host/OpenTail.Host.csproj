@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Host</PackageId>
+    <Description>OpenTail MCP Host: loads modules, applies per-tool policy (execute, queue for approval, deny), keeps a durable action queue and audit trail, and serves the result over MCP.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol" />
+    <PackageReference Include="ModelContextProtocol.Extensions.Tasks" />
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+    <PackageReference Include="Microsoft.Extensions.DependencyModel" />
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Core.Tools.Abstractions" />
+    <InternalsVisibleTo Include="OpenTail.Host.Tests" />
+  </ItemGroup>
+</Project>

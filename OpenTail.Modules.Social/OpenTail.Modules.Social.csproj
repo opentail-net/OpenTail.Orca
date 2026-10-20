@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Social</PackageId>
+    <Description>OpenTail Host module: read-only social listening on Reddit, YouTube and X (search, a post, its thread) plus a local sentiment score. Every result is outside content and taints the caller; authors are pseudonymised by default. No posting.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="System.ComponentModel" />
+  </ItemGroup>
+</Project>

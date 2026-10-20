@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- An integration profile as a package: no code, only the profile and its spec as resources (profiles/jira/...).
+       Enable it with "Config": { "Profile": "package:OpenTail.Profiles.Jira/jira" } on a "Type": "openapi" module. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Profiles.Jira</PackageId>
+    <Description>OpenTail integration profile for Jira (read only: search, issues, comments), for the openapi module. Enable with "Profile": "package:OpenTail.Profiles.Jira/jira". See PROFILES.md.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Modules.OpenApi\OpenTail.Modules.OpenApi.csproj" />
+    <EmbeddedResource Include="..\profiles\jira\*.json" LogicalName="profiles/jira/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

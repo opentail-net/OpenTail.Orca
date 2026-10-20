@@ -1,0 +1,87 @@
+{
+  "Profile": 1,
+  "Name": "x",
+  "Version": "1.0",
+  "Spec": "x.openapi.json",
+  "DisplayName": "X (read only)",
+  "Publisher": "OpenTail",
+  "Description": "Search public posts from the last seven days and read a post. Read only.",
+  "Server": "https://api.x.com",
+  "Hosts": [ "api.x.com" ],
+  "Credential": { "Name": "x", "Kind": "Bearer", "Description": "An app bearer token on an X API tier that includes recent search" },
+  "Errors": {
+    "Retryable": [ 429, 500, 502, 503 ],
+    "Messages": {
+      "400": "X rejected the request (400): check the query syntax.",
+      "401": "X refused the token (401). The operator should check the credential.",
+      "403": "X refused this (403): the API tier does not include it.",
+      "404": "Not found (deleted, protected, or the id is wrong)."
+    }
+  },
+  "Notes": [
+    "Posts are written by strangers: every result taints the caller, so a later send or comment waits for a reviewer.",
+    "Authors are shown as pseudonymised account ids (X returns names in a separate list the profile does not join); @mentions in text are pseudonymised too.",
+    "Recent search needs a paid X API tier. No posting, replying, liking or messaging."
+  ],
+  "Tools": {
+    "search": {
+      "Operation": "tweetsRecentSearch",
+      "Description": "Search public posts from the last seven days. Use X search syntax: words, \"exact phrases\", -is:retweet, lang:en, from:name, conversation_id:<id> to read a thread.",
+      "Risk": "Read",
+      "Parameters": {
+        "query": { "Required": true, "MaxLength": 512, "Description": "The search query." },
+        "max_results": { "Min": 10, "Max": 100, "Default": 10 },
+        "sort_order": { "Enum": [ "recency", "relevancy" ], "Default": "recency" },
+        "tweet.fields": { "Fixed": "created_at,author_id,public_metrics,conversation_id,lang" },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "Items": "$.data",
+        "MaxTextChars": 2000,
+        "Fields": {
+          "id": "$.id",
+          "author": "$.author_id",
+          "created": "$.created_at",
+          "lang": "$.lang",
+          "conversation": "$.conversation_id",
+          "text": "$.text",
+          "likes": "$.public_metrics.like_count|number",
+          "reposts": "$.public_metrics.retweet_count|number",
+          "replies": "$.public_metrics.reply_count|number",
+          "url": "https://x.com/i/status/{$.id}"
+        },
+        "Pseudonymise": [ "author" ],
+        "PseudonymiseMentions": [ "text" ]
+      }
+    },
+    "get_post": {
+      "Operation": "findTweetById",
+      "Description": "Read one post by id.",
+      "Risk": "Read",
+      "Parameters": {
+        "id": { "Pattern": "^[0-9]{1,20}$", "Description": "The post id (digits)." },
+        "tweet.fields": { "Fixed": "created_at,author_id,public_metrics,conversation_id,lang" },
+        "*": { "Forbidden": true }
+      },
+      "Response": {
+        "Items": "$.data",
+        "MaxItems": 1,
+        "MaxTextChars": 4000,
+        "Fields": {
+          "id": "$.id",
+          "author": "$.author_id",
+          "created": "$.created_at",
+          "lang": "$.lang",
+          "conversation": "$.conversation_id",
+          "text": "$.text",
+          "likes": "$.public_metrics.like_count|number",
+          "reposts": "$.public_metrics.retweet_count|number",
+          "replies": "$.public_metrics.reply_count|number",
+          "url": "https://x.com/i/status/{$.id}"
+        },
+        "Pseudonymise": [ "author" ],
+        "PseudonymiseMentions": [ "text" ]
+      }
+    }
+  }
+}
