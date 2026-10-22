@@ -105,7 +105,7 @@ read-only **Modules** view with the same information, and every action records t
 
   | Tab | Shows |
   |---|---|
-  | Jobs | Everything waiting or running, whatever holds it: work items agents owe, continuations waiting to resume, and jobs in the work queues passed as `AdminOptions.WorkQueues`. Each row says what it is, who it is for and what created it (its source), with **Cancel** (it never runs again; a running one's worker loses it), **Run now** (a delayed queue job) and **Stop the source** (when the Host owns what keeps creating it: the parent work item or a continuation). Dead jobs below, with **Redrive** and **Delete**. Every change is audited with the admin's name. Goals are shown; queue bodies and work inputs are not. The one place on the admin page that changes something directly: stopping work is always the safe direction. |
+  | Jobs | Everything waiting or running, whatever holds it: work items agents owe, continuations waiting to resume, and jobs in the work queues passed as `AdminOptions.WorkQueues`. Each row says what it is, who it is for and what created it (its source), with **Cancel** (it never runs again; a running one's worker loses it), **Run now** (a delayed queue job) and **Stop the source** (when the Host owns what keeps creating it: the parent work item or a continuation). Dead jobs below, with **Redrive** and **Delete**, and **Bring back dead jobs**: after an outage, every dead job that matches a resource (`db:*`), a reason, a source and a time, previewed first; queue jobs come back through their resource's limit and circuit, so they trickle. Per queue, a banner when it needs attention (a job waiting too long, dead letters piling up, a stuck job, an open circuit), and a **Resources** table: each concurrency key, how many run against its limit, how many wait, and its circuit. Running jobs show how long they have run, and **stuck** past their maximum run time. Each registered queue is also a `/healthz` check, `queue:{name}`, degraded (never failing) while it needs attention. Every change is audited with the admin's name. Goals are shown; queue bodies and work inputs are not. The one place on the admin page that changes something directly: stopping work is always the safe direction. |
   | Agents | Each agent profile, every tool it names with its risk and mode (and the mode after outside content), what it may ask for and whom it may hand work to. Tools the profile names but the policy denies are listed as `Deny`. |
   | People and keys | `People`, and the API keys as the last start recorded them: name, hash prefix, profile. Never the key. |
   | Policy versions | Every policy this database ran under; *Changes since* diffs one against the running policy, section by section. |
@@ -117,7 +117,8 @@ read-only **Modules** view with the same information, and every action records t
 
   The same views are JSON under `/api/admin/...` (`overview`, `policy-versions`, `policy-versions/diff?from=`, `usage?days=`,
   `telemetry/metrics`, `telemetry/traces`, `audit?limit=`, `policy/current`, `proposals`, `jobs`, and `POST jobs/act` with `kind`,
-  `id`, `action` and, for a queue job, `queue`); `/api/me` says whether the caller is an admin.
+  `id`, `action` and, for a queue job, `queue`; `POST jobs/redrive-matching` with `queue` (or `work`), `resource`, `reasonContains`,
+  `source`, `deadSince` and `dryRun`); `/api/me` says whether the caller is an admin.
   Everything works in any browser; nothing here needs Teams.
 * **TLS:** give Kestrel a certificate (`Kestrel__Certificates__Default__Path` / `__Password`), or terminate TLS in a reverse proxy and set
   `"TrustProxy": true` (only when nothing but the proxy can reach the port).
@@ -277,7 +278,7 @@ Useful audit events: `policy_decision`, `queued`, `approved`, `approval_recorded
 `circuit.closed`, `work.created`/`work.claimed`/`work.done`/`work.failed`/`work.lease_lost`/`work.dead`/`work.expired`,
 `continuation.parked`/`continuation.woken`, `inspection.opened`/`inspection.to_operators`, `redrive.approved`,
 `credential.suspicious`, `work.runner_started`; and since the administration views: `policy_proposed`, `policy_proposal_approved`/`policy_proposal_rejected`/`policy_proposal_withdrawn`/`policy_proposal_applied`; and from the Jobs view: `continuation.cancelled`, `job.cancel`, `job.run_now`,
-`job.redrive`, `job.delete`, `job.stop_source` (queue jobs; work items keep their `work.*` events).
+`job.redrive`, `job.delete`, `job.stop_source`, `job.redrive_matching` (queue jobs; work items keep their `work.*` and `redrive.approved` events).
 
 What to do about each, step by step, is in [SOP.md](SOP.md).
 

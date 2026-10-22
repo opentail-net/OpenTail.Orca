@@ -271,12 +271,16 @@ internal static class AdminPage
           };
           function jobTable(rows, refresh) {
             const t = el('table'); const h = el('tr');
-            for (const x of ['Kind', 'State', 'What', 'For', 'Source', 'Created', 'Attempts', '']) h.append(el('th', x)); t.append(h);
+            for (const x of ['Kind', 'State', 'What', 'For', 'Resource', 'Source', 'Created', 'Attempts', '']) h.append(el('th', x)); t.append(h);
             for (const j of rows) {
               const tr = el('tr');
               const kind = jobKinds[j.kind] + (j.queue ? ' ' + j.queue : '');
-              const state = j.state + (j.until ? ' · until ' + new Date(j.until).toLocaleString() : '') + (j.lastError ? ' · last error: ' + j.lastError : '');
-              for (const v of [kind, state, j.what, j.for, j.source || 'not recorded', j.created ? ago(j.created) : '', j.attempts ?? '']) tr.append(el('td', String(v ?? '')));
+              const runFor = j.runningSince ? ' · running ' + ago(j.runningSince).replace(' ago', '') + (j.maxRunSeconds ? ' of ' + Math.round(j.maxRunSeconds / 60) + ' min allowed' : '') : '';
+              const state = j.state + runFor + (j.until && !j.runningSince ? ' · until ' + new Date(j.until).toLocaleString() : '') + (j.lastError ? ' · last error: ' + j.lastError : '');
+              const stateCell = el('td', state);
+              if (j.stuck) stateCell.append(el('span', 'stuck', 'tag bad'));
+              tr.append(el('td', kind)); tr.append(stateCell);
+              for (const v of [j.what, j.for, j.resource || '', j.source || 'not recorded', j.created ? ago(j.created) : '', j.attempts ?? '']) tr.append(el('td', String(v ?? '')));
               const cell = el('td');
               for (const a of j.actions) {
                 const b = el('button', jobVerbs[a] || a);
@@ -293,17 +297,56 @@ internal static class AdminPage
             }
             return t;
           }
+          // After an outage: bring back the dead jobs that match, previewing how many first. Queue jobs come back through their
+          // resource's limit and circuit, so they trickle instead of stampeding a resource that has only just recovered.
+          function redriveForm(r, refresh) {
+            const box = el('div');
+            box.append(el('h3', 'Bring back dead jobs'));
+            box.append(el('p', 'For example after an outage: every dead job for one resource since it went down. Preview first.', 'muted'));
+            const where = el('select');
+            for (const name of ['work', ...r.queues.map(q => q.name)]) { const o = el('option', name === 'work' ? 'Agent work' : 'Queue ' + name); o.value = name; where.append(o); }
+            const input = (label, placeholder) => { const i = el('input'); i.placeholder = placeholder; const l = el('label', label + ' '); l.append(i); box.append(l, el('br')); return i; };
+            const l0 = el('label', 'Where '); l0.append(where); box.append(l0, el('br'));
+            const resource = input('Resource', 'db:reports01 or db:* (queue jobs)');
+            const reason = input('Reason contains', 'refused, timed out ...');
+            const source = input('Source', 'schedule:nightly');
+            const since = input('Died since', '2026-10-22T09:00');
+            const result = el('p', '', 'muted');
+            const go = async (dryRun) => {
+              const body = { queue: where.value, resource: resource.value, reasonContains: reason.value, source: source.value,
+                deadSince: since.value ? new Date(since.value).toISOString() : '', dryRun };
+              try {
+                const x = await api('/api/admin/jobs/redrive-matching', { method: 'POST', body: JSON.stringify(body) });
+                if (dryRun) result.textContent = x.count + ' dead job(s) match.';
+                else { say(x.count + ' job(s) brought back'); refresh(); }
+              } catch (e) { say(e.message, true); }
+            };
+            const preview = el('button', 'Preview'); preview.addEventListener('click', () => go(true));
+            const redrive = el('button', 'Bring them back');
+            redrive.addEventListener('click', () => { if (confirm('Bring back every dead job that matches? Each runs again from the start.')) go(false); });
+            box.append(preview, redrive, result);
+            return box;
+          }
           const adminViews = {
             jobs: async (b) => {
               const r = await api('/api/admin/jobs');
               const refresh = () => showAdmin('jobs');
               b.append(el('p', 'Everything waiting or running: work owed by agents, continuations waiting to resume, and queue jobs. Cancel stops one job; if it keeps coming back, Stop the source turns off what creates it.', 'muted'));
+              for (const q of r.queues) if (q.status !== 'healthy') b.append(el('p', 'Queue ' + q.name + ' needs attention: ' + q.reasons.join('; ') + '.', 'tag bad'));
               for (const n of r.notes) b.append(el('p', n, 'muted'));
+              if (r.resources.length) {
+                b.append(el('h3', 'Resources'));
+                b.append(el('p', 'Jobs that load the same resource run no more than its limit at once. A circuit opens when the resource keeps failing: its jobs wait, using no attempts, and one is let through to test it.', 'muted'));
+                b.append(table(['Queue', 'Resource', 'Running', 'Waiting', 'Circuit'], r.resources.map(k => [k.queue, k.key,
+                  k.running + (k.limit ? ' of ' + k.limit : ''), k.waiting,
+                  k.circuit === 'open' ? 'open until ' + new Date(k.openUntil).toLocaleTimeString() + ' (' + k.failures + ' failures)' : k.circuit === 'testing' ? 'testing one job' : 'closed'])));
+              }
               b.append(el('h3', 'Waiting and running (' + r.pending.length + ')'));
               b.append(r.pending.length ? jobTable(r.pending, refresh) : el('p', 'Nothing waiting.', 'muted'));
               b.append(el('h3', 'Dead (' + r.dead.length + ')'));
               b.append(el('p', 'Jobs that ran out of attempts or time. Redrive runs one again from the start; Delete removes it.', 'muted'));
               b.append(r.dead.length ? jobTable(r.dead, refresh) : el('p', 'No dead jobs.', 'muted'));
+              if (r.dead.length) b.append(redriveForm(r, refresh));
             },
             agents: async (b) => {
               const o = await api('/api/admin/overview');

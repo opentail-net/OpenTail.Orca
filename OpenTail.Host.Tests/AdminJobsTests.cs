@@ -25,11 +25,11 @@ public class AdminJobsTests
         }
     }
 
-    private static async Task<Setup> Start()
+    private static async Task<Setup> Start(WorkQueueOptions? queueOptions = null)
     {
         var db = new TempDb();
         var host = Hosts.BuildSqlite(new FakeInboxModule(), Policy, db.Path);
-        var queue = new InMemoryWorkQueue();
+        var queue = new InMemoryWorkQueue(queueOptions);
         var admin = await AdminServer.StartAsync(host, new AdminOptions
         {
             Tokens = new Dictionary<string, string> { [AdminToken] = "ops", [ReviewerToken] = "rev" },
@@ -170,6 +170,69 @@ public class AdminJobsTests
         var audit = ((IAuditReader)s.Host.Audit).Read();
         foreach (var evt in new[] { "job.run_now", "job.stop_source", "job.cancel", "job.redrive", "job.delete" })
             Assert.True(audit.Any(e => e.Event == evt && e.Actor == "admin:ops"), evt + " missing from: " + string.Join(", ", audit.Select(e => e.Event + "/" + e.Actor)));
+    }
+
+    private static async Task<JsonNode> Post(RunningAdmin admin, string path, JsonObject body)
+    {
+        using var http = Client(admin, AdminToken);
+        var resp = await http.PostAsync(path, new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json"));
+        return JsonNode.Parse(await resp.Content.ReadAsStringAsync())!;
+    }
+
+    [Fact]
+    public async Task Resources_show_running_against_the_limit_open_circuits_and_feed_the_health_check()
+    {
+        await using var s = await Start(new WorkQueueOptions(CircuitFailures: 1, DefaultMaxRunTime: TimeSpan.FromMilliseconds(50),
+            ConcurrencyLimits: new Dictionary<string, int> { ["db:*"] = 1 }));
+        for (var i = 0; i < 3; i++)
+            await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "db:reports"));
+        await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "erp:acme"));
+        var leased = await s.Queue.LeaseAsync("deliveries", 10, TimeSpan.FromHours(1));
+        await s.Queue.RetryAsync(leased.Single(j => j.ConcurrencyKey == "erp:acme"), TimeSpan.Zero, "refused", resourceFailure: true);
+        await Task.Delay(100); // the db job is now past its 50 ms maximum run time
+
+        var jobs = await Jobs(s.Admin);
+
+        var resources = jobs["resources"]!.AsArray().ToDictionary(r => r!["key"]!.GetValue<string>());
+        Assert.Equal(1, resources["db:reports"]!["running"]!.GetValue<int>());
+        Assert.Equal(1, resources["db:reports"]!["limit"]!.GetValue<int>());
+        Assert.Equal(2, resources["db:reports"]!["waiting"]!.GetValue<int>());
+        Assert.Equal("open", resources["erp:acme"]!["circuit"]!.GetValue<string>());
+        var running = jobs["pending"]!.AsArray().Single(r => r!["state"]!.GetValue<string>() == "running")!;
+        Assert.True(running["stuck"]!.GetValue<bool>());
+        var queue = jobs["queues"]!.AsArray().Single()!;
+        Assert.Equal("needs attention", queue["status"]!.GetValue<string>());
+        Assert.Contains(queue["reasons"]!.AsArray(), r => r!.GetValue<string>().Contains("erp:acme", StringComparison.Ordinal));
+        Assert.Equal("degraded", s.Host.Health.Report().Checks["queue:deliveries"]);
+    }
+
+    [Fact]
+    public async Task After_an_outage_matching_dead_jobs_can_be_previewed_and_brought_back()
+    {
+        await using var s = await Start(new WorkQueueOptions(MaxAttempts: 1));
+        for (var i = 0; i < 3; i++)
+            await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "db:reports"));
+        await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "erp:acme"));
+        foreach (var j in await s.Queue.LeaseAsync("deliveries", 10, TimeSpan.FromMinutes(1)))
+            await s.Queue.DeadLetterAsync(j, "connection refused");
+        var item = await s.Host.Work.CreateAsync("Post the journal.", WorkService.ForProfile("clerk"), "admin:rita");
+        s.Host.Work.Store.Transition(item.Id, WorkStatus.Open, i => i with { Status = WorkStatus.Dead, Summary = "failed three times" });
+
+        var preview = await Post(s.Admin, "/api/admin/jobs/redrive-matching",
+            new JsonObject { ["queue"] = "deliveries", ["resource"] = "db:*", ["reasonContains"] = "refused", ["dryRun"] = true });
+        Assert.Equal(3, preview["count"]!.GetValue<int>());
+        Assert.Equal(4, (await s.Queue.DeadLettersAsync("deliveries")).Count); // a preview changes nothing
+
+        var done = await Post(s.Admin, "/api/admin/jobs/redrive-matching",
+            new JsonObject { ["queue"] = "deliveries", ["resource"] = "db:*", ["reasonContains"] = "refused", ["dryRun"] = false });
+        Assert.Equal(3, done["count"]!.GetValue<int>());
+        Assert.Single(await s.Queue.DeadLettersAsync("deliveries"));
+
+        var work = await Post(s.Admin, "/api/admin/jobs/redrive-matching",
+            new JsonObject { ["queue"] = "work", ["reasonContains"] = "three", ["dryRun"] = false });
+        Assert.Equal(1, work["count"]!.GetValue<int>());
+        Assert.Equal(WorkStatus.Open, s.Host.Work.Store.Get(item.Id)!.Status);
+        Assert.Contains(((IAuditReader)s.Host.Audit).Read(), e => e.Event == "job.redrive_matching" && e.Actor == "admin:ops");
     }
 
     [Fact]
