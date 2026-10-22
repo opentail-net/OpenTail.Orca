@@ -23,3 +23,4 @@ Designs for Host work that is planned but not built, newest first. The cross-rep
 **The checks a call passes,** as the designs add to them (built ones in bold): **authentication**, **profile** (is the tool in the
 caller's profile?), **policy mode and rules**, **taint**, flow rules (labels), adaptive level, delay; then **execution and
 audit**. Every check can only tighten, so the strictest answer wins whatever order they run in; a profile refusal is final.
+- [Snowflake as a read-only Sql target](snowflake.md): cost guards (warehouse checks, per-call limits, a daily budget per identity), key-pair service user, steps S1 to S5. Proposal, 2026-10-23.
