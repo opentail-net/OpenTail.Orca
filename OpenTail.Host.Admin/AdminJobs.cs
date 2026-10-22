@@ -64,7 +64,7 @@ internal static class AdminJobs
                             ["what"] = $"{j.BodyBytes} bytes" + (j.Key is null ? "" : $", key {j.Key}"), ["for"] = j.Tenant, ["source"] = j.Source,
                             ["resource"] = j.ConcurrencyKey, ["created"] = j.EnqueuedAt, ["until"] = j.Until, ["attempts"] = j.Attempts,
                             ["lastError"] = j.LastError, ["runningSince"] = j.RunningSince, ["maxRunSeconds"] = j.MaxRunTime?.TotalSeconds,
-                            ["stuck"] = stuck ? true : null,
+                            ["stuck"] = stuck ? true : null, ["progress"] = j.Progress, ["lastHeartbeat"] = j.LastHeartbeat,
                             ["actions"] = Actions(j.State == PendingState.Delayed ? ["cancel", "run-now"] : ["cancel"], j.Source),
                         });
                     }
@@ -83,6 +83,7 @@ internal static class AdminJobs
                             ["queue"] = q.Name, ["key"] = k.ConcurrencyKey, ["running"] = k.Running, ["limit"] = k.Limit, ["waiting"] = k.Waiting,
                             ["circuit"] = k.Circuit switch { QueueCircuit.Open => "open", QueueCircuit.HalfOpen => "testing", _ => "closed" },
                             ["openUntil"] = k.OpenUntil, ["failures"] = k.Failures,
+                            ["rate"] = k.Rate is { } rate ? $"{rate.Count} per {Words(rate.Per)}" : null, ["startedInWindow"] = k.Rate is null ? null : k.StartedInWindow,
                         });
                     var h = await WorkQueueHealth.CheckAsync(q.Queue, q.Name, q.Health, ct: ct);
                     health[q.Name] = h.Status;
@@ -100,9 +101,21 @@ internal static class AdminJobs
                 }
             }
 
+            // Dead jobs by where they are, their resource and why they died: after an outage one group is usually the whole story.
+            var groups = new JsonArray();
+            foreach (var g in dead.Select(d => d!.AsObject())
+                         .GroupBy(d => (Where: d["queue"]?.GetValue<string>() ?? "work", Resource: d["resource"]?.GetValue<string>(),
+                             Reason: d["state"]!.GetValue<string>()))
+                         .OrderByDescending(g => g.Count()))
+                groups.Add(new JsonObject
+                {
+                    ["queue"] = g.Key.Where, ["resource"] = g.Key.Resource, ["reason"] = g.Key.Reason.StartsWith("dead: ", StringComparison.Ordinal) ? g.Key.Reason[6..] : g.Key.Reason,
+                    ["count"] = g.Count(), ["first"] = g.Min(d => d["until"]?.GetValue<DateTimeOffset>()), ["last"] = g.Max(d => d["until"]?.GetValue<DateTimeOffset>()),
+                });
+
             return Results.Text(new JsonObject
             {
-                ["queues"] = queues, ["resources"] = resources, ["pending"] = pending, ["dead"] = dead, ["notes"] = notes,
+                ["queues"] = queues, ["resources"] = resources, ["pending"] = pending, ["dead"] = dead, ["deadGroups"] = groups, ["notes"] = notes,
             }.ToJsonString(), "application/json");
         });
 
@@ -145,11 +158,13 @@ internal static class AdminJobs
             DateTimeOffset? since = Text(body, "deadSince") is { Length: > 0 } s && DateTimeOffset.TryParse(s, out var parsed) ? parsed : null;
             var filter = new DeadLetterFilter(Blank(Text(body, "resource")), Blank(Text(body, "reasonContains")), Blank(Text(body, "source")), since);
             var target = Text(body, "queue");
+            TimeSpan? spread = body["spreadMinutes"] is JsonValue m && m.TryGetValue<double>(out var minutes) && minutes > 0 ? TimeSpan.FromMinutes(minutes) : null;
             int count;
             if (target is null or "work")
             {
                 var matching = host.Work.Store.Query(WorkStatus.Dead).Concat(host.Work.Store.Query(WorkStatus.Expired))
-                    .Where(i => (filter.ReasonContains is null || i.Summary?.Contains(filter.ReasonContains, StringComparison.OrdinalIgnoreCase) == true)
+                    .Where(i => (filter.ReasonContains is null || i.Summary?.Contains(filter.ReasonContains, StringComparison.OrdinalIgnoreCase) == true
+                                    || i.Status.ToString().Contains(filter.ReasonContains, StringComparison.OrdinalIgnoreCase))
                                 && (filter.Source is null || Source(i) == filter.Source)
                                 && (filter.DeadSince is null || i.UpdatedAt >= filter.DeadSince)
                                 && filter.ConcurrencyKey is null)
@@ -166,10 +181,10 @@ internal static class AdminJobs
             {
                 var q = options.WorkQueues.FirstOrDefault(x => x.Name == target);
                 if (q is null) return Results.BadRequest(new { error = $"No registered queue named '{target}'." });
-                count = await WorkQueueOperations.RedriveMatchingAsync(q.Queue, q.Name, filter, dryRun, ct);
+                count = await WorkQueueOperations.RedriveMatchingAsync(q.Queue, q.Name, filter, dryRun, spread, ct);
                 if (!dryRun)
                     await host.Audit.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow, "job.redrive_matching", null, null, reviewer.Subject,
-                        $"{q.Name}: {count} redriven (resource {filter.ConcurrencyKey ?? "any"}, reason {filter.ReasonContains ?? "any"}, source {filter.Source ?? "any"}, since {filter.DeadSince?.ToString("O") ?? "any"})"), ct);
+                        $"{q.Name}: {count} redriven (resource {filter.ConcurrencyKey ?? "any"}, reason {filter.ReasonContains ?? "any"}, source {filter.Source ?? "any"}, since {filter.DeadSince?.ToString("O") ?? "any"}{(spread is null ? "" : $", spread over {spread}")})"), ct);
             }
 
             return Results.Json(new { count, dryRun });
@@ -286,6 +301,9 @@ internal static class AdminJobs
     private static string? Text(JsonNode body, string name) => body[name] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+
+    private static string Words(TimeSpan t) => t.TotalHours >= 1 && t.TotalHours % 1 == 0 ? $"{t.TotalHours:0} h"
+        : t.TotalMinutes >= 1 && t.TotalMinutes % 1 == 0 ? $"{t.TotalMinutes:0} min" : $"{t.TotalSeconds:0.#} s";
 
     private static string Preview(string text) => text.Length <= GoalPreview ? text : text[..GoalPreview] + "…";
 }

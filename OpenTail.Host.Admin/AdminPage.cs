@@ -275,7 +275,8 @@ internal static class AdminPage
             for (const j of rows) {
               const tr = el('tr');
               const kind = jobKinds[j.kind] + (j.queue ? ' ' + j.queue : '');
-              const runFor = j.runningSince ? ' · running ' + ago(j.runningSince).replace(' ago', '') + (j.maxRunSeconds ? ' of ' + Math.round(j.maxRunSeconds / 60) + ' min allowed' : '') : '';
+              const runFor = j.runningSince ? ' · running ' + ago(j.runningSince).replace(' ago', '') + (j.maxRunSeconds ? ' of ' + Math.round(j.maxRunSeconds / 60) + ' min allowed' : '')
+                + (j.progress ? ' · ' + j.progress : '') + (j.lastHeartbeat ? ' · last heartbeat ' + ago(j.lastHeartbeat) : '') : '';
               const state = j.state + runFor + (j.until && !j.runningSince ? ' · until ' + new Date(j.until).toLocaleString() : '') + (j.lastError ? ' · last error: ' + j.lastError : '');
               const stateCell = el('td', state);
               if (j.stuck) stateCell.append(el('span', 'stuck', 'tag bad'));
@@ -311,10 +312,11 @@ internal static class AdminPage
             const reason = input('Reason contains', 'refused, timed out ...');
             const source = input('Source', 'schedule:nightly');
             const since = input('Died since', '2026-10-22T09:00');
+            const spread = input('Spread over (minutes)', '0: all at once (jobs with a resource still follow its limits)');
             const result = el('p', '', 'muted');
             const go = async (dryRun) => {
               const body = { queue: where.value, resource: resource.value, reasonContains: reason.value, source: source.value,
-                deadSince: since.value ? new Date(since.value).toISOString() : '', dryRun };
+                deadSince: since.value ? new Date(since.value).toISOString() : '', spreadMinutes: Number(spread.value) || 0, dryRun };
               try {
                 const x = await api('/api/admin/jobs/redrive-matching', { method: 'POST', body: JSON.stringify(body) });
                 if (dryRun) result.textContent = x.count + ' dead job(s) match.';
@@ -337,14 +339,32 @@ internal static class AdminPage
               if (r.resources.length) {
                 b.append(el('h3', 'Resources'));
                 b.append(el('p', 'Jobs that load the same resource run no more than its limit at once. A circuit opens when the resource keeps failing: its jobs wait, using no attempts, and one is let through to test it.', 'muted'));
-                b.append(table(['Queue', 'Resource', 'Running', 'Waiting', 'Circuit'], r.resources.map(k => [k.queue, k.key,
-                  k.running + (k.limit ? ' of ' + k.limit : ''), k.waiting,
+                b.append(table(['Queue', 'Resource', 'Running', 'Started (rate limit)', 'Waiting', 'Circuit'], r.resources.map(k => [k.queue, k.key,
+                  k.running + (k.limit ? ' of ' + k.limit : ''), k.rate ? k.startedInWindow + ' (' + k.rate + ')' : '', k.waiting,
                   k.circuit === 'open' ? 'open until ' + new Date(k.openUntil).toLocaleTimeString() + ' (' + k.failures + ' failures)' : k.circuit === 'testing' ? 'testing one job' : 'closed'])));
               }
               b.append(el('h3', 'Waiting and running (' + r.pending.length + ')'));
               b.append(r.pending.length ? jobTable(r.pending, refresh) : el('p', 'Nothing waiting.', 'muted'));
               b.append(el('h3', 'Dead (' + r.dead.length + ')'));
               b.append(el('p', 'Jobs that ran out of attempts or time. Redrive runs one again from the start; Delete removes it.', 'muted'));
+              if (r.deadGroups.length > 1 || (r.deadGroups.length === 1 && r.deadGroups[0].count > 1)) {
+                const g = el('table'); const gh = el('tr'); for (const x of ['Where', 'Resource', 'Why', 'Jobs', 'Died', '']) gh.append(el('th', x)); g.append(gh);
+                for (const d of r.deadGroups) {
+                  const tr = el('tr');
+                  for (const v of [d.queue === 'work' ? 'Agent work' : 'Queue ' + d.queue, d.resource || '', d.reason, d.count,
+                    d.first === d.last ? ago(d.first) : ago(d.first) + ' to ' + ago(d.last)]) tr.append(el('td', String(v ?? '')));
+                  const b2 = el('button', 'Bring back this group');
+                  b2.addEventListener('click', async () => {
+                    if (!confirm('Bring back ' + d.count + ' dead job(s)? Each runs again from the start.')) return;
+                    try {
+                      const x = await api('/api/admin/jobs/redrive-matching', { method: 'POST', body: JSON.stringify({ queue: d.queue, resource: d.resource || '', reasonContains: d.reason, dryRun: false }) });
+                      say(x.count + ' job(s) brought back'); refresh();
+                    } catch (e) { say(e.message, true); }
+                  });
+                  const c = el('td'); c.append(b2); tr.append(c); g.append(tr);
+                }
+                b.append(g);
+              }
               b.append(r.dead.length ? jobTable(r.dead, refresh) : el('p', 'No dead jobs.', 'muted'));
               if (r.dead.length) b.append(redriveForm(r, refresh));
             },

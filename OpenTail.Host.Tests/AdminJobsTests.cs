@@ -53,7 +53,7 @@ public class AdminJobsTests
     private static async Task<JsonNode> Jobs(RunningAdmin admin)
     {
         using var http = Client(admin, AdminToken);
-        return JsonNode.Parse(await http.GetStringAsync("/api/admin/jobs"))!;
+        var resp = await http.GetAsync("/api/admin/jobs"); var text = await resp.Content.ReadAsStringAsync(); if (!resp.IsSuccessStatusCode) throw new Exception(text); return JsonNode.Parse(text)!;
     }
 
     private static async Task<HttpStatusCode> Act(RunningAdmin admin, string kind, string id, string action, string? queue = null, string token = AdminToken)
@@ -233,6 +233,56 @@ public class AdminJobsTests
         Assert.Equal(1, work["count"]!.GetValue<int>());
         Assert.Equal(WorkStatus.Open, s.Host.Work.Store.Get(item.Id)!.Status);
         Assert.Contains(((IAuditReader)s.Host.Audit).Read(), e => e.Event == "job.redrive_matching" && e.Actor == "admin:ops");
+    }
+
+    [Fact]
+    public async Task Running_jobs_show_progress_resources_show_rates_and_dead_jobs_come_in_groups()
+    {
+        await using var s = await Start(new WorkQueueOptions(MaxAttempts: 1, RateLimits: new Dictionary<string, JobRateLimit> { ["api:*"] = new(2, TimeSpan.FromMinutes(1)) }));
+        await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "api:crm"));
+        var running = Assert.Single(await s.Queue.LeaseAsync("deliveries", 1, TimeSpan.FromHours(1)));
+        await s.Queue.ExtendAsync(running, TimeSpan.FromHours(1), "page 40 of 120", DateTimeOffset.UtcNow);
+        for (var i = 0; i < 3; i++)
+            await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "db:reports"));
+        await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}", ConcurrencyKey: "erp:acme"));
+        foreach (var j in await s.Queue.LeaseAsync("deliveries", 10, TimeSpan.FromMinutes(1)))
+            await s.Queue.DeadLetterAsync(j, j.ConcurrencyKey == "erp:acme" ? "bad input" : "connection refused");
+
+        var jobs = await Jobs(s.Admin);
+
+        var row = jobs["pending"]!.AsArray().Single(r => r!["id"]!.GetValue<string>() == running.Id)!;
+        Assert.Equal("page 40 of 120", row["progress"]!.GetValue<string>());
+        var api = jobs["resources"]!.AsArray().Single(r => r!["key"]!.GetValue<string>() == "api:crm")!;
+        Assert.Equal("2 per 1 min", api["rate"]!.GetValue<string>());
+        Assert.Equal(1, api["startedInWindow"]!.GetValue<int>());
+        var groups = jobs["deadGroups"]!.AsArray();
+        var db = groups.Single(g => g!["resource"]?.GetValue<string>() == "db:reports")!;
+        Assert.Equal(3, db["count"]!.GetValue<int>());
+        Assert.Equal("connection refused", db["reason"]!.GetValue<string>());
+
+        var back = await Post(s.Admin, "/api/admin/jobs/redrive-matching", new JsonObject
+        {
+            ["queue"] = "deliveries", ["resource"] = "db:reports", ["reasonContains"] = "connection refused", ["dryRun"] = false,
+        });
+        Assert.Equal(3, back["count"]!.GetValue<int>());
+        Assert.Equal("erp:acme", Assert.Single(await s.Queue.DeadLettersAsync("deliveries")).ConcurrencyKey);
+    }
+
+    [Fact]
+    public async Task Bringing_back_dead_jobs_can_spread_them_over_minutes()
+    {
+        await using var s = await Start();
+        for (var i = 0; i < 3; i++)
+            await s.Queue.EnqueueAsync(new EnqueueRequest("deliveries", "acme", "{}"));
+        foreach (var j in await s.Queue.LeaseAsync("deliveries", 10, TimeSpan.FromMinutes(1)))
+            await s.Queue.DeadLetterAsync(j, "downstream refused");
+
+        var back = await Post(s.Admin, "/api/admin/jobs/redrive-matching",
+            new JsonObject { ["queue"] = "deliveries", ["spreadMinutes"] = 60, ["dryRun"] = false });
+
+        Assert.Equal(3, back["count"]!.GetValue<int>());
+        var pending = await s.Queue.PendingAsync("deliveries");
+        Assert.Equal(2, pending.Count(p => p.State == PendingState.Delayed));
     }
 
     [Fact]
