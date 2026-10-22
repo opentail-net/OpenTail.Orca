@@ -209,6 +209,35 @@ schedules: still open), and putting dead items into inspection (failures design,
 5. **MCP Tasks extension** for actions and waited-on items ([its own design](mcp-tasks.md); the part for actions needs nothing
    from work items); A2A only if a customer asks.
 
+## Work items and `IWorkQueue` (2026-10-22, for the owner)
+
+The owner asked to move work items onto Connectivity's `IWorkQueue`. On reading `WorkService`, I did not make the move, because it
+would take away things work items need and add nothing the Host can use yet:
+
+- **A work item is a record, not just a job.** `get_work` reads one by id; `--work` lists by state, profile and thread;
+  `--work-item` shows its history; inspection reads dead items and their claimants. A queue can only hand out what is at its
+  head. RabbitMQ cannot even look a message up by id.
+- **Claiming filters.** `next_work` takes the first item *this caller* may claim (`For` is a profile or one identity;
+  `Excluded` keeps failed claimants off an item for inspection). `IWorkQueue.LeaseAsync` takes the head of a named queue. One
+  queue per `For` value covers the first; `Excluded` would mean leasing an item and handing it straight back, possibly in a loop.
+- **Two sources of truth.** Keeping the table for the record and a queue for delivery means two writes that can disagree.
+  It can be made safe (the table stays the truth, the queue only says "look at w-512", a claim is compare-and-set on the row,
+  so a duplicate delivery is dropped, and a sweep re-sends open items the queue lost), but that is real work and new failure modes.
+- **No gain today.** The Host keeps all its state in one SQLite file, so it runs as one node either way; the table already gives
+  leases, runs, a dead state and redrive. A broker would only pay off once the Host runs as several nodes, and then the whole
+  store needs a server database first, not only work items.
+
+What I would do instead, when there is a reason:
+
+1. **Now, if wanted:** use `IWorkQueue` with `WorkQueueWorker` for the Host's own retry-shaped jobs, where a queue is the natural
+   fit: webhook deliveries (`work_ready` and the other notification events) and the external-wait polling in step 4 of the order
+   above. Those are fire, retry with backoff, dead-letter; nobody queries them by id.
+2. **When the Host goes multi-node:** the "delivery hint" shape above: the work table (on a server database) stays the record,
+   `IWorkQueue` carries "item ready" per `For` value, and claims are compare-and-set on the row.
+
+The Connectivity side is ready for either: `IWorkQueue`, the SQLite and RabbitMQ queues, the conformance suite and the worker
+loop are built and pushed. The queue packages are not published yet; the Host would need them first.
+
 ## Decisions
 
 Decided by the owner on 2026-10-18:
