@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="OpenTail.Connectivity.Queues" />
     <ProjectReference Include="..\OpenTail.Host\OpenTail.Host.csproj" />
     <Using Include="OpenTail.Host.Abstractions" />
   </ItemGroup>

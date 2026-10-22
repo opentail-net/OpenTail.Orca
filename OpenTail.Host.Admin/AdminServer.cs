@@ -37,6 +37,9 @@ public sealed class AdminOptions
 
     /// <summary>The recorder to show; when null and <see cref="RecordTelemetry"/> is on, one shared by the process is started.</summary>
     public HostTelemetryRecorder? Telemetry { get; set; }
+
+    /// <summary>Work queues whose jobs the Jobs view lists and can stop, beside the Host's own work items and continuations.</summary>
+    public IReadOnlyList<AdminWorkQueue> WorkQueues { get; init; } = [];
 }
 
 /// <summary>Role names used by the admin surface (also the scope/role values a JWT or token carries).</summary>

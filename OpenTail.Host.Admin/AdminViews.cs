@@ -156,6 +156,8 @@ internal static class AdminViews
             catch (InvalidOperationException ex) { return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict); }
         });
 
+        AdminJobs.Map(admin, host, options);
+
         admin.MapGet("/usage", (int? days) =>
         {
             if (host.Store is not IUsageStore usage) return Results.Json(new { rows = Array.Empty<object>(), note = "This store keeps no usage rollups." });

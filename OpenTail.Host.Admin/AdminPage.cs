@@ -244,13 +244,13 @@ internal static class AdminPage
           }
           $('modules').addEventListener('click', showModules);
 
-          // Administration (admin role only; the API refuses everyone else). Read-only: changes go through proposals.
+          // Administration (admin role only; the API refuses everyone else). Read-only, except stopping jobs: policy changes go through proposals.
           const table = (heads, rows, nums) => {
             const t = el('table'); const h = el('tr'); for (const x of heads) h.append(el('th', x)); t.append(h);
             for (const r of rows) { const tr = el('tr'); r.forEach((v, i) => tr.append(el('td', v === null || v === undefined ? '' : String(v), nums && nums.includes(i) ? 'num' : ''))); t.append(tr); }
             return t;
           };
-          let adminTab = 'agents';
+          let adminTab = 'jobs';
           async function showAdmin(tab) {
             current = null; if (tab) adminTab = tab;
             const d = $('detail'); d.replaceChildren();
@@ -261,8 +261,50 @@ internal static class AdminPage
             const body = el('div'); d.append(body);
             try { await (adminViews[adminTab])(body); say(''); } catch (e) { say(e.message, true); }
           }
-          const adminTabs = [['agents', 'Agents'], ['people', 'People and keys'], ['policy', 'Policy versions'], ['health', 'Health'], ['usage', 'Usage'], ['telemetry', 'Telemetry'], ['audit', 'Audit'], ['proposals', 'Proposals']];
+          const adminTabs = [['jobs', 'Jobs'], ['agents', 'Agents'], ['people', 'People and keys'], ['policy', 'Policy versions'], ['health', 'Health'], ['usage', 'Usage'], ['telemetry', 'Telemetry'], ['audit', 'Audit'], ['proposals', 'Proposals']];
+          const jobVerbs = { 'cancel': 'Cancel', 'run-now': 'Run now', 'redrive': 'Redrive', 'delete': 'Delete', 'stop-source': 'Stop the source' };
+          const jobKinds = { work: 'Agent work', resume: 'Waiting to resume', queue: 'Queue' };
+          const jobConfirm = {
+            'cancel': 'Cancel this job? It will not run again. If it is running, its worker loses it.',
+            'delete': 'Delete this dead job for good?',
+            'stop-source': 'Stop what keeps creating this job? That is cancelled too, so it creates no more.',
+          };
+          function jobTable(rows, refresh) {
+            const t = el('table'); const h = el('tr');
+            for (const x of ['Kind', 'State', 'What', 'For', 'Source', 'Created', 'Attempts', '']) h.append(el('th', x)); t.append(h);
+            for (const j of rows) {
+              const tr = el('tr');
+              const kind = jobKinds[j.kind] + (j.queue ? ' ' + j.queue : '');
+              const state = j.state + (j.until ? ' · until ' + new Date(j.until).toLocaleString() : '') + (j.lastError ? ' · last error: ' + j.lastError : '');
+              for (const v of [kind, state, j.what, j.for, j.source || 'not recorded', j.created ? ago(j.created) : '', j.attempts ?? '']) tr.append(el('td', String(v ?? '')));
+              const cell = el('td');
+              for (const a of j.actions) {
+                const b = el('button', jobVerbs[a] || a);
+                b.addEventListener('click', async () => {
+                  if (jobConfirm[a] && !confirm(jobConfirm[a])) return;
+                  try {
+                    await api('/api/admin/jobs/act', { method: 'POST', body: JSON.stringify({ kind: j.kind, id: j.id, queue: j.queue || null, action: a }) });
+                    say(jobVerbs[a] + ': done'); refresh();
+                  } catch (e) { say(e.message, true); }
+                });
+                cell.append(b);
+              }
+              tr.append(cell); t.append(tr);
+            }
+            return t;
+          }
           const adminViews = {
+            jobs: async (b) => {
+              const r = await api('/api/admin/jobs');
+              const refresh = () => showAdmin('jobs');
+              b.append(el('p', 'Everything waiting or running: work owed by agents, continuations waiting to resume, and queue jobs. Cancel stops one job; if it keeps coming back, Stop the source turns off what creates it.', 'muted'));
+              for (const n of r.notes) b.append(el('p', n, 'muted'));
+              b.append(el('h3', 'Waiting and running (' + r.pending.length + ')'));
+              b.append(r.pending.length ? jobTable(r.pending, refresh) : el('p', 'Nothing waiting.', 'muted'));
+              b.append(el('h3', 'Dead (' + r.dead.length + ')'));
+              b.append(el('p', 'Jobs that ran out of attempts or time. Redrive runs one again from the start; Delete removes it.', 'muted'));
+              b.append(r.dead.length ? jobTable(r.dead, refresh) : el('p', 'No dead jobs.', 'muted'));
+            },
             agents: async (b) => {
               const o = await api('/api/admin/overview');
               b.append(el('p', 'Policy ' + o.policy.hash.substring(0, 19) + '… loaded ' + (o.policy.loadedAt ? ago(o.policy.loadedAt) : 'now') + '. What each agent profile lets its agent call, and how the policy treats each call.', 'muted'));

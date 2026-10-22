@@ -715,12 +715,26 @@ public sealed class WorkService(IWorkStore store, IActionStore actions, IAuditSi
         return open;
     }
 
+    /// <summary>An operator ends an item: an open or claimed one is never worked again (a claimant's next call on it fails), and a dead
+    /// or expired one is dismissed from the dead list. The record stays, cancelled, for the audit trail.</summary>
     public async Task<WorkItem?> CancelAsync(string id, string by, CancellationToken ct = default)
     {
         var item = store.Get(id);
-        if (item is null || item.Status is not (WorkStatus.Open or WorkStatus.Claimed)) return null;
+        if (item is null || item.Status is not (WorkStatus.Open or WorkStatus.Claimed or WorkStatus.Dead or WorkStatus.Expired)) return null;
         var cancelled = store.Transition(id, item.Status, i => i with { Status = WorkStatus.Cancelled, ClaimedBy = null, LeaseUntil = null, UpdatedAt = clock.GetUtcNow() });
-        if (cancelled is not null) await Audit("work.cancelled", cancelled, by, null, ct);
+        if (cancelled is not null) await Audit("work.cancelled", cancelled, by, $"was {item.Status.ToString().ToLowerInvariant()}", ct);
+        return cancelled;
+    }
+
+    /// <summary>An operator stops a parked continuation: it never wakes, so no resume item comes of it. Audited.</summary>
+    public async Task<Continuation?> CancelContinuationAsync(string id, string by, CancellationToken ct = default)
+    {
+        var cancelled = store.TransitionContinuation(id, ContinuationStatus.Parked, c => c with { Status = ContinuationStatus.Cancelled });
+        if (cancelled is not null)
+        {
+            await audit.AppendAsync(new AuditEntry(clock.GetUtcNow(), "continuation.cancelled", null, null, by, cancelled.Id), ct);
+            HostTelemetry.Work.Add(1, new KeyValuePair<string, object?>("event", "continuation.cancelled"), new KeyValuePair<string, object?>("kind", "continuation"));
+        }
         return cancelled;
     }
 

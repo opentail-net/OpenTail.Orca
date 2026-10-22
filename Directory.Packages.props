@@ -24,6 +24,7 @@
     <PackageVersion Include="xunit.v3" Version="4.0.0-pre.108" />
     <!-- From opentail-connectivity (GitHub Packages, see nuget.config). One version for all of them. -->
     <PackageVersion Include="OpenTail.Connectivity.Files" Version="0.0.1" />
+    <PackageVersion Include="OpenTail.Connectivity.Queues" Version="0.0.1" />
     <PackageVersion Include="OpenTail.Connectivity.Web" Version="0.0.1" />
     <PackageVersion Include="OpenTail.Connectivity.Inbox.Imap" Version="0.0.1" />
     <PackageVersion Include="OpenTail.Connectivity.Inbox.Graph" Version="0.0.1" />

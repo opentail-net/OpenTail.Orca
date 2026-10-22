@@ -105,6 +105,7 @@ read-only **Modules** view with the same information, and every action records t
 
   | Tab | Shows |
   |---|---|
+  | Jobs | Everything waiting or running, whatever holds it: work items agents owe, continuations waiting to resume, and jobs in the work queues passed as `AdminOptions.WorkQueues`. Each row says what it is, who it is for and what created it (its source), with **Cancel** (it never runs again; a running one's worker loses it), **Run now** (a delayed queue job) and **Stop the source** (when the Host owns what keeps creating it: the parent work item or a continuation). Dead jobs below, with **Redrive** and **Delete**. Every change is audited with the admin's name. Goals are shown; queue bodies and work inputs are not. The one place on the admin page that changes something directly: stopping work is always the safe direction. |
   | Agents | Each agent profile, every tool it names with its risk and mode (and the mode after outside content), what it may ask for and whom it may hand work to. Tools the profile names but the policy denies are listed as `Deny`. |
   | People and keys | `People`, and the API keys as the last start recorded them: name, hash prefix, profile. Never the key. |
   | Policy versions | Every policy this database ran under; *Changes since* diffs one against the running policy, section by section. |
@@ -115,7 +116,8 @@ read-only **Modules** view with the same information, and every action records t
   | Proposals | Policy changes proposed, approved by a second admin and deployed by you ([SOP C1](SOP.md#c1-changing-the-policy)). |
 
   The same views are JSON under `/api/admin/...` (`overview`, `policy-versions`, `policy-versions/diff?from=`, `usage?days=`,
-  `telemetry/metrics`, `telemetry/traces`, `audit?limit=`, `policy/current`, `proposals`); `/api/me` says whether the caller is an admin.
+  `telemetry/metrics`, `telemetry/traces`, `audit?limit=`, `policy/current`, `proposals`, `jobs`, and `POST jobs/act` with `kind`,
+  `id`, `action` and, for a queue job, `queue`); `/api/me` says whether the caller is an admin.
   Everything works in any browser; nothing here needs Teams.
 * **TLS:** give Kestrel a certificate (`Kestrel__Certificates__Default__Path` / `__Password`), or terminate TLS in a reverse proxy and set
   `"TrustProxy": true` (only when nothing but the proxy can reach the port).
@@ -274,7 +276,8 @@ Useful audit events: `policy_decision`, `queued`, `approved`, `approval_recorded
 `action_viewed`, `export`, `decision_records_purge`, `retry_automatic`, `circuit.opened`/`circuit.would_open`/`circuit.reopened`/
 `circuit.closed`, `work.created`/`work.claimed`/`work.done`/`work.failed`/`work.lease_lost`/`work.dead`/`work.expired`,
 `continuation.parked`/`continuation.woken`, `inspection.opened`/`inspection.to_operators`, `redrive.approved`,
-`credential.suspicious`, `work.runner_started`; and since the administration views: `policy_proposed`, `policy_proposal_approved`/`policy_proposal_rejected`/`policy_proposal_withdrawn`/`policy_proposal_applied`.
+`credential.suspicious`, `work.runner_started`; and since the administration views: `policy_proposed`, `policy_proposal_approved`/`policy_proposal_rejected`/`policy_proposal_withdrawn`/`policy_proposal_applied`; and from the Jobs view: `continuation.cancelled`, `job.cancel`, `job.run_now`,
+`job.redrive`, `job.delete`, `job.stop_source` (queue jobs; work items keep their `work.*` events).
 
 What to do about each, step by step, is in [SOP.md](SOP.md).
 
