@@ -142,7 +142,9 @@ public sealed class GraphCalendarModuleFactory : IHostModuleFactory
     {
         var c = context.Bind<Config>();
         Graph.Require(c.TenantId, c.ClientId, c.Mailbox);
-        var calendars = new PerSecret<GraphCalendarAdapter>(s => new GraphCalendarAdapter(GraphSettings.Create(c.TenantId!, c.ClientId!, s, c.Mailbox!)));
+        // The Host's policy decides each write (review, undo window); the adapter only needs to know writes are on at all.
+        var writes = c.ReadOnly ? CalendarWritePolicy.Disabled : CalendarWritePolicy.AllowAll;
+        var calendars = new PerSecret<GraphCalendarAdapter>(s => new GraphCalendarAdapter(GraphSettings.Create(c.TenantId!, c.ClientId!, s, c.Mailbox!), writes));
         var credentials = context.Credentials;
 
         IHostModule module = new CalendarModule(

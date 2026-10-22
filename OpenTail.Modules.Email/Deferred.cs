@@ -19,17 +19,11 @@ public sealed class DeferredInbox(Func<CancellationToken, ValueTask<IInboxAdapte
 public sealed class DeferredSender(Func<CancellationToken, ValueTask<IEmailSender>> create) : IEmailSender
 {
     public async Task<string> SendAsync(OutboundEmail email, CancellationToken ct = default) => await (await create(ct)).SendAsync(email, ct);
-    public async Task DeleteAsync(string messageId, CancellationToken ct = default) => await (await create(ct)).DeleteAsync(messageId, ct);
-    public async Task MarkReadAsync(string messageId, bool isRead, CancellationToken ct = default) => await (await create(ct)).MarkReadAsync(messageId, isRead, ct);
-    public async Task MoveAsync(string messageId, string destinationFolder, CancellationToken ct = default) => await (await create(ct)).MoveAsync(messageId, destinationFolder, ct);
 }
 
 /// <summary>A sender for a read-only instance: every call fails. The send tool is not registered then, so it is never reached.</summary>
 public sealed class NoSender : IEmailSender
 {
     public Task<string> SendAsync(OutboundEmail email, CancellationToken ct = default) => throw new NotSupportedException("Sending is off for this module.");
-    public Task DeleteAsync(string messageId, CancellationToken ct = default) => throw new NotSupportedException();
-    public Task MarkReadAsync(string messageId, bool isRead, CancellationToken ct = default) => throw new NotSupportedException();
-    public Task MoveAsync(string messageId, string destinationFolder, CancellationToken ct = default) => throw new NotSupportedException();
 }
 

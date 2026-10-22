@@ -172,7 +172,9 @@ public sealed class GoogleCalendarModuleFactory : IHostModuleFactory
             new DeferredCalendar(async token =>
             {
                 var pair = await GoogleAuth.PairAsync(credentials, token);
-                return new GmailCalendarAdapter(GoogleAuth.Settings(c.ClientId!, c.Account!, pair), providers.Get(pair));
+                // The Host's policy decides each write (review, undo window); the adapter only needs to know writes are on at all.
+                return new GmailCalendarAdapter(GoogleAuth.Settings(c.ClientId!, c.Account!, pair), providers.Get(pair),
+                    c.ReadOnly ? CalendarWritePolicy.Disabled : CalendarWritePolicy.AllowAll);
             }),
             new CalendarModuleOptions
             {
