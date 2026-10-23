@@ -87,6 +87,35 @@ handles.
 - **The budget's unit** (S4): bytes scanned, elapsed time, or credits.
 - **Refuse or warn** when the warehouse fails a check (S3). Proposed: refuse; a person can switch to warn in configuration.
 - **The trial account** for S5: who signs up, and when (the 30 days start at sign-up).
-- **A separate package?** Snowflake is a provider inside `OpenTail.Modules.Sql`. S3 and S4 are Snowflake-only and could go into
-  their own package (`OpenTail.Modules.Sql.Snowflake`, referencing the driver) so a deployment adds one package and the Sql
-  module stays driver-free.
+- ~~A separate package?~~ Owner, 2026-10-23: no split. S3 and S4 go into `OpenTail.Modules.Sql`; how a split could be done
+  later is below.
+
+## Splitting Snowflake out later (not planned)
+
+Snowflake stays a provider inside `OpenTail.Modules.Sql`. This records how to split it out if it outgrows the module, so S3 and S4
+can be written to make that easy.
+
+**What would move, and what would stay.**
+
+| Stays in `OpenTail.Modules.Sql` | Would move to `OpenTail.Modules.Sql.Snowflake` |
+|---|---|
+| `SqlDialect.Snowflake` and its guard rules: the guard is one parser, and its safety depends on knowing every dialect | Warehouse checks at start-up (S3): `SHOW WAREHOUSES`, `SHOW PARAMETERS`, the resource monitor |
+| `AddRowLimit`, `PositionalParameters`, `TagQueries`: generic, and other pay-per-use warehouses (BigQuery, Redshift, Databricks) would use them | Reading per-query cost from query history (S4); the budget itself stays in the Host's adaptive limits |
+| `"Provider": "snowflake"` and the `private-key` credentials, so existing configs keep working | A reference to `Snowflake.Data`, so a deployment adds one package instead of the module plus the driver |
+| The schema query | Anything later that only Snowflake has: asynchronous query handles, OAuth or workload-identity sign-in, Cortex |
+
+**The seams the module would need** (about 30 lines each, no Snowflake code in them):
+
+- `ISqlTargetCheck`: run once at start-up and every few hours, given a connection; returns problems, which the module turns into a
+  refusal or a warning (`WarehouseChecks`).
+- `ISqlCostSource`: given action ids (the query tags), returns what each query cost in the configured unit, for S4.
+- The factory would find both by provider name, the way it finds the driver: a type named in configuration, or an assembly
+  attribute in the add-on package.
+
+**How to write S3 and S4 now so a split stays cheap:** put the Snowflake-specific code in its own files (for example
+`SnowflakeWarehouseCheck.cs`, `SnowflakeQueryCost.cs`) behind those two interfaces, even while they live in the Sql module. A
+split is then a project move and a factory registration, with no change to behaviour or configuration.
+
+**When to split:** when the Snowflake-only code passes a few hundred lines, when a second warehouse arrives and would use the same
+seams, or when a deployment wants Snowflake without carrying the Sql module's other providers' notes and options. Not before:
+each package adds publishing and versioning work.
