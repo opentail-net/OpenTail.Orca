@@ -2,7 +2,13 @@ using OpenTail.Host.Abstractions;
 using Snowflake.Data.Client;
 using Xunit;
 
-namespace OpenTail.Host.Tests.SqlServers;
+namespace OpenTail.Host.Tests.Snowflake;
+
+internal static class Req
+{
+    public static readonly ActionRequester Me = new(RequesterKind.User, "me");
+    public static ActionRequest Call(string tool, string args) => new(tool, args, Me, null);
+}
 
 /// <summary>
 /// The Sql module's Snowflake provider through the real driver (<c>Snowflake.Data</c>). The factory checks need no account. The

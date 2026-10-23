@@ -132,7 +132,7 @@ Then set `OTAIL_SNOWFLAKE_ACCOUNT`, `OTAIL_SNOWFLAKE_USER`, `OTAIL_SNOWFLAKE_PRI
 `OTAIL_SNOWFLAKE_ROLE` and `OTAIL_SNOWFLAKE_WAREHOUSE`, and run:
 
 ```sh
-dotnet run --project OpenTail.Host.Tests.SqlServers
+dotnet run --project OpenTail.Host.Tests.Snowflake
 ```
 
 The account tests sign in with the key, run a parameterised query against `TPCH_SF1.CUSTOMER` with the row cap, read the schema,

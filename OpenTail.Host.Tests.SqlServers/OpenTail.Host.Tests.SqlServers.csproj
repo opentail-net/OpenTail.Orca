@@ -17,7 +17,6 @@
     <PackageReference Include="Microsoft.Data.SqlClient" />
     <PackageReference Include="Npgsql" />
     <PackageReference Include="MySqlConnector" />
-    <PackageReference Include="Snowflake.Data" />
     <ProjectReference Include="..\OpenTail.Host\OpenTail.Host.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
   </ItemGroup>
