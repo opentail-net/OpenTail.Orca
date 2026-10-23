@@ -4,8 +4,9 @@ Oracle is a Sql module provider, `"Provider": "oracle"`, that lives in its own p
 package brings Oracle's driver (`Oracle.ManagedDataAccess.Core`) and Oracle's settings; the guard's Oracle rules stay in the Sql
 module, because the guard is one parser and must know every dialect it protects.
 
-**State:** a CI suite against Oracle Database Free 23ai (the `sql-servers` workflow, a read login and a write login) was added
-2026-10-23; the provider counts as Verified once it passes. Oracle 12c or later is required.
+**State: Verified** against Oracle Database Free 23ai in the `sql-servers` workflow (a read login and a write login), 2026-10-23.
+One earlier run failed the parameterised read-login query once, without the database error being recorded; it has not
+recurred. Watch for it. Oracle 12c or later is required.
 
 ## What the agent gets
 
