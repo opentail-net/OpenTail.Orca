@@ -229,6 +229,24 @@ public sealed class MySqlProviderTests : SqlServerTests
     ];
 }
 
+/// <summary>MariaDB 11.4 (LTS) through the same driver and dialect as MySQL, under the <c>mariadb</c> provider name.</summary>
+public sealed class MariaDbProviderTests : SqlServerTests
+{
+    protected override string Env => "MARIADB";
+    protected override SqlProvider Provider => SqlProviders.MariaDb;
+    protected override DbConnection Create(string connectionString) => new MySqlConnection(connectionString);
+
+    public override IReadOnlyList<string> Bypasses =>
+    [
+        "SELECT 'a\\'' ; DELETE FROM accounts WHERE 1=1; SELECT ' '",
+        "SELECT \"a\\\"\" ; DELETE FROM accounts WHERE 1=1; SELECT \" \"",
+        "SELECT 1 # '\n; DELETE FROM accounts WHERE 1=1; -- '",
+        "SELECT 1 /*M! ; DELETE FROM accounts WHERE 1=1 */",           // MariaDB's own executable comment
+        "SELECT 1 /*M!100100 ; DELETE FROM accounts WHERE 1=1 */",     // with a version
+        "SELECT 1 --;DELETE FROM accounts WHERE 1=1",
+    ];
+}
+
 /// <summary>Oracle 23ai (Oracle Database Free): DROP TABLE IF EXISTS, multi-row VALUES and SELECT without FROM need 23ai.</summary>
 public sealed class OracleProviderTests : SqlServerTests
 {

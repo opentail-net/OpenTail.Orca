@@ -13,7 +13,7 @@ namespace OpenTail.Modules.Sql;
 /// "Credentials": { "password": { "Env": "CRM_DB_PASSWORD", "Kind": "Secret" } }
 /// </code>
 /// Providers: <c>sqlite</c> (built in); <c>sqlserver</c> (also Microsoft Fabric and Azure Synapse), <c>postgres</c>, <c>redshift</c>,
-/// <c>mysql</c>, <c>snowflake</c> (the deployment references the driver package); <c>oracle</c> (the deployment references
+/// <c>mysql</c> and <c>mariadb</c>, <c>snowflake</c> (the deployment references the driver package); <c>oracle</c> (the deployment references
 /// <c>OpenTail.Modules.Sql.Oracle</c>), <c>databricks</c> (<c>OpenTail.Modules.Sql.Databricks</c>); or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
 /// the <c>password</c> credential, or the whole string from the <c>connection</c> credential, both read when a tool runs.
 /// With <c>AllowWrites</c> on a server database, write and delete use a second login: <c>Config.WriteConnectionString</c> with the

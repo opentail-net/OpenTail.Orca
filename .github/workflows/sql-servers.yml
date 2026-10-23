@@ -1,6 +1,6 @@
 name: Sql on real servers
 
-# The Sql module against real SQL Server, Postgres, MySQL and Oracle in service containers (OpenTail.Host.Tests.SqlServers).
+# The Sql module against real SQL Server, Postgres, MySQL, MariaDB and Oracle in service containers (OpenTail.Host.Tests.SqlServers).
 # Linux only and never on every push, to save Actions minutes: run it by hand, or it runs when the Sql module or these tests change.
 # Each server gets two logins, as the module expects in production: a read login (SELECT only) and a write login.
 
@@ -30,7 +30,7 @@ env:
 
 jobs:
   sql-servers:
-    name: SQL Server, Postgres, MySQL, Oracle
+    name: SQL Server, Postgres, MySQL, MariaDB, Oracle
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -54,6 +54,13 @@ jobs:
           MYSQL_DATABASE: otail
         ports: [ '3306:3306' ]
         options: --health-cmd "mysqladmin ping -h 127.0.0.1 -pCi_Admin_Pass_1234x" --health-interval 5s --health-timeout 5s --health-retries 30
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: Ci_Admin_Pass_1234x
+          MARIADB_DATABASE: otail
+        ports: [ '3307:3306' ]
+        options: --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 5s --health-timeout 5s --health-retries 30
       oracle:
         # Oracle Database Free 23ai, packaged by gvenzl (the image Oracle's own docs and Testcontainers point to).
         image: gvenzl/oracle-free:23-slim-faststart
@@ -100,6 +107,13 @@ jobs:
             CREATE USER 'ot_writer'@'%' IDENTIFIED BY '$WRITE_PASSWORD';
             GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP ON otail.* TO 'ot_writer'@'%';"
 
+      - name: Logins on MariaDB
+        run: |
+          docker exec ${{ job.services.mariadb.id }} mariadb -uroot -p"$SA_PASSWORD" -e "
+            CREATE USER 'ot_reader'@'%' IDENTIFIED BY '$READ_PASSWORD'; GRANT SELECT ON otail.* TO 'ot_reader'@'%';
+            CREATE USER 'ot_writer'@'%' IDENTIFIED BY '$WRITE_PASSWORD';
+            GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP ON otail.* TO 'ot_writer'@'%';"
+
       - name: Logins on Oracle
         run: |
           docker exec -i ${{ job.services.oracle.id }} sqlplus -s "system/$SA_PASSWORD@//localhost/FREEPDB1" <<SQL
@@ -121,6 +135,8 @@ jobs:
           OTAIL_SQL_POSTGRES_WRITE: Host=localhost;Port=5432;Database=otail;Username=ot_writer;Password=${{ env.WRITE_PASSWORD }}
           OTAIL_SQL_MYSQL_READ: Server=localhost;Port=3306;Database=otail;User ID=ot_reader;Password=${{ env.READ_PASSWORD }};AllowPublicKeyRetrieval=True
           OTAIL_SQL_MYSQL_WRITE: Server=localhost;Port=3306;Database=otail;User ID=ot_writer;Password=${{ env.WRITE_PASSWORD }};AllowPublicKeyRetrieval=True
+          OTAIL_SQL_MARIADB_READ: Server=localhost;Port=3307;Database=otail;User ID=ot_reader;Password=${{ env.READ_PASSWORD }}
+          OTAIL_SQL_MARIADB_WRITE: Server=localhost;Port=3307;Database=otail;User ID=ot_writer;Password=${{ env.WRITE_PASSWORD }}
           OTAIL_SQL_ORACLE_READ: User Id=ot_reader;Password=${{ env.READ_PASSWORD }};Data Source=localhost:1521/FREEPDB1
           OTAIL_SQL_ORACLE_WRITE: User Id=ot_writer;Password=${{ env.WRITE_PASSWORD }};Data Source=localhost:1521/FREEPDB1
         # A skipped server test here means a connection string is missing: fail rather than pass quietly.

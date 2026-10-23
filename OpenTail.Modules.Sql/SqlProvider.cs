@@ -110,6 +110,10 @@ public static class SqlProviders
         ReadOnlyStatement = "START TRANSACTION READ ONLY",
     };
 
+    /// <summary>MariaDB: the MySQL provider under its own name (MySqlConnector supports both; the guard's MySQL rules cover MariaDB's
+    /// <c>/*M! ... */</c> comments).</summary>
+    public static readonly SqlProvider MariaDb = MySql with { Name = "mariadb" };
+
     public static readonly SqlProvider Snowflake = new()
     {
         Name = "snowflake",
@@ -158,6 +162,7 @@ public static class SqlProviders
         [SqlServer.Name] = SqlServer,
         [Postgres.Name] = Postgres,
         [MySql.Name] = MySql,
+        [MariaDb.Name] = MariaDb,
         [Snowflake.Name] = Snowflake,
         [Redshift.Name] = Redshift,
     };
