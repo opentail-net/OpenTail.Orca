@@ -137,6 +137,31 @@ public class ApprovalControlTests
     // ---- several approvers ----
 
     [Fact]
+    public async Task An_edit_remakes_the_preview_so_the_next_approver_sees_what_will_run()
+    {
+        var (host, module, a) = await Queued(Policy("\"RequiredApprovals\": 2"));
+        Assert.Contains("x@y.z", a.PreviewJson);
+
+        var edited = await host.Queue.ReviewAsync(a.Id, By("rita") with { EditedArgumentsJson = """{"to":"other@corp.example","body":"b"}""" });
+
+        Assert.Equal(ActionStatus.Pending, edited.Status);
+        Assert.Contains("other@corp.example", edited.PreviewJson);
+        Assert.DoesNotContain("x@y.z", edited.PreviewJson);
+        Assert.Equal(0, module.SendCalls);
+    }
+
+    [Fact]
+    public async Task When_the_edited_arguments_have_no_preview_the_old_one_is_not_kept()
+    {
+        var (host, _, a) = await Queued(Policy("\"RequiredApprovals\": 2"));
+
+        var edited = await host.Queue.ReviewAsync(a.Id, By("rita") with { EditedArgumentsJson = """{"body":"no recipient"}""" });
+
+        Assert.Null(edited.PreviewJson);
+        Assert.True(edited.PreviewUnavailable);
+    }
+
+    [Fact]
     public async Task Two_approvals_are_needed_and_the_same_person_counts_once()
     {
         var (host, module, a) = await Queued(Policy("\"RequiredApprovals\": 2"));

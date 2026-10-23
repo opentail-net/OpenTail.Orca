@@ -52,6 +52,12 @@ public sealed class ActionExecutor(
         activity?.SetTag("opentail.action_id", record.Id);
         var started = _clock.GetTimestamp();
 
+        // Checked on every path that runs an action (execute, automatic retry, recovery after a restart), not only at submission
+        // and approval: suspending a compromised identity must also stop work approved before it.
+        if (levels?.Effective(record.Requester.Id) == IdentityLevel.Suspended)
+            return await Finish(record, null, new ActionError("suspended",
+                "The requester is suspended: nothing it asked for runs until an operator clears it. A reviewer can retry it then.", true), ct, started);
+
         if (record.PolicySnapshot?.RateLimit is { } limit && await ExceedsAsync(record, limit, ct) is { } which)
             return await Finish(record, null,
                 new ActionError("rate_limited", $"Limit of {which} reached for this tool. A reviewer can retry later.", true), ct, started);

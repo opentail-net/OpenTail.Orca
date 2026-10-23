@@ -146,6 +146,9 @@ public static class AccessChanges
             if (e.Event == "level_changed" && e.Actor is { } who) levels[who] = e.Detail ?? "";
             // "key:bot: Elevated -> Normal": the subject itself holds a colon, so split at ": ".
             else if (e.Event == "level_cleared" && e.Detail?.IndexOf(": ", StringComparison.Ordinal) is > 0 and var i) levels.Remove(e.Detail[..i]);
+            // A person's suspension: the actor is who suspended, the subject leads the detail ("key:bot: Normal -> Suspended: why").
+            else if (e.Event == "level_suspended" && e.Detail?.IndexOf(": ", StringComparison.Ordinal) is > 0 and var j)
+                levels[e.Detail[..j]] = e.Detail[(j + 2)..] + " (by " + e.Actor + ")";
         }
         lines.Add("Identities above Normal:");
         if (levels.Count == 0) lines.Add("  none");

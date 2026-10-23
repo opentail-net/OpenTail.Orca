@@ -393,8 +393,12 @@ public sealed class ActionQueue(
                     await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "edit_refused", due.Id, due.ToolName, review.Reviewer, "AllowEdits: false"), ct);
                     throw new InvalidOperationException("This action cannot be edited: approve or reject it as asked, or request changes.");
                 }
-                // A reviewer edit is new input: it must not slip past a Deny rule that the original arguments did not trigger.
-                if (review.EditedArgumentsJson is not null && due.Status == ActionStatus.Pending && catalog.TryGet(due.ToolName, out var editedTool))
+                // A reviewer edit is new input: it must not slip past a Deny rule that the original arguments did not trigger, nor
+                // a data-flow rule, and later approvers must see a preview of what will run, not of the arguments first asked for.
+                var edits = review.EditedArgumentsJson is not null && due.Status == ActionStatus.Pending;
+                string? editedPreview = null;
+                var editedPreviewUnavailable = false;
+                if (edits && catalog.TryGet(due.ToolName, out var editedTool))
                 {
                     var edited = policy.Resolve(editedTool.Descriptor, due.Tainted, review.EditedArgumentsJson, _clock.GetUtcNow(), due.Requester.Id);
                     if (edited.Mode == ToolMode.Deny)
@@ -402,6 +406,33 @@ public sealed class ActionQueue(
                         await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "edit_refused", due.Id, due.ToolName, review.Reviewer, edited.RuleName ?? edited.Rule), ct);
                         throw new InvalidOperationException($"The edited arguments are refused by policy ({edited.RuleName ?? edited.Rule}).");
                     }
+
+                    // Enforced flow rules that deny: a Queue rule is already met, since a person is reviewing.
+                    if (labels is { Mode: LimitMode.Enforce } && labels.Held(due.SessionId, due.Requester.Id) is { Count: > 0 } held
+                        && labels.Check(editedTool.Descriptor, held.Select(h => h.Label), review.EditedArgumentsJson!)
+                            .FirstOrDefault(b => b.Mode == ToolMode.Deny) is { } denied)
+                    {
+                        await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "edit_refused", due.Id, due.ToolName, review.Reviewer, "flow:" + denied.Label), ct);
+                        throw new InvalidOperationException($"The edited arguments would send data labelled {denied.Label} where it may not go.");
+                    }
+
+                    if (editedTool.Preview is not null)
+                    {
+                        try
+                        {
+                            editedPreview = System.Text.Json.JsonSerializer.Serialize(await editedTool.Preview.PreviewAsync(review.EditedArgumentsJson!, ct));
+                        }
+                        catch (ArgumentException ex)
+                        {
+                            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "edit_refused", due.Id, due.ToolName, review.Reviewer, "invalid_arguments"), ct);
+                            throw new InvalidOperationException("The edited arguments can never be valid: " + Redaction.Scrub(ex.Message));
+                        }
+                        catch (Exception ex) when (ex is not OperationCanceledException)
+                        {
+                            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "preview_failed", due.Id, due.ToolName, review.Reviewer, ex.GetType().Name), ct);
+                        }
+                    }
+                    editedPreviewUnavailable = editedPreview is null && editedTool.Descriptor.IsHighImpact;
                 }
                 if (due.Status == ActionStatus.Pending && due.ExpiresAt is { } deadline && deadline <= _clock.GetUtcNow())
                 {
@@ -423,6 +454,8 @@ public sealed class ActionQueue(
                     var (count, duplicate) = ReviewAuthority.Tally(r, review, policy.People);
                     if (duplicate) return null;
                     var updated = addReview(r);
+                    // The stored preview is of the edited arguments (none when the tool could not make one: never the old one).
+                    if (edits) updated = updated with { PreviewJson = editedPreview, PreviewUnavailable = editedPreviewUnavailable };
                     return count >= r.RequiredApprovals
                         ? new ActionTransition(ActionStatus.Approved, updated with { Attempts = r.Attempts + 1 })
                         : new ActionTransition(ActionStatus.Pending, updated);

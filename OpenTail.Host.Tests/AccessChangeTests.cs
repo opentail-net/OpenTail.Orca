@@ -90,4 +90,22 @@ public class AccessChangeTests
         Assert.Equal(0, await PolicyCli.TryRunAsync(["--db", db.Path, "--access-report", "--at", T0.AddDays(2).ToString("O")], "host", _ => { }, cli));
         Assert.Contains("profile clerk", cli.ToString());
     }
+
+    [Fact]
+    public async Task A_manual_suspension_is_in_the_access_report_until_it_is_cleared()
+    {
+        var clock = new ManualClock(T0);
+        var host = new OpenTailHostBuilder().AddModule(new FakeInboxModule()).UseClock(clock).UsePolicy(PolicyConfig.Parse(Hosts.SendQueued)).Build();
+        var trail = (IAuditReader)host.Audit;
+
+        await host.Levels.SuspendAsync("user:ops", "rita", "incident 42");
+        clock.Advance(TimeSpan.FromDays(1));
+        var whileSuspended = AccessChanges.Report(trail.Read(), new InMemoryPolicyVersionStore(), [], clock.GetUtcNow());
+        await host.Levels.ClearAsync("user:ops", "rita", keyRotated: false);
+        clock.Advance(TimeSpan.FromDays(1));
+        var afterClearing = AccessChanges.Report(trail.Read(), new InMemoryPolicyVersionStore(), [], clock.GetUtcNow());
+
+        Assert.Contains(whileSuspended, l => l == "  user:ops: Normal -> Suspended: incident 42 (by rita)");
+        Assert.DoesNotContain(afterClearing, l => l.Contains("user:ops"));
+    }
 }

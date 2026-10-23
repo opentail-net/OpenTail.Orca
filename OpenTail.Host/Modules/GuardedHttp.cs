@@ -39,6 +39,13 @@ public sealed class GuardedHttpClientFactory : IModuleHttpClientFactory, IDispos
     /// <summary>For tests: route through another handler (a stub server in memory). Host checks still apply.</summary>
     internal HttpMessageHandler? InnerOverride { get; set; }
 
+    /// <summary>For tests: the name lookup, instead of DNS.</summary>
+    internal Func<string, CancellationToken, Task<IPAddress[]>> Resolve { get; set; } = (host, ct) => Dns.GetHostAddressesAsync(host, ct);
+
+    /// <summary>How long one address may take to connect while others are left to try: an address that drops packets would
+    /// otherwise use up the whole request timeout.</summary>
+    internal TimeSpan ConnectAttemptTimeout { get; set; } = TimeSpan.FromSeconds(5);
+
     public HttpClient Create(string? credentialName = null)
     {
         if (credentialName is not null && !_credentials.Names.Contains(credentialName))
@@ -61,18 +68,38 @@ public sealed class GuardedHttpClientFactory : IModuleHttpClientFactory, IDispos
         IPAddress[] addresses;
         // An IP literal reached this point only by matching an origin the operator listed explicitly: that is consent enough.
         var literal = IPAddress.TryParse(host.Trim('[', ']'), out var lit);
-        addresses = literal ? [lit!] : await Dns.GetHostAddressesAsync(host, ct);
+        addresses = literal ? [lit!] : await Resolve(host, ct);
         if (!literal && !_network.AllowPrivateNetwork && addresses.Any(a => !NetworkRules.IsPublic(a)))
             throw new HttpRequestException($"Module '{_moduleId}': {host} resolves to a private or local address (set Network.AllowPrivateNetwork for an on-premises server).");
-        var chosen = addresses.FirstOrDefault() ?? throw new HttpRequestException($"Module '{_moduleId}': {host} did not resolve.");
+        if (addresses.Length == 0) throw new HttpRequestException($"Module '{_moduleId}': {host} did not resolve.");
 
-        var socket = new Socket(chosen.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-        try
+        // Every address passed the check above, so each is tried in turn: the first one can be unreachable (an IPv6 address on a
+        // network without IPv6) while another works.
+        var failures = new List<Exception>();
+        for (var i = 0; i < addresses.Length; i++)
         {
-            await socket.ConnectAsync(new IPEndPoint(chosen, ctx.DnsEndPoint.Port), ct);
-            return new NetworkStream(socket, ownsSocket: true);
+            var address = addresses[i];
+            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            using var attempt = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            if (i < addresses.Length - 1) attempt.CancelAfter(ConnectAttemptTimeout);
+            try
+            {
+                await socket.ConnectAsync(new IPEndPoint(address, ctx.DnsEndPoint.Port), attempt.Token);
+                return new NetworkStream(socket, ownsSocket: true);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested && ex is SocketException or OperationCanceledException)
+            {
+                socket.Dispose();
+                failures.Add(ex);
+            }
+            catch
+            {
+                socket.Dispose();
+                throw;
+            }
         }
-        catch { socket.Dispose(); throw; }
+        throw new HttpRequestException($"Module '{_moduleId}': could not connect to {host} at any of its {addresses.Length} addresses.",
+            new AggregateException(failures));
     }
 
     private sealed class GuardHandler(GuardedHttpClientFactory owner, string? credentialName) : DelegatingHandler

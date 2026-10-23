@@ -226,4 +226,25 @@ public class DataFlowTests
         Assert.DoesNotContain("abc", values);
         Assert.DoesNotContain("12", values);
     }
+
+    [Fact]
+    public async Task An_edit_is_checked_against_deny_rules_for_labels_the_session_holds_now()
+    {
+        var host = Host();
+        var s = host.Sessions.Start("key:bot");
+        await host.Queue.SubmitAsync(Call("erp.query", s));
+        var pending = await host.Queue.SubmitAsync(Call("mail.send", s, """{"to":"someone@else.example"}"""));
+        Assert.Equal(ActionStatus.Pending, pending.Status);
+        await host.Queue.SubmitAsync(Call("crm.get", s)); // customer data: may go nowhere
+
+        var edit = new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow)
+        {
+            Subject = Subjects.Admin("rita"),
+            EditedArgumentsJson = """{"to":"partner@else.example"}""",
+        };
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => host.Queue.ReviewAsync(pending.Id, edit));
+
+        Assert.Contains("customer", error.Message);
+        Assert.Contains(((InMemoryAuditSink)host.Audit).Entries, e => e.Event == "edit_refused" && e.Detail == "flow:customer");
+    }
 }

@@ -171,6 +171,36 @@ public class BrickTests
     }
 
     [Fact]
+    public async Task When_the_first_address_cannot_be_reached_the_next_one_is_tried()
+    {
+        await using var s = await StubServer.StartAsync(ctx => ctx.Response.WriteAsync("ok"));
+        var origin = "http://multi.test:" + s.BaseUri.Port;
+        var creds = new ModuleCredentials("m", new Dictionary<string, CredentialSource>(), Path.GetTempPath());
+        using var http = new GuardedHttpClientFactory("m", [origin], new ModuleNetwork { AllowPrivateNetwork = true }, creds)
+        {
+            // [::1] first: the stub listens on 127.0.0.1 only, so that one refuses (or IPv6 is off): either way it fails.
+            Resolve = (_, _) => Task.FromResult(new[] { System.Net.IPAddress.IPv6Loopback, System.Net.IPAddress.Loopback }),
+        };
+
+        Assert.Equal("ok", await http.Create().GetStringAsync(origin + "/"));
+    }
+
+    [Fact]
+    public async Task When_no_address_can_be_reached_the_error_says_so()
+    {
+        await using var s = await StubServer.StartAsync(ctx => ctx.Response.WriteAsync("ok"));
+        var origin = "http://multi.test:" + s.BaseUri.Port;
+        var creds = new ModuleCredentials("m", new Dictionary<string, CredentialSource>(), Path.GetTempPath());
+        using var http = new GuardedHttpClientFactory("m", [origin], new ModuleNetwork { AllowPrivateNetwork = true }, creds)
+        {
+            Resolve = (_, _) => Task.FromResult(new[] { System.Net.IPAddress.IPv6Loopback, System.Net.IPAddress.IPv6Loopback }),
+        };
+
+        var error = await Assert.ThrowsAsync<HttpRequestException>(() => http.Create().GetStringAsync(origin + "/"));
+        Assert.Contains("any of its 2 addresses", error.ToString());
+    }
+
+    [Fact]
     public async Task Plain_http_is_refused_unless_the_origin_is_listed_with_its_scheme()
     {
         await using var s = await StubServer.StartAsync(ctx => ctx.Response.WriteAsync("ok"));
