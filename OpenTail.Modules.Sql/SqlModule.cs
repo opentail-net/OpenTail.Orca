@@ -39,6 +39,22 @@ public sealed class SqlModuleOptions
     public string Name { get; init; } = "sql";
 
     public int MaxRows { get; init; } = 200;
+
+    /// <summary>
+    /// Append <c>LIMIT</c> (<see cref="MaxRows"/> + 1) to a query with no LIMIT, FETCH or TOP outside parentheses, so a warehouse
+    /// that bills by compute does not produce rows nobody reads. Set by the factory for Snowflake.
+    /// </summary>
+    public bool AddRowLimit { get; init; }
+
+    /// <summary>The driver binds by position (Snowflake): <c>@name</c> is sent as <c>?</c>, with the values in order.</summary>
+    public bool PositionalParameters { get; init; }
+
+    /// <summary>
+    /// Set the command's <c>QueryTag</c> property, where the driver has one (Snowflake), to <c>opentail:</c> and the action id,
+    /// so every query can be found in the database's own history.
+    /// </summary>
+    public bool TagQueries { get; init; }
+
     public int MaxCellChars { get; init; } = 2000;
     public int CommandTimeoutSeconds { get; init; } = 15;
 
@@ -99,8 +115,14 @@ public sealed class SqlModuleOptions
         "SELECT 'main' AS table_schema, m.name AS table_name, p.name AS column_name, p.type AS data_type " +
         "FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' ORDER BY m.name, p.cid";
 
+    /// <summary>Snowflake: the connection's database. Quoted aliases, because Snowflake upper-cases unquoted names.</summary>
+    public const string SnowflakeSchemaQuery =
+        "SELECT table_schema AS \"table_schema\", table_name AS \"table_name\", column_name AS \"column_name\", data_type AS \"data_type\" " +
+        "FROM information_schema.columns WHERE table_schema <> 'INFORMATION_SCHEMA' ORDER BY table_schema, table_name, ordinal_position";
+
     public static string SchemaQueryFor(SqlDialect dialect) => dialect switch
     {
+        SqlDialect.Snowflake => SnowflakeSchemaQuery,
         SqlDialect.Postgres => PostgresSchemaQuery,
         SqlDialect.MySql => MySqlSchemaQuery,
         SqlDialect.Sqlite => SqliteSchemaQuery,
@@ -156,10 +178,11 @@ public sealed class SqlModule : IHostModule
 
     private async Task<object> SchemaAsync(
         [Description("Only this table's columns (name without schema, case-insensitive). Omit for every table.")] string? table = null,
+        AIFunctionArguments? arguments = null,
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync(ct);
-        await using var cmd = Command(conn, options.SchemaQuery ?? SqlModuleOptions.SchemaQueryFor(options.Dialect), null, null);
+        await using var cmd = Command(conn, options.SchemaQuery ?? SqlModuleOptions.SchemaQueryFor(options.Dialect), null, null, arguments);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         var cols = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
         var schemaAt = cols.FindIndex(c => c.Equals("table_schema", StringComparison.OrdinalIgnoreCase));
@@ -193,15 +216,19 @@ public sealed class SqlModule : IHostModule
     private async Task<object> QueryAsync(
         [Description("A single SELECT (or WITH ... SELECT) statement.")] string sql,
         [Description("Parameter values by name, without the @ sign.")] Dictionary<string, JsonElement>? parameters = null,
+        AIFunctionArguments? arguments = null,
         CancellationToken ct = default)
     {
         if (SqlGuard.Classify(sql, options.Dialect) != SqlKind.Select) throw new ArgumentException("sql.query only runs SELECT statements.");
+        // On a new line, so a trailing -- comment cannot swallow it; the guard has already allowed at most a trailing semicolon.
+        if (options.AddRowLimit && !SqlGuard.HasOuterLimit(sql))
+            sql = sql.TrimEnd().TrimEnd(';') + "\nLIMIT " + (options.MaxRows + 1).ToString(CultureInfo.InvariantCulture);
         await using var conn = await OpenAsync(ct);
-        if (!options.ReadOnlyQueryTransaction) return Wrap(await ReadAsync(conn, sql, parameters, null, ct));
+        if (!options.ReadOnlyQueryTransaction) return Wrap(await ReadAsync(conn, sql, parameters, null, arguments, ct));
 
         // Raw statements, not BeginTransaction: ADO.NET has no portable read-only transaction.
         await RunAsync(conn, "START TRANSACTION READ ONLY", ct);
-        try { return Wrap(await ReadAsync(conn, sql, parameters, null, ct)); }
+        try { return Wrap(await ReadAsync(conn, sql, parameters, null, arguments, ct)); }
         finally
         {
             try { await RunAsync(conn, "ROLLBACK", CancellationToken.None); }
@@ -253,37 +280,54 @@ public sealed class SqlModule : IHostModule
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
-    private DbCommand Command(DbConnection conn, string sql, Dictionary<string, JsonElement>? parameters, DbTransaction? tx)
+    private DbCommand Command(DbConnection conn, string sql, Dictionary<string, JsonElement>? parameters, DbTransaction? tx, AIFunctionArguments? arguments = null)
     {
         var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
         cmd.CommandTimeout = options.CommandTimeoutSeconds;
         cmd.Transaction = tx;
-        if (parameters is not null)
-            foreach (var (name, value) in parameters)
-            {
-                if (!name.All(c => char.IsLetterOrDigit(c) || c == '_')) throw new ArgumentException($"Bad parameter name: {name}");
-                var p = cmd.CreateParameter();
-                p.ParameterName = "@" + name;
-                p.Value = value.ValueKind switch
-                {
-                    JsonValueKind.String => value.GetString(),
-                    JsonValueKind.Number => value.TryGetInt64(out var l) ? l : value.GetDouble(),
-                    JsonValueKind.True => true,
-                    JsonValueKind.False => false,
-                    JsonValueKind.Null => DBNull.Value,
-                    _ => throw new ArgumentException($"Parameter '{name}' must be a string, number, boolean or null."),
-                };
-                cmd.Parameters.Add(p);
-            }
+        if (options.TagQueries && arguments?.Context?.TryGetValue(HostContract.ActionIdContextKey, out var id) == true && id is string actionId)
+            cmd.GetType().GetProperty("QueryTag", typeof(string))?.SetValue(cmd, "opentail:" + actionId);
+        foreach (var name in parameters?.Keys ?? Enumerable.Empty<string>())
+            if (!name.All(c => char.IsLetterOrDigit(c) || c == '_')) throw new ArgumentException($"Bad parameter name: {name}");
+
+        if (!options.PositionalParameters)
+        {
+            cmd.CommandText = sql;
+            foreach (var (name, value) in parameters ?? new Dictionary<string, JsonElement>()) Bind(cmd, "@" + name, name, value);
+            return cmd;
+        }
+
+        cmd.CommandText = SqlGuard.ToPositional(sql, out var order);
+        for (var i = 0; i < order.Count; i++)
+        {
+            var key = parameters?.Keys.FirstOrDefault(k => k.Equals(order[i], StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"@{order[i]} has no value in parameters.");
+            Bind(cmd, (i + 1).ToString(CultureInfo.InvariantCulture), key, parameters![key]);
+        }
         return cmd;
+    }
+
+    private static void Bind(DbCommand cmd, string parameterName, string name, JsonElement value)
+    {
+        var p = cmd.CreateParameter();
+        p.ParameterName = parameterName;
+        p.Value = value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.TryGetInt64(out var l) ? l : value.GetDouble(),
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.Null => DBNull.Value,
+            _ => throw new ArgumentException($"Parameter '{name}' must be a string, number, boolean or null."),
+        };
+        cmd.Parameters.Add(p);
     }
 
     private sealed record Rows(IReadOnlyList<string> Columns, List<List<object?>> Data, bool Truncated);
 
-    private async Task<Rows> ReadAsync(DbConnection conn, string sql, Dictionary<string, JsonElement>? parameters, DbTransaction? tx, CancellationToken ct)
+    private async Task<Rows> ReadAsync(DbConnection conn, string sql, Dictionary<string, JsonElement>? parameters, DbTransaction? tx, AIFunctionArguments? arguments, CancellationToken ct)
     {
-        await using var cmd = Command(conn, sql, parameters, tx);
+        await using var cmd = Command(conn, sql, parameters, tx, arguments);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         var cols = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
         var data = new List<List<object?>>();

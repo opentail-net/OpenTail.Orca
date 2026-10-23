@@ -12,11 +12,13 @@ namespace OpenTail.Modules.Sql;
 /// "Config": { "Provider": "sqlserver", "ConnectionString": "Server=db1;Database=crm;User Id=agent_ro;Encrypt=true" },
 /// "Credentials": { "password": { "Env": "CRM_DB_PASSWORD", "Kind": "Secret" } }
 /// </code>
-/// Providers: <c>sqlite</c> (built in), <c>sqlserver</c>, <c>postgres</c>, <c>mysql</c> (the deployment references the driver package),
+/// Providers: <c>sqlite</c> (built in), <c>sqlserver</c>, <c>postgres</c>, <c>mysql</c>, <c>snowflake</c> (the deployment references the driver package),
 /// or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
 /// the <c>password</c> credential, or the whole string from the <c>connection</c> credential, both read when a tool runs.
 /// With <c>AllowWrites</c> on a server database, write and delete use a second login: <c>Config.WriteConnectionString</c> with the
 /// <c>write-password</c> credential, or the <c>write-connection</c> credential. <c>SharedLoginForWrites: true</c> opts out.
+/// Snowflake is read-only (no AllowWrites); a service user signs in with a key pair, the <c>private-key</c> credential (PEM text)
+/// and optionally <c>private-key-password</c>. Queries get a LIMIT and a query tag, since every query costs warehouse time.
 /// </summary>
 public sealed class SqlModuleFactory : IHostModuleFactory
 {
@@ -27,12 +29,16 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         ["sqlserver"] = ("Microsoft.Data.SqlClient.SqlClientFactory, Microsoft.Data.SqlClient", "Microsoft.Data.SqlClient"),
         ["postgres"] = ("Npgsql.NpgsqlFactory, Npgsql", "Npgsql"),
         ["mysql"] = ("MySqlConnector.MySqlConnectorFactory, MySqlConnector", "MySqlConnector"),
+        ["snowflake"] = ("Snowflake.Data.Client.SnowflakeDbFactory, Snowflake.Data", "Snowflake.Data"),
     };
 
     public ModuleManifest Describe(string id, System.Text.Json.JsonElement config)
     {
         var writes = config.ValueKind == System.Text.Json.JsonValueKind.Object
             && config.EnumerateObject().Any(p => p.Name.Equals("AllowWrites", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.True);
+        var snowflake = config.ValueKind == System.Text.Json.JsonValueKind.Object
+            && config.EnumerateObject().Any(p => p.Name.Equals("Provider", StringComparison.OrdinalIgnoreCase)
+                && p.Value.ValueKind == System.Text.Json.JsonValueKind.String && p.Value.GetString()!.Equals("snowflake", StringComparison.OrdinalIgnoreCase));
         return new()
         {
             Id = id,
@@ -45,6 +51,8 @@ public sealed class SqlModuleFactory : IHostModuleFactory
                 new CredentialRequirement("connection", CredentialKind.Secret, "The whole connection string, instead of Config.ConnectionString") { Optional = true },
                 new CredentialRequirement("write-password", CredentialKind.Secret, "Password of the write login, added to Config.WriteConnectionString") { Optional = true },
                 new CredentialRequirement("write-connection", CredentialKind.Secret, "The write login's whole connection string, instead of Config.WriteConnectionString") { Optional = true },
+                new CredentialRequirement("private-key", CredentialKind.Secret, "Snowflake: the service user's private key (PEM text), for key-pair sign-in") { Optional = true },
+                new CredentialRequirement("private-key-password", CredentialKind.Secret, "Snowflake: the passphrase of an encrypted private key") { Optional = true },
             ],
             Notes =
             [
@@ -52,6 +60,10 @@ public sealed class SqlModuleFactory : IHostModuleFactory
                 "Database traffic does not go through the Host's HTTP guard; the database server is whatever the connection string names.",
                 "Row values count as outside content (they taint the caller) unless ContentIsUntrusted is false.",
                 writes ? "write (INSERT/UPDATE) is Write risk, which taint does not hold: queue it. delete is Destructive." : "Writes are off (AllowWrites false).",
+                .. (snowflake
+                    ? new[] { "Snowflake: every query runs on a warehouse and costs credits. Give the role its own X-Small warehouse with auto-suspend, " +
+                        "STATEMENT_TIMEOUT_IN_SECONDS and a resource monitor; queries get a LIMIT and the tag opentail:<action id>." }
+                    : []),
             ],
             SuggestedPolicyJson = writes
                 ? $$"""{ "Tools": { "{{id}}.schema": { "Mode": "Execute" }, "{{id}}.query": { "Mode": "Execute" }, "{{id}}.write": { "Mode": "Queue" }, "{{id}}.delete": { "Mode": "Queue" } } }"""
@@ -66,6 +78,9 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         if (!hasConnection && string.IsNullOrWhiteSpace(c.ConnectionString))
             throw new ArgumentException("Config.ConnectionString is required (or map the 'connection' credential).");
         var sqlite = string.Equals(c.Provider, "sqlite", StringComparison.OrdinalIgnoreCase);
+        var snowflake = string.Equals(c.Provider, "snowflake", StringComparison.OrdinalIgnoreCase) && c.ProviderFactory is not { Length: > 0 };
+        if (snowflake && c.AllowWrites)
+            throw new ArgumentException("Snowflake is read-only in this module: remove AllowWrites. Loading data into a warehouse is a job for ETL tools.");
         var factory = sqlite ? SqliteFactory.Instance : ResolveProvider(c);
 
         if (!hasConnection && ContainsSecret(factory, c.ConnectionString!))
@@ -93,6 +108,13 @@ public sealed class SqlModuleFactory : IHostModuleFactory
             var b = factory.CreateConnectionStringBuilder() ?? new DbConnectionStringBuilder();
             b.ConnectionString = whole ? (await credentials.GetAsync(connectionName, token)).Secret : configured;
             if (!whole && credentials.Names.Contains(passwordName)) b["Password"] = (await credentials.GetAsync(passwordName, token)).Secret;
+            if (!whole && snowflake && credentials.Names.Contains("private-key"))
+            {
+                // Set through the builder, which quotes the PEM text; the driver parses it back with the same builder.
+                if (!b.ContainsKey("authenticator")) b["authenticator"] = "snowflake_jwt";
+                b["private_key"] = (await credentials.GetAsync("private-key", token)).Secret;
+                if (credentials.Names.Contains("private-key-password")) b["private_key_pwd"] = (await credentials.GetAsync("private-key-password", token)).Secret;
+            }
             if (b is SqliteConnectionStringBuilder s)
             {
                 if (!Path.IsPathRooted(s.DataSource) && s.DataSource != ":memory:") s.DataSource = Path.GetFullPath(Path.Combine(baseDirectory, s.DataSource));
@@ -114,6 +136,9 @@ public sealed class SqlModuleFactory : IHostModuleFactory
             WriteConnectionFactoryAsync = token => OpenAsync(true, token),
             Dialect = dialect,
             ReadOnlyQueryTransaction = c.ReadOnlyQueryTransaction ?? dialect is SqlDialect.Postgres or SqlDialect.MySql,
+            AddRowLimit = c.AddRowLimit ?? dialect is SqlDialect.Snowflake,
+            PositionalParameters = dialect is SqlDialect.Snowflake,
+            TagQueries = dialect is SqlDialect.Snowflake,
             AllowWrites = c.AllowWrites,
             MaxRows = c.MaxRows,
             MaxCellChars = c.MaxCellChars,
@@ -132,6 +157,7 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         "sqlserver" => SqlDialect.SqlServer,
         "postgres" => SqlDialect.Postgres,
         "mysql" => SqlDialect.MySql,
+        "snowflake" => SqlDialect.Snowflake,
         _ => SqlDialect.Unknown,
     };
 
@@ -152,7 +178,7 @@ public sealed class SqlModuleFactory : IHostModuleFactory
     {
         var b = factory.CreateConnectionStringBuilder() ?? new DbConnectionStringBuilder();
         b.ConnectionString = connectionString;
-        return new[] { "Password", "Pwd" }.Any(k => b.TryGetValue(k, out var v) && v is string s && s.Length > 0);
+        return new[] { "Password", "Pwd", "Private_Key", "Private_Key_Pwd", "Token", "ProxyPassword" }.Any(k => b.TryGetValue(k, out var v) && v is string s && s.Length > 0);
     }
 
     private sealed class Config
@@ -164,6 +190,7 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         public string? WriteConnectionString { get; init; }
         public bool SharedLoginForWrites { get; init; }
         public bool? ReadOnlyQueryTransaction { get; init; }
+        public bool? AddRowLimit { get; init; }
         public int MaxRows { get; init; } = 200;
         public int MaxCellChars { get; init; } = 2000;
         public int CommandTimeoutSeconds { get; init; } = 15;

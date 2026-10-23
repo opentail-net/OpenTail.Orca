@@ -8,7 +8,7 @@ public enum SqlKind { Select, Insert, Update, Delete }
 /// The database's SQL dialect, for the quoting and comment rules <see cref="SqlGuard"/> must know. <see cref="Unknown"/> (a custom
 /// provider factory) applies every dialect's refusals.
 /// </summary>
-public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql }
+public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake }
 
 /// <summary>
 /// Best-effort statement classification. This is a seatbelt, not the security boundary: the boundary is a
@@ -18,8 +18,9 @@ public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql }
 /// <remarks>
 /// The guard does not try to be a full lexer for each dialect. Quoting or comments it cannot model safely are refused instead
 /// (fail closed): Postgres dollar quotes and <c>E'...'</c> strings, backslashes inside literals on Postgres and MySQL, MySQL
-/// <c>#</c> comments, <c>/*!</c> executable comments and <c>--</c> without a following space, nested block comments, and
-/// unterminated literals or comments. The model can rewrite a query without them, using parameters for values.
+/// <c>#</c> comments, <c>/*!</c> executable comments and <c>--</c> without a following space, Snowflake <c>//</c> comments and
+/// <c>$</c> (dollar quotes, <c>$1</c> columns, session variables, <c>SYSTEM$</c> functions), backslashes inside Snowflake literals,
+/// nested block comments, and unterminated literals or comments. The model can rewrite a query without them, using parameters for values.
 /// </remarks>
 public static class SqlGuard
 {
@@ -86,7 +87,9 @@ public static class SqlGuard
     {
         var postgres = dialect is SqlDialect.Postgres or SqlDialect.Unknown;
         var mysql = dialect is SqlDialect.MySql or SqlDialect.Unknown;
-        var backslashEscapes = postgres || mysql;
+        var snowflake = dialect is SqlDialect.Snowflake or SqlDialect.Unknown;
+        var backslashEscapes = postgres || mysql || snowflake;
+        var brackets = dialect is not SqlDialect.Snowflake; // [ ] is element access in Snowflake, not quoting
 
         var tokens = new List<string>();
         var word = new StringBuilder();
@@ -108,8 +111,16 @@ public static class SqlGuard
                 continue;
             }
             if (c == '"') { Flush(); i = Skip(sql, i, '"', mysql); continue; } // a string in MySQL, an identifier elsewhere
-            if (c == '[') { Flush(); i = Skip(sql, i, ']', false); continue; }
-            if (c == '`') { Flush(); i = Skip(sql, i, '`', false); continue; }
+            if (c == '[' && brackets)
+            {
+                Flush();
+                var close = Skip(sql, i, ']', false);
+                // Snowflake reads [ ] as element access, so a semicolon inside would end the statement there.
+                if (snowflake && sql.IndexOf(';', i, close - i) >= 0) throw new ArgumentException("';' is not allowed inside [ ].");
+                i = close;
+                continue;
+            }
+            if (c == '`' && brackets) { Flush(); i = Skip(sql, i, '`', false); continue; }
             if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
             {
                 // MySQL starts a comment only at "-- " followed by whitespace; "--x" is two minus signs and the rest runs.
@@ -120,7 +131,9 @@ public static class SqlGuard
                 continue;
             }
             if (c == '#' && mysql) throw new ArgumentException("'#' comments are not allowed; use '-- '.");
-            if (c == '$' && postgres) throw new ArgumentException("'$' is not allowed (dollar quotes or $n parameters); use @name parameters.");
+            if (c == '$' && (postgres || snowflake))
+                throw new ArgumentException("'$' is not allowed (dollar quotes, $n parameters, variables or SYSTEM$ functions); use @name parameters.");
+            if (c == '/' && snowflake && i + 1 < sql.Length && sql[i + 1] == '/') throw new ArgumentException("'//' comments are not allowed; use '-- '.");
             if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
             {
                 if (mysql && i + 2 < sql.Length && (sql[i + 2] == '!' || (sql[i + 2] == 'M' && i + 3 < sql.Length && sql[i + 3] == '!')))
@@ -140,6 +153,62 @@ public static class SqlGuard
         }
         Flush();
         return tokens;
+    }
+
+    /// <summary>
+    /// For drivers that bind by position (Snowflake): each <c>@name</c> outside quotes and comments becomes <c>?</c>, and
+    /// <paramref name="names"/> lists the names in the order they appear (a name used twice is bound twice). Call it only on a
+    /// statement <see cref="Classify(string, SqlDialect)"/> accepted for <see cref="SqlDialect.Snowflake"/>.
+    /// </summary>
+    public static string ToPositional(string sql, out List<string> names)
+    {
+        var found = new List<string>();
+        var result = new StringBuilder(sql.Length);
+        var last = 0;
+        Walk(sql, (start, length, _) =>
+        {
+            if (start == 0 || sql[start - 1] != '@') return;
+            result.Append(sql, last, start - 1 - last).Append('?');
+            found.Add(sql.Substring(start, length));
+            last = start + length;
+        });
+        names = found;
+        return result.Append(sql, last, sql.Length - last).ToString();
+    }
+
+    /// <summary>
+    /// Whether the statement already limits its rows: LIMIT, FETCH or TOP outside parentheses, quotes and comments. Call it only
+    /// on a statement <see cref="Classify(string, SqlDialect)"/> accepted for <see cref="SqlDialect.Snowflake"/>.
+    /// </summary>
+    public static bool HasOuterLimit(string sql)
+    {
+        var limited = false;
+        Walk(sql, (start, length, depth) =>
+        {
+            if (depth == 0 && sql.Substring(start, length).ToUpperInvariant() is "LIMIT" or "FETCH" or "TOP") limited = true;
+        });
+        return limited;
+    }
+
+    /// <summary>Words with their parenthesis depth, skipping Snowflake's quotes and comments.</summary>
+    private static void Walk(string sql, Action<int, int, int> word)
+    {
+        var depth = 0;
+        var start = -1;
+        void Flush(int end) { if (start >= 0) { word(start, end - start, depth); start = -1; } }
+
+        for (var i = 0; i < sql.Length; i++)
+        {
+            var c = sql[i];
+            if (char.IsLetterOrDigit(c) || c == '_') { if (start < 0) start = i; continue; }
+            Flush(i);
+            if (c is '\'' or '"') i = Skip(sql, i, c, false);
+            else if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-') { while (i < sql.Length && sql[i] != '\n') i++; }
+            else if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*') i = sql.IndexOf("*/", i + 2, StringComparison.Ordinal) + 1;
+            else if (c == '(') depth++;
+            else if (c == ')') depth--;
+        }
+        Flush(sql.Length);
     }
 
     /// <summary>
