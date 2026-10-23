@@ -186,3 +186,33 @@ public sealed class MongoServerTests : IAsyncLifetime
                                        && c["pipeline"].AsBsonArray.Last().AsBsonDocument.Contains("$limit"));
     }
 }
+
+/// <summary>The factory's refusals; no server needed (and they keep this project from running zero tests without one).</summary>
+public sealed class MongoFactoryTests
+{
+    private static Task<ModuleLoadResult> Load(string config) => ModuleLoader.LoadAsync(
+        ModulesConfig.Parse($$"""{ "Modules": [ { "Type": "mongodb", "Id": "m", "Config": {{config}} } ] }""", null), ModuleLoadMode.Describe);
+
+    [Fact]
+    public async Task A_password_in_the_connection_string_is_refused_without_echoing_it()
+    {
+        var e = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Load("""{ "ConnectionString": "mongodb://agent:hunter2@db1/sales", "Collections": [ "orders" ] }"""));
+        Assert.Contains("must not contain a password", e.Message);
+        Assert.DoesNotContain("hunter2", e.Message);
+    }
+
+    [Fact]
+    public async Task Collections_must_be_listed_and_never_system_ones()
+    {
+        var none = await Assert.ThrowsAsync<InvalidOperationException>(() => Load("""{ "ConnectionString": "mongodb://agent@db1/sales" }"""));
+        Assert.Contains("Collections", none.Message);
+        var system = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            Load("""{ "ConnectionString": "mongodb://agent@db1/sales", "Collections": [ "system.users" ] }"""));
+        Assert.Contains("system collection", system.Message);
+    }
+
+    [Fact]
+    public async Task A_valid_configuration_loads_without_connecting()
+        => Assert.NotNull(await Load("""{ "ConnectionString": "mongodb://agent@db1/sales", "Database": "sales", "Collections": [ "orders" ] }"""));
+}

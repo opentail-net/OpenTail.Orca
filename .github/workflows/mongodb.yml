@@ -38,7 +38,9 @@ jobs:
           MONGO_INITDB_ROOT_USERNAME: root
           MONGO_INITDB_ROOT_PASSWORD: Ci_Admin_Pass_1234x
         ports: [ '27017:27017' ]
-        options: --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'" --health-interval 5s --health-timeout 5s --health-retries 30
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 5s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@v4
 
