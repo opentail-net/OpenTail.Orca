@@ -30,6 +30,12 @@ public sealed record SqlProvider
     /// <summary>The driver's factory, for providers whose package references the driver.</summary>
     public DbProviderFactory? Factory { get; init; }
 
+    /// <summary>
+    /// Or a factory made per module instance, for drivers that call HTTP through the Host's guarded client
+    /// (<see cref="ModuleContext.Http"/>, limited to the module's <c>Network.Hosts</c>).
+    /// </summary>
+    public Func<ModuleContext, DbProviderFactory>? CreateFactory { get; init; }
+
     /// <summary>Otherwise the factory's assembly-qualified type name, resolved when the module starts (it needs a static <c>Instance</c>).</summary>
     public string? FactoryType { get; init; }
 
@@ -156,5 +162,6 @@ public static class SqlProviders
     internal static readonly Dictionary<string, (string TypeName, string Package)> AddOns = new(StringComparer.OrdinalIgnoreCase)
     {
         ["oracle"] = ("OpenTail.Modules.Sql.Oracle.OracleSqlProvider, OpenTail.Modules.Sql.Oracle", "OpenTail.Modules.Sql.Oracle"),
+        ["databricks"] = ("OpenTail.Modules.Sql.Databricks.DatabricksSqlProvider, OpenTail.Modules.Sql.Databricks", "OpenTail.Modules.Sql.Databricks"),
     };
 }

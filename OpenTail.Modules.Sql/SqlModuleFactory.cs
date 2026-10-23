@@ -14,7 +14,7 @@ namespace OpenTail.Modules.Sql;
 /// </code>
 /// Providers: <c>sqlite</c> (built in); <c>sqlserver</c> (also Microsoft Fabric and Azure Synapse), <c>postgres</c>, <c>redshift</c>,
 /// <c>mysql</c>, <c>snowflake</c> (the deployment references the driver package); <c>oracle</c> (the deployment references
-/// <c>OpenTail.Modules.Sql.Oracle</c>); or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
+/// <c>OpenTail.Modules.Sql.Oracle</c>), <c>databricks</c> (<c>OpenTail.Modules.Sql.Databricks</c>); or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
 /// the <c>password</c> credential, or the whole string from the <c>connection</c> credential, both read when a tool runs.
 /// With <c>AllowWrites</c> on a server database, write and delete use a second login: <c>Config.WriteConnectionString</c> with the
 /// <c>write-password</c> credential, or the <c>write-connection</c> credential. <c>SharedLoginForWrites: true</c> opts out.
@@ -73,7 +73,7 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         var provider = sqlite ? null : ResolveProvider(c);
         if (provider is { ReadOnly: true } && c.AllowWrites)
             throw new ArgumentException($"{provider.Name} is read-only in this module: remove AllowWrites. Loading data into a warehouse is a job for ETL tools.");
-        var factory = provider is null ? SqliteFactory.Instance : FactoryOf(provider);
+        var factory = provider is null ? SqliteFactory.Instance : FactoryOf(provider, context);
         var snowflake = provider == SqlProviders.Snowflake;
 
         if (!hasConnection && ContainsSecret(factory, c.ConnectionString!))
@@ -161,8 +161,9 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         return System.Type.GetType(addOn.TypeName, throwOnError: false)?.GetField("Provider", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as SqlProvider;
     }
 
-    private static DbProviderFactory FactoryOf(SqlProvider provider)
+    private static DbProviderFactory FactoryOf(SqlProvider provider, ModuleContext context)
     {
+        if (provider.CreateFactory is { } create) return create(context);
         if (provider.Factory is { } factory) return factory;
         var typeName = provider.FactoryType ?? throw new ArgumentException($"Provider '{provider.Name}' names no driver.");
         var hint = provider.Package is { } package ? "package " + package : "the package that contains it";

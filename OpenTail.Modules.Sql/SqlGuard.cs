@@ -8,7 +8,7 @@ public enum SqlKind { Select, Insert, Update, Delete }
 /// The database's SQL dialect, for the quoting and comment rules <see cref="SqlGuard"/> must know. <see cref="Unknown"/> (a custom
 /// provider factory) applies every dialect's refusals.
 /// </summary>
-public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake, Oracle }
+public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake, Oracle, Databricks }
 
 /// <summary>
 /// Best-effort statement classification. This is a seatbelt, not the security boundary: the boundary is a
@@ -20,8 +20,9 @@ public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake,
 /// (fail closed): Postgres dollar quotes and <c>E'...'</c> strings, backslashes inside literals on Postgres and MySQL, MySQL
 /// <c>#</c> comments, <c>/*!</c> executable comments and <c>--</c> without a following space, Snowflake <c>//</c> comments and
 /// <c>$</c> (dollar quotes, <c>$1</c> columns, session variables, <c>SYSTEM$</c> functions), backslashes inside Snowflake literals,
-/// Oracle <c>q'...'</c> alternative quoting, nested block comments, and unterminated literals or comments. On Oracle it also
-/// refuses <c>DBMS_</c> and <c>UTL_</c> packages (network calls, pipes, jobs), the way it refuses <c>xp_</c> and <c>sp_</c>. The model can rewrite a query without them, using parameters for values.
+/// Oracle <c>q'...'</c> alternative quoting, Databricks <c>r'...'</c> raw strings, nested block comments, and unterminated literals or comments. On Oracle it also
+/// refuses <c>DBMS_</c> and <c>UTL_</c> packages (network calls, pipes, jobs), the way it refuses <c>xp_</c> and <c>sp_</c>; on
+/// Databricks, <c>http_request</c> and <c>read_files</c>, which reach URLs and files past the table grants. The model can rewrite a query without them, using parameters for values.
 /// </remarks>
 public static class SqlGuard
 {
@@ -31,6 +32,8 @@ public static class SqlGuard
         "PRAGMA", "VACUUM", "REINDEX", "OPENROWSET", "OPENQUERY", "OPENDATASOURCE", "BULK", "LOAD_EXTENSION", "SHUTDOWN",
         "KILL", "BACKUP", "RESTORE", "DBCC", "COPY", "CALL", "DO",
     };
+
+    private static readonly HashSet<string> DatabricksNever = new(StringComparer.OrdinalIgnoreCase) { "http_request", "read_files", "cloud_files" };
 
     private static readonly HashSet<string> AlsoNeverInSelect = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -46,6 +49,9 @@ public static class SqlGuard
         if (string.IsNullOrWhiteSpace(sql)) throw new ArgumentException("An SQL statement is required.");
         if (sql.Length > 8000) throw new ArgumentException("The statement is longer than 8000 characters.");
 
+        // Spark substitutes ${var} in the statement text before parsing it, inside string literals too.
+        if (dialect is SqlDialect.Databricks or SqlDialect.Unknown && sql.Contains("${", StringComparison.Ordinal))
+            throw new ArgumentException("'${...}' substitution is not allowed; pass values as @name parameters.");
         var tokens = Tokenise(sql, dialect, out var semicolons);
         if (tokens.Count == 0) throw new ArgumentException("The statement is empty.");
         if (semicolons > 0) throw new ArgumentException("Only one statement is allowed, without a trailing semicolon chain.");
@@ -58,6 +64,8 @@ public static class SqlGuard
             if (dialect is SqlDialect.Oracle or SqlDialect.Unknown
                 && (t.StartsWith("DBMS_", StringComparison.OrdinalIgnoreCase) || t.StartsWith("UTL_", StringComparison.OrdinalIgnoreCase)))
                 throw new ArgumentException("Oracle DBMS_ and UTL_ packages are not allowed.");
+            if (dialect is SqlDialect.Databricks or SqlDialect.Unknown && DatabricksNever.Contains(t))
+                throw new ArgumentException($"'{t.ToLowerInvariant()}' is not allowed: it reads URLs or files outside the granted tables.");
         }
 
         var first = tokens[0].ToUpperInvariant();
@@ -92,9 +100,13 @@ public static class SqlGuard
         var postgres = dialect is SqlDialect.Postgres or SqlDialect.Unknown;
         var mysql = dialect is SqlDialect.MySql or SqlDialect.Unknown;
         var snowflake = dialect is SqlDialect.Snowflake or SqlDialect.Unknown;
-        var backslashEscapes = postgres || mysql || snowflake;
         var oracle = dialect is SqlDialect.Oracle or SqlDialect.Unknown;
-        var brackets = dialect is not (SqlDialect.Snowflake or SqlDialect.Oracle); // [ ] is element access in Snowflake, not quoting
+        var databricks = dialect is SqlDialect.Databricks or SqlDialect.Unknown;
+        var backslashEscapes = postgres || mysql || snowflake || databricks;
+        // [ ] is element access in Snowflake and Databricks, not quoting; backticks quote identifiers in MySQL and Databricks.
+        var brackets = dialect is not (SqlDialect.Snowflake or SqlDialect.Oracle or SqlDialect.Databricks);
+        var backticks = dialect is not (SqlDialect.Snowflake or SqlDialect.Oracle);
+        var doubleQuoteStrings = mysql || databricks; // "..." is a string there, so backslashes inside it are escapes
 
         var tokens = new List<string>();
         var word = new StringBuilder();
@@ -113,11 +125,19 @@ public static class SqlGuard
                     throw new ArgumentException("E'...' escape strings are not allowed; pass the value as a parameter.");
                 if (oracle && word.ToString().ToUpperInvariant() is "Q" or "NQ")
                     throw new ArgumentException("q'...' quoting is not allowed; pass the value as a parameter.");
+                if (databricks && word.ToString() is "r" or "R")
+                    throw new ArgumentException("r'...' raw strings are not allowed; pass the value as a parameter.");
                 Flush();
                 i = Skip(sql, i, '\'', backslashEscapes);
                 continue;
             }
-            if (c == '"') { Flush(); i = Skip(sql, i, '"', mysql); continue; } // a string in MySQL, an identifier elsewhere
+            if (c == '"')
+            {
+                if (databricks && word.ToString() is "r" or "R") throw new ArgumentException("r\"...\" raw strings are not allowed; pass the value as a parameter.");
+                Flush();
+                i = Skip(sql, i, '"', doubleQuoteStrings); // a string in MySQL and Databricks, an identifier elsewhere
+                continue;
+            }
             if (c == '[' && brackets)
             {
                 Flush();
@@ -127,7 +147,7 @@ public static class SqlGuard
                 i = close;
                 continue;
             }
-            if (c == '`' && brackets) { Flush(); i = Skip(sql, i, '`', false); continue; }
+            if (c == '`' && backticks) { Flush(); i = Skip(sql, i, '`', false); continue; }
             if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
             {
                 // MySQL starts a comment only at "-- " followed by whitespace; "--x" is two minus signs and the rest runs.
@@ -138,7 +158,7 @@ public static class SqlGuard
                 continue;
             }
             if (c == '#' && mysql) throw new ArgumentException("'#' comments are not allowed; use '-- '.");
-            if (c == '$' && (postgres || snowflake))
+            if (c == '$' && (postgres || snowflake || databricks))
                 throw new ArgumentException("'$' is not allowed (dollar quotes, $n parameters, variables or SYSTEM$ functions); use @name parameters.");
             if (c == '/' && snowflake && i + 1 < sql.Length && sql[i + 1] == '/') throw new ArgumentException("'//' comments are not allowed; use '-- '.");
             if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
@@ -198,7 +218,7 @@ public static class SqlGuard
         return limited;
     }
 
-    /// <summary>Words with their parenthesis depth, skipping '...' and "..." quotes and -- and /* */ comments.</summary>
+    /// <summary>Words with their parenthesis depth, skipping '...', "..." and `...` quotes and -- and /* */ comments.</summary>
     private static void Walk(string sql, Action<int, int, int> word)
     {
         var depth = 0;
@@ -210,7 +230,7 @@ public static class SqlGuard
             var c = sql[i];
             if (char.IsLetterOrDigit(c) || c == '_') { if (start < 0) start = i; continue; }
             Flush(i);
-            if (c is '\'' or '"') i = Skip(sql, i, c, false);
+            if (c is '\'' or '"' or '`') i = Skip(sql, i, c, false);
             else if (c == '-' && i + 1 < sql.Length && sql[i + 1] == '-') { while (i < sql.Length && sql[i] != '\n') i++; }
             else if (c == '/' && i + 1 < sql.Length && sql[i + 1] == '*') i = sql.IndexOf("*/", i + 2, StringComparison.Ordinal) + 1;
             else if (c == '(') depth++;

@@ -22,6 +22,7 @@
     <ProjectReference Include="..\OpenTail.Modules.Csv\OpenTail.Modules.Csv.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Skills\OpenTail.Modules.Skills.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Sql.Databricks\OpenTail.Modules.Sql.Databricks.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Web\OpenTail.Modules.Web.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Email\OpenTail.Modules.Email.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Files\OpenTail.Modules.Files.csproj" />

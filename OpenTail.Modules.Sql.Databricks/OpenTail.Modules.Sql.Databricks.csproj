@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Sql.Databricks</PackageId>
+    <Description>OpenTail Host: Databricks SQL warehouses for the Sql module ("Provider": "databricks"), through the SQL Statement Execution API over the Host's guarded HTTP client. No driver: a small ADO.NET adapter, :name parameters, LIMIT, query tags, server-side cancel. Read-only.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
+    <Using Include="OpenTail.Host.Abstractions" />
+  </ItemGroup>
+</Project>
