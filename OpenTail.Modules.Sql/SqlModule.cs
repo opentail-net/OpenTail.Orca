@@ -22,7 +22,7 @@ public sealed class SqlModuleOptions
         TagQueries = provider.TagQueries;
         TagStatement = provider.TagStatement;
         PrepareCommand = provider.PrepareCommand;
-        RetryQueryOnce = provider.RetryQueryOnce;
+        RetryQueryOn = provider.RetryQueryOn;
         SchemaQuery = provider.SchemaQuery;
     }
 
@@ -60,8 +60,11 @@ public sealed class SqlModuleOptions
     /// <summary>Called on every command the module creates (Oracle turns on name binding).</summary>
     public Action<DbCommand>? PrepareCommand { get; init; }
 
-    /// <summary>Errors after which a query is run once more, in a new connection and transaction (Oracle's ORA-01466).</summary>
-    public Func<DbException, bool>? RetryQueryOnce { get; init; }
+    /// <summary>
+    /// Errors after which a query is run again in a new connection and transaction, up to twice, after 1 s and then 3 s (Oracle's
+    /// ORA-01466, which clears only once the table's change is a few seconds old).
+    /// </summary>
+    public Func<DbException, bool>? RetryQueryOn { get; init; }
 
     /// <summary>What operators see about this instance (set by factories). Default: a minimal manifest.</summary>
     public ModuleManifest? Manifest { get; init; }
@@ -267,13 +270,18 @@ public sealed class SqlModule : IHostModule
         // On a new line, so a trailing -- comment cannot swallow it; the guard has already allowed at most a trailing semicolon.
         if (options.AddRowLimit && !SqlGuard.HasOuterLimit(sql))
             sql = sql.TrimEnd().TrimEnd(';') + "\n" + string.Format(CultureInfo.InvariantCulture, options.RowLimitClause, options.MaxRows + 1);
-        try { return await RunQueryAsync(sql, parameters, arguments, ct); }
-        catch (DbException ex) when (options.RetryQueryOnce?.Invoke(ex) == true)
+        foreach (var wait in RetryWaits)
         {
-            await Task.Delay(TimeSpan.FromMilliseconds(500), ct);
-            return await RunQueryAsync(sql, parameters, arguments, ct);
+            try { return await RunQueryAsync(sql, parameters, arguments, ct); }
+            catch (DbException ex) when (options.RetryQueryOn?.Invoke(ex) == true)
+            {
+                await Task.Delay(wait, ct);
+            }
         }
+        return await RunQueryAsync(sql, parameters, arguments, ct);
     }
+
+    private static readonly TimeSpan[] RetryWaits = [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)];
 
     private async Task<object> RunQueryAsync(string sql, Dictionary<string, JsonElement>? parameters, AIFunctionArguments? arguments, CancellationToken ct)
     {

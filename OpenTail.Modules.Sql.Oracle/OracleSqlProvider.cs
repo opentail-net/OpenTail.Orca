@@ -34,8 +34,9 @@ public static class OracleSqlProvider
         ReadOnlyStatement = "SET TRANSACTION READ ONLY",
         ReadOnlyStatementInTransaction = true,
         // ORA-01466: the read-only transaction's snapshot predates a change to a table's definition (a table just created,
-        // truncated or rebuilt by a load job). A new transaction sees the new definition.
-        RetryQueryOnce = e => e is OracleException { Number: 1466 },
+        // truncated or rebuilt by a load job). A new transaction a few seconds later sees the new definition: Oracle maps change
+        // numbers to time coarsely, so one started within about three seconds of the change can still fail.
+        RetryQueryOn = e => e is OracleException { Number: 1466 },
         AddRowLimit = true,
         RowLimitClause = "FETCH FIRST {0} ROWS ONLY",
         SchemaQuery = SchemaQuery,

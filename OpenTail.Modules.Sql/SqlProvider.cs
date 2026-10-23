@@ -65,8 +65,8 @@ public sealed record SqlProvider
     /// <summary>Called on every command the module creates, before parameters are added.</summary>
     public Action<DbCommand>? PrepareCommand { get; init; }
 
-    /// <summary>Errors after which a query is run once more, in a new connection and transaction. Null: none.</summary>
-    public Func<DbException, bool>? RetryQueryOnce { get; init; }
+    /// <summary>Errors after which a query is run again in a new connection and transaction (up to twice, after 1 s and 3 s). Null: none.</summary>
+    public Func<DbException, bool>? RetryQueryOn { get; init; }
 
     /// <summary>Called on every connection string the module builds, after credentials are added.</summary>
     public Action<DbConnectionStringBuilder>? PrepareConnection { get; init; }
