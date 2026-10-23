@@ -33,6 +33,9 @@ public static class OracleSqlProvider
         // Must open the transaction; ODP.NET commits each statement outside an explicit one.
         ReadOnlyStatement = "SET TRANSACTION READ ONLY",
         ReadOnlyStatementInTransaction = true,
+        // ORA-01466: the read-only transaction's snapshot predates a change to a table's definition (a table just created,
+        // truncated or rebuilt by a load job). A new transaction sees the new definition.
+        RetryQueryOnce = e => e is OracleException { Number: 1466 },
         AddRowLimit = true,
         RowLimitClause = "FETCH FIRST {0} ROWS ONLY",
         SchemaQuery = SchemaQuery,

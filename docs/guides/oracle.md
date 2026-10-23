@@ -5,8 +5,8 @@ package brings Oracle's driver (`Oracle.ManagedDataAccess.Core`) and Oracle's se
 module, because the guard is one parser and must know every dialect it protects.
 
 **State: Verified** against Oracle Database Free 23ai in the `sql-servers` workflow (a read login and a write login), 2026-10-23.
-One earlier run failed the parameterised read-login query once, without the database error being recorded; it has not
-recurred. Watch for it. Oracle 12c or later is required.
+An intermittent failure in CI was ORA-01466 (see troubleshooting); the provider now retries that once. Oracle 12c or later
+is required.
 
 ## What the agent gets
 
@@ -77,3 +77,4 @@ and run `OpenTail.Host.Tests.SqlServers`. Oracle Cloud's Always Free Autonomous 
 | ORA-00942 (table or view does not exist) | The user has no grant on the table, or the name needs the schema (`sales.orders`) or a synonym. |
 | ORA-01008 (not all variables bound) | The query uses a `:name` written by hand; use `@name` with a value in parameters. |
 | ORA-00933 near `FETCH` | The database is older than 12c. |
+| ORA-01466 (table definition has changed) | A table was created, truncated or rebuilt just as the read-only transaction started. The provider retries such a query once in a new transaction; a second failure means the table is still changing. |
