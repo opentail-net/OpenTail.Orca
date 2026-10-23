@@ -31,7 +31,6 @@
     <Project Path="OpenTail.Modules.Sql/OpenTail.Modules.Sql.csproj" />
     <Project Path="OpenTail.Modules.Sql.Oracle/OpenTail.Modules.Sql.Oracle.csproj" />
     <Project Path="OpenTail.Modules.Sql.Databricks/OpenTail.Modules.Sql.Databricks.csproj" />
-    <Project Path="OpenTail.Modules.MongoDb/OpenTail.Modules.MongoDb.csproj" />
     <Project Path="OpenTail.Modules.Web/OpenTail.Modules.Web.csproj" />
   </Folder>
   <Folder Name="/Profiles/">
@@ -52,6 +51,5 @@
     <Project Path="OpenTail.Host.Tests.Worker/OpenTail.Host.Tests.Worker.csproj" />
     <Project Path="OpenTail.Host.Tests.SqlServers/OpenTail.Host.Tests.SqlServers.csproj" />
     <Project Path="OpenTail.Host.Tests.Snowflake/OpenTail.Host.Tests.Snowflake.csproj" />
-    <Project Path="OpenTail.Host.Tests.MongoDb/OpenTail.Host.Tests.MongoDb.csproj" />
   </Folder>
 </Solution>
