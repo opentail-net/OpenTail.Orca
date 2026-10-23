@@ -47,7 +47,7 @@ public class ArchitectureTests
             var (projects, _) = Refs(csproj);
             var self = Path.GetFileNameWithoutExtension(csproj);
             // Connectivity.* are leaf connector projects (none reference Core), so modules may wrap them. Provider packages
-            // (Email.Imap, Calendar.Ics, Microsoft365) may also reference the provider-neutral tool modules, which reference no module.
+            // (Email.Imap, Calendar.Ics, Microsoft365, Sql.Oracle) may also reference the provider-neutral tool modules, which reference no module.
             var illegal = projects.Where(p => p != "OpenTail.Host.Abstractions" && !p.StartsWith("OpenTail.Connectivity.", StringComparison.Ordinal)
                 && !(ToolModules.Contains(p) && !ToolModules.Contains(self))).ToList();
             Assert.True(illegal.Count == 0,
@@ -57,7 +57,7 @@ public class ArchitectureTests
     }
 
     /// <summary>Modules that hold tools over an adapter interface and are completed by a provider package.</summary>
-    private static readonly string[] ToolModules = ["OpenTail.Modules.Email", "OpenTail.Modules.Calendar"];
+    private static readonly string[] ToolModules = ["OpenTail.Modules.Email", "OpenTail.Modules.Calendar", "OpenTail.Modules.Sql"];
 
     [Fact]
     public void Profile_packages_hold_no_code_and_reference_only_the_openapi_module()

@@ -117,13 +117,13 @@ public abstract class SqlServerTests : IAsyncLifetime
         RequireServer();
         var host = Host();
         var schema = await host.Queue.SubmitAsync(Req.Call("sql.schema", "{\"table\":\"customers_t\"}"));
-        Assert.Equal(ActionStatus.Succeeded, schema.Status);
+        Assert.True(schema.Status == ActionStatus.Succeeded, schema.Error?.Message);
         Assert.Contains("customers_t", schema.ResultJson, StringComparison.OrdinalIgnoreCase); // Oracle upper-cases names
         Assert.Contains("city", schema.ResultJson, StringComparison.OrdinalIgnoreCase);
 
         var q = await host.Queue.SubmitAsync(Req.Call("sql.query",
             "{\"sql\":\"SELECT name FROM customers_t WHERE city = @city ORDER BY name\",\"parameters\":{\"city\":\"London\"}}"));
-        Assert.Equal(ActionStatus.Succeeded, q.Status);
+        Assert.True(q.Status == ActionStatus.Succeeded, q.Error?.Message);
         Assert.Contains("Ada", q.ResultJson);
         Assert.Contains("Cy", q.ResultJson);
         Assert.DoesNotContain("Bob", q.ResultJson);
@@ -177,7 +177,7 @@ public abstract class SqlServerTests : IAsyncLifetime
         RequireServer();
         var host = Host();
         var q = await host.Queue.SubmitAsync(Req.Call("sql.query", System.Text.Json.JsonSerializer.Serialize(new { sql = ValuesQuery })));
-        Assert.Equal(ActionStatus.Succeeded, q.Status);
+        Assert.True(q.Status == ActionStatus.Succeeded, q.Error?.Message);
         Assert.Contains("12.5", q.ResultJson);
         Assert.Contains("2026-01-02", q.ResultJson);
     }
