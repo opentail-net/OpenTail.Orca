@@ -4,6 +4,8 @@ using MySqlConnector;
 using Npgsql;
 using OpenTail.Host.Abstractions;
 using OpenTail.Modules.Sql;
+using OpenTail.Modules.Sql.Oracle;
+using Oracle.ManagedDataAccess.Client;
 using Xunit;
 
 namespace OpenTail.Host.Tests.SqlServers;
@@ -22,8 +24,12 @@ internal static class Req
 public abstract class SqlServerTests : IAsyncLifetime
 {
     protected abstract string Env { get; }
-    protected abstract SqlDialect Dialect { get; }
+    protected abstract SqlProvider Provider { get; }
+    protected SqlDialect Dialect => Provider.Dialect;
     protected abstract DbConnection Create(string connectionString);
+
+    /// <summary>A decimal 12.50, the date 2026-01-02 and a null, in this database's SQL.</summary>
+    protected virtual string ValuesQuery => "SELECT CAST(12.50 AS DECIMAL(10,2)) AS d, CAST('2026-01-02' AS DATE) AS dt, NULL AS n";
 
     /// <summary>The guard bypasses for this dialect (the same strings as <c>SqlGuardTests</c>); each hides a DELETE on <c>accounts</c>.</summary>
     public abstract IReadOnlyList<string> Bypasses { get; }
@@ -72,13 +78,11 @@ public abstract class SqlServerTests : IAsyncLifetime
     }
 
     private OpenTailHost Host() => new OpenTailHostBuilder()
-        .AddModule(new SqlModule(new SqlModuleOptions
+        .AddModule(new SqlModule(new SqlModuleOptions(Provider)
         {
             ConnectionFactory = () => Create(ReadCs!),
             WriteConnectionFactory = () => Create(WriteCs!),
-            Dialect = Dialect,
             AllowWrites = true,
-            ReadOnlyQueryTransaction = Dialect is SqlDialect.Postgres or SqlDialect.MySql,
         }))
         .UsePolicy(PolicyConfig.Parse("""
             { "DefaultReadMode": "Execute", "Tools": { "sql.write": { "Mode": "Queue" }, "sql.delete": { "Mode": "Queue" } } }
@@ -114,8 +118,8 @@ public abstract class SqlServerTests : IAsyncLifetime
         var host = Host();
         var schema = await host.Queue.SubmitAsync(Req.Call("sql.schema", "{\"table\":\"customers_t\"}"));
         Assert.Equal(ActionStatus.Succeeded, schema.Status);
-        Assert.Contains("customers_t", schema.ResultJson);
-        Assert.Contains("city", schema.ResultJson);
+        Assert.Contains("customers_t", schema.ResultJson, StringComparison.OrdinalIgnoreCase); // Oracle upper-cases names
+        Assert.Contains("city", schema.ResultJson, StringComparison.OrdinalIgnoreCase);
 
         var q = await host.Queue.SubmitAsync(Req.Call("sql.query",
             "{\"sql\":\"SELECT name FROM customers_t WHERE city = @city ORDER BY name\",\"parameters\":{\"city\":\"London\"}}"));
@@ -172,8 +176,7 @@ public abstract class SqlServerTests : IAsyncLifetime
     {
         RequireServer();
         var host = Host();
-        var q = await host.Queue.SubmitAsync(Req.Call("sql.query",
-            "{\"sql\":\"SELECT CAST(12.50 AS DECIMAL(10,2)) AS d, CAST('2026-01-02' AS DATE) AS dt, NULL AS n\"}"));
+        var q = await host.Queue.SubmitAsync(Req.Call("sql.query", System.Text.Json.JsonSerializer.Serialize(new { sql = ValuesQuery })));
         Assert.Equal(ActionStatus.Succeeded, q.Status);
         Assert.Contains("12.5", q.ResultJson);
         Assert.Contains("2026-01-02", q.ResultJson);
@@ -183,7 +186,7 @@ public abstract class SqlServerTests : IAsyncLifetime
 public sealed class SqlServerProviderTests : SqlServerTests
 {
     protected override string Env => "SQLSERVER";
-    protected override SqlDialect Dialect => SqlDialect.SqlServer;
+    protected override SqlProvider Provider => SqlProviders.SqlServer;
     protected override DbConnection Create(string connectionString) => new SqlConnection(connectionString);
 
     public override IReadOnlyList<string> Bypasses =>
@@ -196,7 +199,7 @@ public sealed class SqlServerProviderTests : SqlServerTests
 public sealed class PostgresProviderTests : SqlServerTests
 {
     protected override string Env => "POSTGRES";
-    protected override SqlDialect Dialect => SqlDialect.Postgres;
+    protected override SqlProvider Provider => SqlProviders.Postgres;
     protected override DbConnection Create(string connectionString) => new NpgsqlConnection(connectionString);
 
     public override IReadOnlyList<string> Bypasses =>
@@ -212,7 +215,7 @@ public sealed class PostgresProviderTests : SqlServerTests
 public sealed class MySqlProviderTests : SqlServerTests
 {
     protected override string Env => "MYSQL";
-    protected override SqlDialect Dialect => SqlDialect.MySql;
+    protected override SqlProvider Provider => SqlProviders.MySql;
     protected override DbConnection Create(string connectionString) => new MySqlConnection(connectionString);
 
     public override IReadOnlyList<string> Bypasses =>
@@ -223,5 +226,21 @@ public sealed class MySqlProviderTests : SqlServerTests
         "SELECT 1 /*! ; DELETE FROM accounts WHERE 1=1 */",
         "SELECT 1 /*M! ; DELETE FROM accounts WHERE 1=1 */",
         "SELECT 1 --;DELETE FROM accounts WHERE 1=1",
+    ];
+}
+
+/// <summary>Oracle 23ai (Oracle Database Free): DROP TABLE IF EXISTS, multi-row VALUES and SELECT without FROM need 23ai.</summary>
+public sealed class OracleProviderTests : SqlServerTests
+{
+    protected override string Env => "ORACLE";
+    protected override SqlProvider Provider => OracleSqlProvider.Provider;
+    protected override DbConnection Create(string connectionString) => new OracleConnection(connectionString);
+    protected override string ValuesQuery => "SELECT CAST(12.50 AS NUMBER(10,2)) AS d, DATE '2026-01-02' AS dt, NULL AS n FROM dual";
+
+    public override IReadOnlyList<string> Bypasses =>
+    [
+        "SELECT q'[ ' ]' ; DELETE FROM accounts WHERE 1=1; SELECT ' ' FROM dual",
+        "SELECT nq'< ' >' ; DELETE FROM accounts WHERE 1=1; SELECT ' ' FROM dual",
+        "SELECT UTL_HTTP.REQUEST('http://127.0.0.1:9') FROM dual",
     ];
 }

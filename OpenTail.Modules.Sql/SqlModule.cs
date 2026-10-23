@@ -7,6 +7,24 @@ namespace OpenTail.Modules.Sql;
 
 public sealed class SqlModuleOptions
 {
+    public SqlModuleOptions() { }
+
+    /// <summary>Options with a provider's defaults: dialect, parameter style, read-only statement, row limit, tagging.</summary>
+    public SqlModuleOptions(SqlProvider provider)
+    {
+        Dialect = provider.Dialect;
+        ParameterStyle = provider.ParameterStyle;
+        ReadOnlyQueryTransaction = provider.ReadOnlyStatement is not null;
+        if (provider.ReadOnlyStatement is { } statement) ReadOnlyStatement = statement;
+        ReadOnlyStatementInTransaction = provider.ReadOnlyStatementInTransaction;
+        AddRowLimit = provider.AddRowLimit;
+        RowLimitClause = provider.RowLimitClause;
+        TagQueries = provider.TagQueries;
+        TagStatement = provider.TagStatement;
+        PrepareCommand = provider.PrepareCommand;
+        SchemaQuery = provider.SchemaQuery;
+    }
+
     /// <summary>Opens a new connection per call. Give it a least-privilege (ideally read-only) login.</summary>
     public Func<DbConnection>? ConnectionFactory { get; init; }
 
@@ -27,10 +45,19 @@ public sealed class SqlModuleOptions
     public SqlDialect Dialect { get; init; } = SqlDialect.Unknown;
 
     /// <summary>
-    /// Run each query inside <c>START TRANSACTION READ ONLY</c>, rolled back afterwards (Postgres and MySQL). A second layer
-    /// behind the login; set by the factory for those providers.
+    /// Run each query after <see cref="ReadOnlyStatement"/>, rolled back afterwards (Postgres, MySQL, Redshift, Oracle). A second
+    /// layer behind the login; set by the provider.
     /// </summary>
     public bool ReadOnlyQueryTransaction { get; init; }
+
+    /// <summary>The statement that makes the transaction read-only. Default <c>START TRANSACTION READ ONLY</c>.</summary>
+    public string ReadOnlyStatement { get; init; } = "START TRANSACTION READ ONLY";
+
+    /// <summary>Send <see cref="ReadOnlyStatement"/> inside an ADO.NET transaction, as its first statement (Oracle).</summary>
+    public bool ReadOnlyStatementInTransaction { get; init; }
+
+    /// <summary>Called on every command the module creates (Oracle turns on name binding).</summary>
+    public Action<DbCommand>? PrepareCommand { get; init; }
 
     /// <summary>What operators see about this instance (set by factories). Default: a minimal manifest.</summary>
     public ModuleManifest? Manifest { get; init; }
@@ -41,19 +68,25 @@ public sealed class SqlModuleOptions
     public int MaxRows { get; init; } = 200;
 
     /// <summary>
-    /// Append <c>LIMIT</c> (<see cref="MaxRows"/> + 1) to a query with no LIMIT, FETCH or TOP outside parentheses, so a warehouse
-    /// that bills by compute does not produce rows nobody reads. Set by the factory for Snowflake.
+    /// Append <see cref="RowLimitClause"/> (<see cref="MaxRows"/> + 1 rows) to a query with no LIMIT, FETCH or TOP outside
+    /// parentheses, so a warehouse that bills by compute does not produce rows nobody reads. Set by the provider.
     /// </summary>
     public bool AddRowLimit { get; init; }
 
-    /// <summary>The driver binds by position (Snowflake): <c>@name</c> is sent as <c>?</c>, with the values in order.</summary>
-    public bool PositionalParameters { get; init; }
+    /// <summary>The clause <see cref="AddRowLimit"/> appends; <c>{0}</c> is the row count. Default <c>LIMIT {0}</c>.</summary>
+    public string RowLimitClause { get; init; } = "LIMIT {0}";
+
+    /// <summary>How the driver binds parameters; the model writes <c>@name</c> either way.</summary>
+    public SqlParameterStyle ParameterStyle { get; init; }
 
     /// <summary>
     /// Set the command's <c>QueryTag</c> property, where the driver has one (Snowflake), to <c>opentail:</c> and the action id,
     /// so every query can be found in the database's own history.
     /// </summary>
     public bool TagQueries { get; init; }
+
+    /// <summary>A statement run before each schema and query call to tag it, <c>{0}</c> being the tag (Redshift). Null: none.</summary>
+    public string? TagStatement { get; init; }
 
     public int MaxCellChars { get; init; } = 2000;
     public int CommandTimeoutSeconds { get; init; } = 15;
@@ -114,6 +147,12 @@ public sealed class SqlModuleOptions
     public const string SqliteSchemaQuery =
         "SELECT 'main' AS table_schema, m.name AS table_name, p.name AS column_name, p.type AS data_type " +
         "FROM sqlite_master m JOIN pragma_table_info(m.name) p WHERE m.type='table' ORDER BY m.name, p.cid";
+
+    /// <summary>Redshift: like Postgres, without its internal schemas.</summary>
+    public const string RedshiftSchemaQuery =
+        "SELECT table_schema AS table_schema, table_name AS table_name, column_name AS column_name, data_type AS data_type " +
+        "FROM information_schema.columns WHERE table_schema NOT IN ('pg_catalog', 'information_schema', 'pg_internal', 'pg_automv') " +
+        "ORDER BY table_schema, table_name, ordinal_position";
 
     /// <summary>Snowflake: the connection's database. Quoted aliases, because Snowflake upper-cases unquoted names.</summary>
     public const string SnowflakeSchemaQuery =
@@ -182,6 +221,7 @@ public sealed class SqlModule : IHostModule
         CancellationToken ct = default)
     {
         await using var conn = await OpenAsync(ct);
+        await TagAsync(conn, arguments, ct);
         await using var cmd = Command(conn, options.SchemaQuery ?? SqlModuleOptions.SchemaQueryFor(options.Dialect), null, null, arguments);
         await using var reader = await cmd.ExecuteReaderAsync(CommandBehavior.SequentialAccess, ct);
         var cols = Enumerable.Range(0, reader.FieldCount).Select(reader.GetName).ToList();
@@ -222,12 +262,25 @@ public sealed class SqlModule : IHostModule
         if (SqlGuard.Classify(sql, options.Dialect) != SqlKind.Select) throw new ArgumentException("sql.query only runs SELECT statements.");
         // On a new line, so a trailing -- comment cannot swallow it; the guard has already allowed at most a trailing semicolon.
         if (options.AddRowLimit && !SqlGuard.HasOuterLimit(sql))
-            sql = sql.TrimEnd().TrimEnd(';') + "\nLIMIT " + (options.MaxRows + 1).ToString(CultureInfo.InvariantCulture);
+            sql = sql.TrimEnd().TrimEnd(';') + "\n" + string.Format(CultureInfo.InvariantCulture, options.RowLimitClause, options.MaxRows + 1);
         await using var conn = await OpenAsync(ct);
+        await TagAsync(conn, arguments, ct);
         if (!options.ReadOnlyQueryTransaction) return Wrap(await ReadAsync(conn, sql, parameters, null, arguments, ct));
 
+        if (options.ReadOnlyStatementInTransaction)
+        {
+            await using var tx = await conn.BeginTransactionAsync(ct);
+            await RunAsync(conn, options.ReadOnlyStatement, ct, tx);
+            try { return Wrap(await ReadAsync(conn, sql, parameters, tx, arguments, ct)); }
+            finally
+            {
+                try { await tx.RollbackAsync(CancellationToken.None); }
+                catch (DbException) { } // the connection is disposed next, which ends the transaction anyway
+            }
+        }
+
         // Raw statements, not BeginTransaction: ADO.NET has no portable read-only transaction.
-        await RunAsync(conn, "START TRANSACTION READ ONLY", ct);
+        await RunAsync(conn, options.ReadOnlyStatement, ct);
         try { return Wrap(await ReadAsync(conn, sql, parameters, null, arguments, ct)); }
         finally
         {
@@ -235,6 +288,16 @@ public sealed class SqlModule : IHostModule
             catch (DbException) { } // the connection is disposed next, which ends the transaction anyway
         }
     }
+
+    /// <summary>Runs <see cref="SqlModuleOptions.TagStatement"/> with <c>opentail:&lt;action id&gt;</c>, when both are there.</summary>
+    private async Task TagAsync(DbConnection conn, AIFunctionArguments? arguments, CancellationToken ct)
+    {
+        if (options.TagStatement is { } statement && ActionTag(arguments) is { } tag)
+            await RunAsync(conn, string.Format(CultureInfo.InvariantCulture, statement, tag.Replace("'", "''", StringComparison.Ordinal)), ct);
+    }
+
+    private static string? ActionTag(AIFunctionArguments? arguments) =>
+        arguments?.Context?.TryGetValue(HostContract.ActionIdContextKey, out var id) == true && id is string actionId ? "opentail:" + actionId : null;
 
     private Task<object> WriteAsync(
         [Description("A single INSERT or UPDATE statement.")] string sql,
@@ -272,38 +335,42 @@ public sealed class SqlModule : IHostModule
         return conn;
     }
 
-    private async Task RunAsync(DbConnection conn, string sql, CancellationToken ct)
+    private async Task RunAsync(DbConnection conn, string sql, CancellationToken ct, DbTransaction? tx = null)
     {
         await using var cmd = conn.CreateCommand();
+        options.PrepareCommand?.Invoke(cmd);
         cmd.CommandText = sql;
         cmd.CommandTimeout = options.CommandTimeoutSeconds;
+        cmd.Transaction = tx;
         await cmd.ExecuteNonQueryAsync(ct);
     }
 
     private DbCommand Command(DbConnection conn, string sql, Dictionary<string, JsonElement>? parameters, DbTransaction? tx, AIFunctionArguments? arguments = null)
     {
         var cmd = conn.CreateCommand();
+        options.PrepareCommand?.Invoke(cmd);
         cmd.CommandTimeout = options.CommandTimeoutSeconds;
         cmd.Transaction = tx;
-        if (options.TagQueries && arguments?.Context?.TryGetValue(HostContract.ActionIdContextKey, out var id) == true && id is string actionId)
-            cmd.GetType().GetProperty("QueryTag", typeof(string))?.SetValue(cmd, "opentail:" + actionId);
+        if (options.TagQueries && ActionTag(arguments) is { } tag) cmd.GetType().GetProperty("QueryTag", typeof(string))?.SetValue(cmd, tag);
         foreach (var name in parameters?.Keys ?? Enumerable.Empty<string>())
             if (!name.All(c => char.IsLetterOrDigit(c) || c == '_')) throw new ArgumentException($"Bad parameter name: {name}");
 
-        if (!options.PositionalParameters)
+        // The guard allowed at most a trailing semicolon; some drivers (Oracle) refuse even that.
+        sql = sql.TrimEnd().TrimEnd(';');
+        if (options.ParameterStyle == SqlParameterStyle.AtName)
         {
             cmd.CommandText = sql;
             foreach (var (name, value) in parameters ?? new Dictionary<string, JsonElement>()) Bind(cmd, "@" + name, name, value);
             return cmd;
         }
 
-        cmd.CommandText = SqlGuard.ToPositional(sql, out var order);
-        for (var i = 0; i < order.Count; i++)
-        {
-            var key = parameters?.Keys.FirstOrDefault(k => k.Equals(order[i], StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"@{order[i]} has no value in parameters.");
-            Bind(cmd, (i + 1).ToString(CultureInfo.InvariantCulture), key, parameters![key]);
-        }
+        cmd.CommandText = SqlGuard.RewriteParameters(sql, options.ParameterStyle, out var order);
+        string Key(string name) => parameters?.Keys.FirstOrDefault(k => k.Equals(name, StringComparison.OrdinalIgnoreCase))
+            ?? throw new ArgumentException($"@{name} has no value in parameters.");
+        if (options.ParameterStyle == SqlParameterStyle.Positional)
+            for (var i = 0; i < order.Count; i++) Bind(cmd, (i + 1).ToString(CultureInfo.InvariantCulture), order[i], parameters![Key(order[i])]);
+        else
+            foreach (var name in order.Distinct(StringComparer.OrdinalIgnoreCase)) Bind(cmd, name, name, parameters![Key(name)]);
         return cmd;
     }
 

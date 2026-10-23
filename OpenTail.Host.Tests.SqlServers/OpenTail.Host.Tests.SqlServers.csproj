@@ -4,7 +4,7 @@
     <OutputType>Exe</OutputType>
     <UseMicrosoftTestingPlatform>true</UseMicrosoftTestingPlatform>
     <NoWarn>$(NoWarn);xUnit1051;xUnit1031</NoWarn>
-    <Description>The Sql module against real SQL Server, Postgres and MySQL servers. Each server's tests skip unless its OTAIL_SQL_*_READ
+    <Description>The Sql module against real SQL Server, Postgres, MySQL and Oracle servers. Each server's tests skip unless its OTAIL_SQL_*_READ
       and OTAIL_SQL_*_WRITE connection strings are set; the sql-servers workflow starts the servers and sets them.</Description>
   </PropertyGroup>
   <ItemGroup>
@@ -19,5 +19,6 @@
     <PackageReference Include="MySqlConnector" />
     <ProjectReference Include="..\OpenTail.Host\OpenTail.Host.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Sql.Oracle\OpenTail.Modules.Sql.Oracle.csproj" />
   </ItemGroup>
 </Project>

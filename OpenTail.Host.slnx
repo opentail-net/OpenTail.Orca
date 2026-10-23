@@ -29,6 +29,7 @@
     <Project Path="OpenTail.Modules.Storage/OpenTail.Modules.Storage.csproj" />
     <Project Path="OpenTail.Modules.Social/OpenTail.Modules.Social.csproj" />
     <Project Path="OpenTail.Modules.Sql/OpenTail.Modules.Sql.csproj" />
+    <Project Path="OpenTail.Modules.Sql.Oracle/OpenTail.Modules.Sql.Oracle.csproj" />
     <Project Path="OpenTail.Modules.Web/OpenTail.Modules.Web.csproj" />
   </Folder>
   <Folder Name="/Profiles/">

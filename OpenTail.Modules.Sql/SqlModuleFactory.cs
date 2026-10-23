@@ -12,8 +12,9 @@ namespace OpenTail.Modules.Sql;
 /// "Config": { "Provider": "sqlserver", "ConnectionString": "Server=db1;Database=crm;User Id=agent_ro;Encrypt=true" },
 /// "Credentials": { "password": { "Env": "CRM_DB_PASSWORD", "Kind": "Secret" } }
 /// </code>
-/// Providers: <c>sqlite</c> (built in), <c>sqlserver</c>, <c>postgres</c>, <c>mysql</c>, <c>snowflake</c> (the deployment references the driver package),
-/// or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
+/// Providers: <c>sqlite</c> (built in); <c>sqlserver</c> (also Microsoft Fabric and Azure Synapse), <c>postgres</c>, <c>redshift</c>,
+/// <c>mysql</c>, <c>snowflake</c> (the deployment references the driver package); <c>oracle</c> (the deployment references
+/// <c>OpenTail.Modules.Sql.Oracle</c>); or <c>ProviderFactory</c> naming any <see cref="DbProviderFactory"/> type. The connection string holds no secret: the password comes from
 /// the <c>password</c> credential, or the whole string from the <c>connection</c> credential, both read when a tool runs.
 /// With <c>AllowWrites</c> on a server database, write and delete use a second login: <c>Config.WriteConnectionString</c> with the
 /// <c>write-password</c> credential, or the <c>write-connection</c> credential. <c>SharedLoginForWrites: true</c> opts out.
@@ -24,21 +25,15 @@ public sealed class SqlModuleFactory : IHostModuleFactory
 {
     public string Type => "sql";
 
-    private static readonly Dictionary<string, (string TypeName, string Package)> Providers = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ["sqlserver"] = ("Microsoft.Data.SqlClient.SqlClientFactory, Microsoft.Data.SqlClient", "Microsoft.Data.SqlClient"),
-        ["postgres"] = ("Npgsql.NpgsqlFactory, Npgsql", "Npgsql"),
-        ["mysql"] = ("MySqlConnector.MySqlConnectorFactory, MySqlConnector", "MySqlConnector"),
-        ["snowflake"] = ("Snowflake.Data.Client.SnowflakeDbFactory, Snowflake.Data", "Snowflake.Data"),
-    };
-
     public ModuleManifest Describe(string id, System.Text.Json.JsonElement config)
     {
         var writes = config.ValueKind == System.Text.Json.JsonValueKind.Object
             && config.EnumerateObject().Any(p => p.Name.Equals("AllowWrites", StringComparison.OrdinalIgnoreCase) && p.Value.ValueKind == System.Text.Json.JsonValueKind.True);
-        var snowflake = config.ValueKind == System.Text.Json.JsonValueKind.Object
-            && config.EnumerateObject().Any(p => p.Name.Equals("Provider", StringComparison.OrdinalIgnoreCase)
-                && p.Value.ValueKind == System.Text.Json.JsonValueKind.String && p.Value.GetString()!.Equals("snowflake", StringComparison.OrdinalIgnoreCase));
+        var name = config.ValueKind == System.Text.Json.JsonValueKind.Object
+            ? config.EnumerateObject().FirstOrDefault(p => p.Name.Equals("Provider", StringComparison.OrdinalIgnoreCase)) is { Value.ValueKind: System.Text.Json.JsonValueKind.String } p
+                ? p.Value.GetString() : null
+            : null;
+        IReadOnlyList<string> providerNotes = name is null ? [] : TryFind(name)?.Notes ?? [];
         return new()
         {
             Id = id,
@@ -60,10 +55,7 @@ public sealed class SqlModuleFactory : IHostModuleFactory
                 "Database traffic does not go through the Host's HTTP guard; the database server is whatever the connection string names.",
                 "Row values count as outside content (they taint the caller) unless ContentIsUntrusted is false.",
                 writes ? "write (INSERT/UPDATE) is Write risk, which taint does not hold: queue it. delete is Destructive." : "Writes are off (AllowWrites false).",
-                .. (snowflake
-                    ? new[] { "Snowflake: every query runs on a warehouse and costs credits. Give the role its own X-Small warehouse with auto-suspend, " +
-                        "STATEMENT_TIMEOUT_IN_SECONDS and a resource monitor; queries get a LIMIT and the tag opentail:<action id>." }
-                    : []),
+                .. providerNotes,
             ],
             SuggestedPolicyJson = writes
                 ? $$"""{ "Tools": { "{{id}}.schema": { "Mode": "Execute" }, "{{id}}.query": { "Mode": "Execute" }, "{{id}}.write": { "Mode": "Queue" }, "{{id}}.delete": { "Mode": "Queue" } } }"""
@@ -77,11 +69,12 @@ public sealed class SqlModuleFactory : IHostModuleFactory
         var hasConnection = context.Credentials.Names.Contains("connection");
         if (!hasConnection && string.IsNullOrWhiteSpace(c.ConnectionString))
             throw new ArgumentException("Config.ConnectionString is required (or map the 'connection' credential).");
-        var sqlite = string.Equals(c.Provider, "sqlite", StringComparison.OrdinalIgnoreCase);
-        var snowflake = string.Equals(c.Provider, "snowflake", StringComparison.OrdinalIgnoreCase) && c.ProviderFactory is not { Length: > 0 };
-        if (snowflake && c.AllowWrites)
-            throw new ArgumentException("Snowflake is read-only in this module: remove AllowWrites. Loading data into a warehouse is a job for ETL tools.");
-        var factory = sqlite ? SqliteFactory.Instance : ResolveProvider(c);
+        var sqlite = string.Equals(c.Provider, "sqlite", StringComparison.OrdinalIgnoreCase) && c.ProviderFactory is not { Length: > 0 };
+        var provider = sqlite ? null : ResolveProvider(c);
+        if (provider is { ReadOnly: true } && c.AllowWrites)
+            throw new ArgumentException($"{provider.Name} is read-only in this module: remove AllowWrites. Loading data into a warehouse is a job for ETL tools.");
+        var factory = provider is null ? SqliteFactory.Instance : FactoryOf(provider);
+        var snowflake = provider == SqlProviders.Snowflake;
 
         if (!hasConnection && ContainsSecret(factory, c.ConnectionString!))
             throw new ArgumentException("Config.ConnectionString must not contain a password; map the 'password' credential instead.");
@@ -115,6 +108,7 @@ public sealed class SqlModuleFactory : IHostModuleFactory
                 b["private_key"] = (await credentials.GetAsync("private-key", token)).Secret;
                 if (credentials.Names.Contains("private-key-password")) b["private_key_pwd"] = (await credentials.GetAsync("private-key-password", token)).Secret;
             }
+            provider?.PrepareConnection?.Invoke(b);
             if (b is SqliteConnectionStringBuilder s)
             {
                 if (!Path.IsPathRooted(s.DataSource) && s.DataSource != ":memory:") s.DataSource = Path.GetFullPath(Path.Combine(baseDirectory, s.DataSource));
@@ -126,48 +120,52 @@ public sealed class SqlModuleFactory : IHostModuleFactory
             return conn;
         }
 
-        var dialect = sqlite ? SqlDialect.Sqlite : DialectOf(c);
-
-        IHostModule module = new SqlModule(new SqlModuleOptions
+        var defaults = provider ?? new SqlProvider { Name = "sqlite", Dialect = SqlDialect.Sqlite };
+        IHostModule module = new SqlModule(new SqlModuleOptions(defaults)
         {
             Name = context.Id,
             Manifest = Describe(context.Id, context.Config),
             ConnectionFactoryAsync = token => OpenAsync(false, token),
             WriteConnectionFactoryAsync = token => OpenAsync(true, token),
-            Dialect = dialect,
-            ReadOnlyQueryTransaction = c.ReadOnlyQueryTransaction ?? dialect is SqlDialect.Postgres or SqlDialect.MySql,
-            AddRowLimit = c.AddRowLimit ?? dialect is SqlDialect.Snowflake,
-            PositionalParameters = dialect is SqlDialect.Snowflake,
-            TagQueries = dialect is SqlDialect.Snowflake,
+            ReadOnlyQueryTransaction = c.ReadOnlyQueryTransaction ?? defaults.ReadOnlyStatement is not null,
+            AddRowLimit = c.AddRowLimit ?? defaults.AddRowLimit,
             AllowWrites = c.AllowWrites,
             MaxRows = c.MaxRows,
             MaxCellChars = c.MaxCellChars,
             CommandTimeoutSeconds = c.CommandTimeoutSeconds,
             PreviewByRollback = c.PreviewByRollback,
             ContentIsUntrusted = c.ContentIsUntrusted,
-            SchemaQuery = c.SchemaQuery,
+            SchemaQuery = c.SchemaQuery ?? defaults.SchemaQuery,
             MaxSchemaRows = c.MaxSchemaRows,
             Schemas = c.Schemas,
         });
         return ValueTask.FromResult(module);
     }
 
-    private static SqlDialect DialectOf(Config c) => c.ProviderFactory is { Length: > 0 } ? SqlDialect.Unknown : c.Provider?.ToLowerInvariant() switch
+    /// <summary>The named provider, a custom ProviderFactory (every dialect's refusals), or an error naming what to reference.</summary>
+    private static SqlProvider ResolveProvider(Config c)
     {
-        "sqlserver" => SqlDialect.SqlServer,
-        "postgres" => SqlDialect.Postgres,
-        "mysql" => SqlDialect.MySql,
-        "snowflake" => SqlDialect.Snowflake,
-        _ => SqlDialect.Unknown,
-    };
+        if (c.ProviderFactory is { Length: > 0 } custom) return new SqlProvider { Name = "custom", Dialect = SqlDialect.Unknown, FactoryType = custom };
+        if (c.Provider is { } name && SqlProviders.BuiltIn.TryGetValue(name, out var builtIn)) return builtIn;
+        if (c.Provider is { } addOnName && SqlProviders.AddOns.TryGetValue(addOnName, out var addOn))
+            return TryFind(addOnName) ?? throw new ArgumentException($"Provider '{addOnName}' was not found: reference package {addOn.Package} in the deployment.");
+        throw new ArgumentException(
+            $"Config.Provider must be sqlite, {string.Join(", ", SqlProviders.BuiltIn.Keys.Concat(SqlProviders.AddOns.Keys))}, or set ProviderFactory.");
+    }
 
-    private static DbProviderFactory ResolveProvider(Config c)
+    /// <summary>A built-in provider, or an add-on's when its package is loaded.</summary>
+    private static SqlProvider? TryFind(string name)
     {
-        string typeName, hint;
-        if (c.ProviderFactory is { Length: > 0 } custom) (typeName, hint) = (custom, "the package that contains it");
-        else if (c.Provider is { } p && Providers.TryGetValue(p, out var known)) (typeName, hint) = (known.TypeName, "package " + known.Package);
-        else throw new ArgumentException($"Config.Provider must be sqlite, {string.Join(", ", Providers.Keys)}, or set ProviderFactory.");
+        if (SqlProviders.BuiltIn.TryGetValue(name, out var builtIn)) return builtIn;
+        if (!SqlProviders.AddOns.TryGetValue(name, out var addOn)) return null;
+        return System.Type.GetType(addOn.TypeName, throwOnError: false)?.GetField("Provider", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as SqlProvider;
+    }
 
+    private static DbProviderFactory FactoryOf(SqlProvider provider)
+    {
+        if (provider.Factory is { } factory) return factory;
+        var typeName = provider.FactoryType ?? throw new ArgumentException($"Provider '{provider.Name}' names no driver.");
+        var hint = provider.Package is { } package ? "package " + package : "the package that contains it";
         var type = System.Type.GetType(typeName, throwOnError: false)
             ?? throw new ArgumentException($"Provider type '{typeName}' was not found: reference {hint} in the deployment.");
         var instance = type.GetField("Instance", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as DbProviderFactory;

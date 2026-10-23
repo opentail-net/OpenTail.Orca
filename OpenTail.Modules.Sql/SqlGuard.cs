@@ -8,7 +8,7 @@ public enum SqlKind { Select, Insert, Update, Delete }
 /// The database's SQL dialect, for the quoting and comment rules <see cref="SqlGuard"/> must know. <see cref="Unknown"/> (a custom
 /// provider factory) applies every dialect's refusals.
 /// </summary>
-public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake }
+public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake, Oracle }
 
 /// <summary>
 /// Best-effort statement classification. This is a seatbelt, not the security boundary: the boundary is a
@@ -20,7 +20,8 @@ public enum SqlDialect { Unknown, Sqlite, SqlServer, Postgres, MySql, Snowflake 
 /// (fail closed): Postgres dollar quotes and <c>E'...'</c> strings, backslashes inside literals on Postgres and MySQL, MySQL
 /// <c>#</c> comments, <c>/*!</c> executable comments and <c>--</c> without a following space, Snowflake <c>//</c> comments and
 /// <c>$</c> (dollar quotes, <c>$1</c> columns, session variables, <c>SYSTEM$</c> functions), backslashes inside Snowflake literals,
-/// nested block comments, and unterminated literals or comments. The model can rewrite a query without them, using parameters for values.
+/// Oracle <c>q'...'</c> alternative quoting, nested block comments, and unterminated literals or comments. On Oracle it also
+/// refuses <c>DBMS_</c> and <c>UTL_</c> packages (network calls, pipes, jobs), the way it refuses <c>xp_</c> and <c>sp_</c>. The model can rewrite a query without them, using parameters for values.
 /// </remarks>
 public static class SqlGuard
 {
@@ -54,6 +55,9 @@ public static class SqlGuard
             if (Never.Contains(t)) throw new ArgumentException($"'{t.ToUpperInvariant()}' is not allowed.");
             if (t.StartsWith("xp_", StringComparison.OrdinalIgnoreCase) || t.StartsWith("sp_", StringComparison.OrdinalIgnoreCase))
                 throw new ArgumentException("System procedures are not allowed.");
+            if (dialect is SqlDialect.Oracle or SqlDialect.Unknown
+                && (t.StartsWith("DBMS_", StringComparison.OrdinalIgnoreCase) || t.StartsWith("UTL_", StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException("Oracle DBMS_ and UTL_ packages are not allowed.");
         }
 
         var first = tokens[0].ToUpperInvariant();
@@ -89,7 +93,8 @@ public static class SqlGuard
         var mysql = dialect is SqlDialect.MySql or SqlDialect.Unknown;
         var snowflake = dialect is SqlDialect.Snowflake or SqlDialect.Unknown;
         var backslashEscapes = postgres || mysql || snowflake;
-        var brackets = dialect is not SqlDialect.Snowflake; // [ ] is element access in Snowflake, not quoting
+        var oracle = dialect is SqlDialect.Oracle or SqlDialect.Unknown;
+        var brackets = dialect is not (SqlDialect.Snowflake or SqlDialect.Oracle); // [ ] is element access in Snowflake, not quoting
 
         var tokens = new List<string>();
         var word = new StringBuilder();
@@ -106,6 +111,8 @@ public static class SqlGuard
             {
                 if (postgres && word.Length == 1 && word[0] is 'E' or 'e')
                     throw new ArgumentException("E'...' escape strings are not allowed; pass the value as a parameter.");
+                if (oracle && word.ToString().ToUpperInvariant() is "Q" or "NQ")
+                    throw new ArgumentException("q'...' quoting is not allowed; pass the value as a parameter.");
                 Flush();
                 i = Skip(sql, i, '\'', backslashEscapes);
                 continue;
@@ -156,11 +163,12 @@ public static class SqlGuard
     }
 
     /// <summary>
-    /// For drivers that bind by position (Snowflake): each <c>@name</c> outside quotes and comments becomes <c>?</c>, and
-    /// <paramref name="names"/> lists the names in the order they appear (a name used twice is bound twice). Call it only on a
-    /// statement <see cref="Classify(string, SqlDialect)"/> accepted for <see cref="SqlDialect.Snowflake"/>.
+    /// For drivers that do not take <c>@name</c>: each <c>@name</c> outside quotes and comments becomes <c>?</c>
+    /// (<see cref="SqlParameterStyle.Positional"/>) or <c>:name</c> (<see cref="SqlParameterStyle.ColonName"/>), and
+    /// <paramref name="names"/> lists the names in the order they appear (a name used twice appears twice). Call it only on a
+    /// statement <see cref="Classify(string, SqlDialect)"/> accepted, which has refused the quoting this does not model.
     /// </summary>
-    public static string ToPositional(string sql, out List<string> names)
+    public static string RewriteParameters(string sql, SqlParameterStyle style, out List<string> names)
     {
         var found = new List<string>();
         var result = new StringBuilder(sql.Length);
@@ -168,7 +176,7 @@ public static class SqlGuard
         Walk(sql, (start, length, _) =>
         {
             if (start == 0 || sql[start - 1] != '@') return;
-            result.Append(sql, last, start - 1 - last).Append('?');
+            result.Append(sql, last, start - 1 - last).Append(style == SqlParameterStyle.ColonName ? ":" + sql.Substring(start, length) : "?");
             found.Add(sql.Substring(start, length));
             last = start + length;
         });
@@ -178,7 +186,7 @@ public static class SqlGuard
 
     /// <summary>
     /// Whether the statement already limits its rows: LIMIT, FETCH or TOP outside parentheses, quotes and comments. Call it only
-    /// on a statement <see cref="Classify(string, SqlDialect)"/> accepted for <see cref="SqlDialect.Snowflake"/>.
+    /// on a statement <see cref="Classify(string, SqlDialect)"/> accepted.
     /// </summary>
     public static bool HasOuterLimit(string sql)
     {
@@ -190,7 +198,7 @@ public static class SqlGuard
         return limited;
     }
 
-    /// <summary>Words with their parenthesis depth, skipping Snowflake's quotes and comments.</summary>
+    /// <summary>Words with their parenthesis depth, skipping '...' and "..." quotes and -- and /* */ comments.</summary>
     private static void Walk(string sql, Action<int, int, int> word)
     {
         var depth = 0;

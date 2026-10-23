@@ -39,7 +39,7 @@ public class SnowflakeTests
     [Fact]
     public void Named_parameters_become_positional_outside_quotes_and_comments()
     {
-        var sql = SqlGuard.ToPositional("SELECT '@no', \"@no\" FROM t /* @no */ WHERE a = @a AND b = @b OR a2 = @a -- @no", out var names);
+        var sql = SqlGuard.RewriteParameters("SELECT '@no', \"@no\" FROM t /* @no */ WHERE a = @a AND b = @b OR a2 = @a -- @no", SqlParameterStyle.Positional, out var names);
         Assert.Equal("SELECT '@no', \"@no\" FROM t /* @no */ WHERE a = ? AND b = ? OR a2 = ? -- @no", sql);
         Assert.Equal(["a", "b", "a"], names);
     }
@@ -113,20 +113,16 @@ public class SnowflakeTests
     }
 
     private static OpenTailHost Host(List<RecordingCommand> sent) => new OpenTailHostBuilder()
-        .AddModule(new SqlModule(new SqlModuleOptions
+        .AddModule(new SqlModule(new SqlModuleOptions(SqlProviders.Snowflake)
         {
             Name = "wh",
             ConnectionFactory = () => new RecordingConnection(sent),
-            Dialect = SqlDialect.Snowflake,
             MaxRows = 50,
-            AddRowLimit = true,
-            PositionalParameters = true,
-            TagQueries = true,
         }))
         .UsePolicy(PolicyConfig.Parse("""{ "DefaultReadMode": "Execute" }"""))
         .Build();
 
-    private sealed class RecordingConnection(List<RecordingCommand> sent) : DbConnection
+    internal sealed class RecordingConnection(List<RecordingCommand> sent) : DbConnection
     {
         private ConnectionState state;
         [AllowNull] public override string ConnectionString { get; set; } = "";

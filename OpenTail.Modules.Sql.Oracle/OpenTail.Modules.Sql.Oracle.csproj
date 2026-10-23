@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Modules.Sql.Oracle</PackageId>
+    <Description>OpenTail Host: Oracle Database for the Sql module ("Provider": "oracle"). Brings the Oracle driver (Oracle.ManagedDataAccess.Core): name binding, read-only transactions, FETCH FIRST row limits and the schema query. Use a least-privilege login.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
+    <PackageReference Include="Oracle.ManagedDataAccess.Core" />
+  </ItemGroup>
+</Project>
