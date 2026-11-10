@@ -144,6 +144,8 @@ The preview is what the reviewer approves. It is a snapshot: the store may chang
 
 Tests (new): `A_preview_with_a_label_pointing_at_a_missing_version_is_refused_and_names_it`; `A_preview_with_an_incomplete_target_folder_is_refused_not_shown_as_new`; `A_preview_with_a_stale_expectedFrom_is_refused`; `A_label_that_moves_after_the_preview_is_refused_at_execution_and_nothing_is_published`; `A_preview_writes_nothing`.
 
+Mapping of the preview rows to tests. Malformed labels file and damaged label entry: new tests (the publish-path test above is also new). Label at a missing version: the first test above. Incomplete target folder: the second test above. Target unreadable or corrupt: new. `expectedFrom` missing or stale: existing `A_publish_without_expectedFrom_or_with_a_wrong_one_is_refused_at_once` (`SkillsModuleTests.cs:227`), extended to the preview if it does not already call it. Different content: existing `A_version_cannot_be_republished_with_different_content_and_bad_requests_are_refused_at_once` (`:115`). Valid first publication: existing `Publishing_waits_for_approval_then_the_skill_is_served_and_audited` (`:61`), with the preview's wording asserted (new). Valid update or rollback: existing `Rolling_back_is_publishing_an_earlier_version_through_the_same_approval` (`:93`), with the diff asserted (new). Label moves after the preview: existing `Approving_an_old_proposal_after_the_label_moved_publishes_nothing` (`:241`). Read-only preview: the fifth test above.
+
 ## Design
 
 1. **Labels are read as a result, not an exception.** `ReadLabels` returns the valid labels together with problems, each naming the file, the skill and the label where known. Callers decide: `Find` and `Get` report them; publish handles them as below. `LabelledVersion` keeps its signature and throws `ArgumentException` naming `labels.json` when the file, or this skill's entry or label, is damaged.
@@ -200,7 +202,7 @@ Tests (new): `A_preview_with_a_label_pointing_at_a_missing_version_is_refused_an
 
 ## Acceptance
 
-- Every row in the three branch tables has a test or a stated reason it needs none.
+- Every row in the four branch tables (discovery, `skills.get`, publish and preview) has a test, an existing test that covers it, or a stated reason it needs none.
 - The current Host test suite passes before the change starts, and after it, with the new tests included. (The count is in `skills-plan.md`; re-run it, do not copy it.)
 - Discovery returns a warning, never an exception, for every damage listed in the discovery table.
 - A failed publish never moves a label. After a handled failure no temporary file, temporary folder or new version folder remains. After an unhandled failure a new version folder may remain, unlabelled, and so may a temporary folder or `labels.json.tmp`: none is served, and the store check reports each. The tests cover both cases.
