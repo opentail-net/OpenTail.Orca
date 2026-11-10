@@ -400,6 +400,14 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
         return toStore;
     }
 
+    public Task<ActionRecord?> TryCreateAdmittedAuditedAsync(ActionRecord record, IReadOnlyList<Admission> admissions,
+        Func<int, ActionRecord?> refused, Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default)
+    {
+        if (!ActionStateMachine.IsValidInitial(record.Status))
+            throw new InvalidOperationException($"{record.Status} is not a valid initial status.");
+        return Task.FromResult(Create(record, admissions, refused, audit));
+    }
+
     /// <summary>The index of the first admission already at its limit, or -1. Runs inside the caller's transaction.</summary>
     private int FirstRefusal(SqliteConnection c, SqliteTransaction tx, IReadOnlyList<Admission> admissions)
     {
@@ -560,6 +568,15 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
         string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
         Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default) =>
         TransitionCore(id, expected, decide, [], null, audit);
+
+    public Task<ActionRecord?> TransitionAdmittedAuditedAsync(
+        string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
+        IReadOnlyList<Admission> admissions, Func<int, ActionRecord, ActionRecord> refused,
+        Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default) =>
+        TransitionCore(id, expected, current =>
+            ActionStateMachine.CanTransition(expected, next, current.Error?.Retryable ?? false)
+                ? new ActionTransition(next, update(current))
+                : null, admissions, refused, audit);
 
     public Task<ActionRecord?> TryCreateAuditedAsync(ActionRecord record, IReadOnlyList<Admission> admissions,
         Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default)

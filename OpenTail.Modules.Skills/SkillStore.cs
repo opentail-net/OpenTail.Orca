@@ -60,19 +60,47 @@ public sealed partial class SkillStore(string root)
         JsonObject o;
         try { o = JsonNode.Parse(metadataJson) as JsonObject ?? throw new ArgumentException("skill.json must be a JSON object."); }
         catch (JsonException ex) { throw new ArgumentException("skill.json is not valid JSON: " + ex.Message); }
-        string Text(string key) => o[key] is JsonValue v && v.ToString() is { Length: > 0 } s ? s : throw new ArgumentException($"skill.json needs '{key}'.");
-        IReadOnlyList<string> List(string key) => o[key] is JsonArray a ? [.. a.Select(n => n?.ToString() ?? "")] : [];
+        // Each field has the type the format gives it, and a value of another type is refused, not converted: 42 is not a summary.
+        string Text(string key) => o[key] is JsonValue v && v.GetValueKind() == JsonValueKind.String && v.GetValue<string>() is { Length: > 0 } s
+            ? s : throw new ArgumentException($"skill.json needs '{key}', as a non-empty string.");
+        string Optional(string key) => o[key] switch
+        {
+            null => "",
+            JsonValue v when v.GetValueKind() == JsonValueKind.String => v.GetValue<string>(),
+            _ => throw new ArgumentException($"skill.json '{key}', when given, must be a string."),
+        };
+        IReadOnlyList<string> List(string key) => o[key] switch
+        {
+            null => [],
+            JsonArray a => [.. a.Select(n => n is JsonValue v && v.GetValueKind() == JsonValueKind.String
+                ? v.GetValue<string>()
+                : throw new ArgumentException($"skill.json '{key}' must be a list of strings."))],
+            _ => throw new ArgumentException($"skill.json '{key}' must be a list of strings."),
+        };
+        static SkillPolicy PolicyOf(JsonNode? n)
+        {
+            if (n is not JsonObject po) throw new ArgumentException("Each skill policy must be an object with a 'ref'.");
+            if (po["ref"] is not JsonValue r || r.GetValueKind() != JsonValueKind.String || r.GetValue<string>().Length == 0)
+                throw new ArgumentException("A skill policy's 'ref' must be a non-empty string.");
+            var hash = po["hash"];
+            if (hash is not null && !(hash is JsonValue h && h.GetValueKind() == JsonValueKind.String))
+                throw new ArgumentException("A skill policy's 'hash' must be a string, or null.");
+            return new SkillPolicy(r.GetValue<string>(), hash?.GetValue<string>());
+        }
         if (Text("id") != id) throw new ArgumentException($"skill.json names '{Text("id")}', not '{id}'.");
         if (Text("version") != version) throw new ArgumentException($"skill.json is version {Text("version")}, not {version}.");
         // The format is checked, not ignored: a file in a format this Host does not read is refused, at publish and at read.
         if (!(o["format"] is JsonValue f && f.TryGetValue(out int format) && format == SupportedFormat))
             throw new ArgumentException($"skill.json must say \"format\": {SupportedFormat}. This Host reads format {SupportedFormat} only.");
         if (string.IsNullOrWhiteSpace(instructions)) throw new ArgumentException("The instructions (SKILL.md) are empty.");
-        var policies = o["policies"] is JsonArray p
-            ? p.Select(n => new SkillPolicy(n?["ref"]?.ToString() ?? throw new ArgumentException("A policy needs 'ref'."), n?["hash"]?.ToString())).ToList()
-            : [];
+        var policies = o["policies"] switch
+        {
+            null => new List<SkillPolicy>(),
+            JsonArray p => p.Select(PolicyOf).ToList(),
+            _ => throw new ArgumentException("skill.json 'policies' must be a list of objects."),
+        };
         return new SkillVersion(id, version, Text("summary"), List("appliesTo"), List("tools"), policies,
-            o["owner"]?.ToString() ?? "", instructions, metadataJson);
+            Optional("owner"), instructions, metadataJson);
     }
 
     /// <summary>The value of <c>expectedFrom</c> when a label points at no version yet.</summary>

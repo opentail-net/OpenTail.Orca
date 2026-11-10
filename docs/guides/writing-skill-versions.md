@@ -29,6 +29,8 @@ The Host reads these fields:
 
 `format` must be `1`. The Host refuses any other value, and a file with no `format`, both at publish and when a stored version is read. The workbench writes `"format": 1`.
 
+Each field has the type the table gives it: text for `id`, `version`, `summary` and `owner`, a list of text for `appliesTo` and `tools`, and a list of objects for `policies`, each with a text `ref` and a text or `null` `hash`. A value of another type is refused, not converted: `"version": 1` is not `"version": "1"`.
+
 Keep the file exactly as you want it served. Republishing an existing version with different `skill.json` text is refused when the request is made.
 
 ## SKILL.md: plain instructions

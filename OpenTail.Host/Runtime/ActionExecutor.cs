@@ -41,9 +41,10 @@ public sealed class ActionExecutor(
     }
 
     /// <summary>Runs an action already in Executing (execute-mode creation, or just claimed).</summary>
-    internal async Task<ActionRecord> RunClaimedAsync(ActionRecord record, CancellationToken ct)
+    internal async Task<ActionRecord> RunClaimedAsync(ActionRecord record, CancellationToken ct, bool startedWritten = false)
     {
-        await Audit("execution_started", record, null, ct);
+        // A claim writes its own "execution_started" (see ClaimAndRunAsync); an action created already running writes it here.
+        if (!startedWritten) await Audit("execution_started", record, null, ct);
         using var activity = HostTelemetry.Source.StartActivity("action.execute");
         activity?.SetTag("opentail.tool", record.ToolName);
         activity?.SetTag("opentail.module", record.ModuleId);
@@ -199,26 +200,25 @@ public sealed class ActionExecutor(
         {
             if (r.LeaseUntil is { } until && until > now) continue;
 
-            var failed = await store.TransitionAsync(r.Id, ActionStatus.Executing, ActionStatus.Failed,
+            var failed = await AtomicTrail.ChangeAsync(store, audit, r.Id, ActionStatus.Executing, ActionStatus.Failed,
                 x => x with
                 {
                     LeaseUntil = null,
                     Error = new ActionError("interrupted", "The Host stopped while this action was running; the outcome is unknown.", true),
-                }, ct);
+                }, AtomicTrail.Entry("interrupted", null), ct);
             if (failed is null) continue;
             interrupted++;
-            await Audit("interrupted", failed, null, ct);
 
             if (catalog.TryGet(r.ToolName, out var tool) && tool.Descriptor.IdempotentByKey)
             {
-                var again = await store.TransitionAsync(r.Id, ActionStatus.Failed, ActionStatus.Approved,
+                var again = await AtomicTrail.ChangeAsync(store, audit, r.Id, ActionStatus.Failed, ActionStatus.Approved,
                     x => x with
                     {
                         Attempts = x.Attempts + 1,
                         Error = null,
                         Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Retry,
                             "Tool is idempotent by key; retried after interruption.", now)],
-                    }, ct);
+                    }, AtomicTrail.Entry("retry_automatic", "after an interruption; the tool is idempotent by key"), ct);
                 if (again is null) continue;
                 if (await ClaimAndRunAsync(again, countAttempt: false, ct) is null) continue;
                 retried++;
@@ -250,16 +250,15 @@ public sealed class ActionExecutor(
                 if (n >= _failures.ReleasePerSweep) continue;
                 released[r.ToolName] = n + 1;
             }
-            var again = await store.TransitionAsync(r.Id, ActionStatus.Failed, ActionStatus.Approved, x => x with
+            var again = await AtomicTrail.ChangeAsync(store, audit, r.Id, ActionStatus.Failed, ActionStatus.Approved, x => x with
             {
                 Attempts = held ? x.Attempts : x.Attempts + 1,
                 Error = null,
                 RetryAt = null,
                 Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Retry,
                     held ? "Held while its route was paused; released." : "Transient failure of a tool idempotent by key; retried automatically.", now)],
-            }, ct);
+            }, AtomicTrail.EntryWith("retry_automatic", d => held ? "released from a paused route" : $"attempt {d.Attempts}"), ct);
             if (again is null) continue;
-            await Audit("retry_automatic", again, held ? "released from a paused route" : $"attempt {again.Attempts}", ct);
             if (await ClaimAndRunAsync(again, countAttempt: false, ct) is null) continue;
             ran++;
         }
@@ -381,21 +380,26 @@ public sealed class ActionExecutor(
     {
         var now = _clock.GetUtcNow();
         var gate = RateGate.For(approved.ToolName, approved.PolicySnapshot?.RateLimit);
-        var claimed = await store.TransitionAsync(approved.Id, ActionStatus.Approved, ActionStatus.Executing,
+        // The claim and its entry are one transaction: "execution_started" when the slot is taken, "execution_failed" when the rate limit
+        // refuses it. Nothing is recorded as started that did not start.
+        var claimed = await AtomicTrail.ChangeAdmittedAsync(store, audit, approved.Id, ActionStatus.Approved, ActionStatus.Executing,
             r => r with { LeaseUntil = now + LeaseDuration, Attempts = countAttempt ? r.Attempts + 1 : r.Attempts },
-            gate.Admissions, (i, current) => gate.Refuse(current, i, now), ct);
+            gate.Admissions, (i, current) => gate.Refuse(current, i, now),
+            d => d.Status == ActionStatus.Executing
+                ? new AuditEntry(d.UpdatedAt, "execution_started", d.Id, d.ToolName, d.Requester.Id, null)
+                : new AuditEntry(d.UpdatedAt, "execution_failed", d.Id, d.ToolName, d.Requester.Id, d.Error?.Code), ct);
         if (claimed is null) return null;
         return claimed.Status == ActionStatus.Failed
-            ? await ReportRefusalAsync(claimed, ct)
-            : await RunClaimedAsync(claimed, ct);
+            ? await ReportRefusalAsync(claimed, ct, auditWritten: true)
+            : await RunClaimedAsync(claimed, ct, startedWritten: true);
     }
 
     /// <summary>A refusal at the claim or at creation: the action never ran. It is reported as any failure is, and counts toward the
     /// route's health as it always has.</summary>
-    internal async Task<ActionRecord> ReportRefusalAsync(ActionRecord refused, CancellationToken ct)
+    internal async Task<ActionRecord> ReportRefusalAsync(ActionRecord refused, CancellationToken ct, bool auditWritten = false)
     {
         await NoteCircuitAsync(refused, refused.Error, ct);
-        await ReportAsync(refused, refused.Error, null, auditWritten: false, ct);
+        await ReportAsync(refused, refused.Error, null, auditWritten, ct);
         return refused;
     }
 
