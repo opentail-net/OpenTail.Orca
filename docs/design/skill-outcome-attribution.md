@@ -26,7 +26,7 @@ The measurement should say how a skill version went, and nothing it cannot suppo
 - `SkillOutcomes.CollectAsync(host, since, ct)` returns `SkillVersionOutcome(Skill, Version, Decided, Approved, Rejected, ChangesRequested, LastServed)`, a positional record, with `TurnedDown` and `Interval` (95% Wilson, `(0, 1)` when `Decided` is 0). Results are ordered by skill, then by version as a number. Caller: `PolicyCli.cs:476`. Tests: `OpenTail.Host.Tests/SkillOutcomesTests.cs`, which also constructs the record positionally (`:70-71`), so new members go at the end with defaults.
 - `SkillOutcomes.Suggest(outcomes, minCases = 20, worseBy = 0.15)` returns `RollbackSuggestion(Skill, Current, Previous, Why)`. Per skill it takes the two outcomes with the latest `LastServed`. Caller: `PolicyCli.cs:486`.
 - `LastServed` today is the latest serve of that version that preceded a counted decision (`SkillOutcomes.cs:65`), not the latest serve. It decides which two versions `Suggest` compares.
-- Data read: serve tools are `host.Catalog.All` where `Descriptor.AuditResult.Event == "skill_served"`, read from the field named in `AuditResult.Field` (`served` for `skills.get`, `SkillsModule.cs:46`). Serves are queried with `Status = Succeeded` and `UpdatedSince = since` (`:45`). Actions come from `host.Store.QueryAsync` with `SessionId` and no window (`:50`), and each record gives `CreatedAt`, `ToolName`, `ResultJson` and `Reviews`.
+- Data read: serve tools are `host.Catalog.All` where `Descriptor.AuditResult.Event == "skill_served"`, read from the field named in `AuditResult.Field` (`served` for `skills.get`, `SkillsModule.cs:46`). Serves are queried with `Status = Succeeded` and `UpdatedSince = since` (`:45`); that window is what O-A2 replaces. Actions come from `host.Store.QueryAsync` with `SessionId` and no window (`:50`), and each record gives `CreatedAt`, `ToolName`, `ResultJson` and `Reviews`.
 - A decision is the last of `Approve`, `Reject` and `RequestChanges` in an action's reviews (`SkillOutcomes.cs:54`); `Retry` is not a decision. The action's status is not read.
 - Serve tools are excluded from the decided actions (`SkillOutcomes.cs:53`).
 
@@ -52,7 +52,7 @@ The measurement should say how a skill version went, and nothing it cannot suppo
 | the serve itself | skipped | unchanged |
 | action created before a serve and decided after it | not counted | unchanged: the serve came after the action |
 | session id null | excluded | unattributed (counted in the report) |
-| `since` window | applied to serves only, by their update time (`UpdatedSince`); later actions are read without it | serves and actions both bounded, by creation time, so the counts describe the window |
+| `since` window | applied to serves only, by their update time (`UpdatedSince`); later actions are read without it | the window selects decisions by their review time (`ActionReview.At`, the time of the decision itself). Serves are read without a time bound, for the sessions of the decisions selected, so a serve before the window still explains a decision inside it. An action created before the window and decided inside it is counted (O-A2) |
 | `LastServed` | latest serve that preceded a counted decision | latest successful serve of that version in the window, whether or not it was followed by a clean decision, so `Suggest` compares the versions actually served last |
 
 **`Suggest` branches** (`SkillOutcomes.cs:79-94`)
@@ -87,7 +87,7 @@ No protocol change. The sample for each version shrinks in sessions that use sev
 ## Decisions for the owner
 
 - **O-A1 Option B.** Whether to ask clients for the skill context, and when. Recommended: decide after option A has run and shown how many decisions it leaves ambiguous. If most are ambiguous, option B is needed for the measurement to be useful at all.
-- **O-A2 Window.** Confirm that `--since` should bound actions as well as serves, by creation time (recommended).
+- **O-A2 Window.** A report about recent judgements should select decisions by when they were made, not when the action was submitted: an action submitted last month and decided today is a decision made today. Recommended: the window selects decisions by `ActionReview.At` (the review's own timestamp), serves are read without a time bound for the sessions involved, and the flag is renamed to `--decided-since`, so its meaning shows in the command line. `--since` is refused with a message naming the new flag, rather than silently changing meaning. Confirm.
 - **O-A3 Whose decisions count.** Today an operator's cancellation counts as a rejection and an elapsed undo window as an approval (A7). Recommended: count only reviews by people; leave out `system` reviews and operator cancellations (both reported as excluded, with counts); count AI reviewer decisions separately, not in the rate a rollback suggestion uses.
 
 ## Tests
@@ -100,7 +100,7 @@ No protocol change. The sample for each version shrinks in sessions that use sev
 - `The_review_example_leaves_calendar_create_and_mail_send_ambiguous_and_counts_neither_version` (the example from the review: `invoice-check@1`, `customer-reply@2`, `calendar.create`, `mail.send`)
 - `A_null_session_is_unattributed_and_reported`
 - `Suggest_does_not_fire_on_ambiguous_decisions` (A4)
-- `The_window_bounds_actions_as_well_as_serves` (if O-A2 is accepted)
+- `The_window_selects_decisions_by_review_time_and_keeps_the_earlier_serve` (O-A2): an action created before the window and decided inside it is counted, with the serve that came before the window; `--since` is refused with a message naming `--decided-since`.
 - `An_operator_cancellation_and_an_elapsed_undo_window_are_not_counted_as_decisions` (O-A3)
 - `Last_served_is_the_latest_serve_even_when_no_clean_decision_followed_it`
 - `A_failed_serve_or_an_unreadable_served_field_is_ignored`
@@ -131,4 +131,4 @@ Rows with no test today: everything else in both tables.
 
 ## Not built
 
-Nothing in this plan is built: not option A, not option B. The rows on whose decisions count wait for O-A3; the window row waits for O-A2.
+Nothing in this plan is built: not option A, not option B. Implementing option A waits for two decisions, which the skills-plan gates table lists: O-A2 (the window: review time, and the flag name) and O-A3 (whose decisions count). Option B waits for O-A1, and the protocol change it needs is not proposed for now.

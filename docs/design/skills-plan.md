@@ -16,7 +16,7 @@ A skill's instructions never grant authority. Policy and tools decide what the a
 
 | Criterion | What success looks like | Where it is measured today |
 |---|---|---|
-| Discoverability | Relevant skills activate; irrelevant ones do not | Partly: selection scenarios check outcomes, not activation. Step 2 adds an activation measure. |
+| Discoverability | Relevant skills activate; irrelevant ones do not | Partly: selection scenarios check outcomes, not activation. A scenario can check activation today only by naming `tool: activate_skill`, which works for the catalog delivery alone. Step 2a adds a form that works for every delivery, and a separate activation rate. |
 | Usefulness | Results improve against a baseline without the skill | Not yet: the Workbench compares skill versions, not skill against no skill. Step 4 adds the baseline mode. |
 | Safety | Forbidden actions do not increase | Yes: `must_not` checks on every scenario |
 | Portability | The same skill packages for compatible clients | Partly: `SKILL.md` packages work; resources do not (step 3) |
@@ -27,10 +27,11 @@ A skill's instructions never grant authority. Policy and tools decide what the a
 | # | Step | State | Where |
 |---|---|---|---|
 | 1 | Merge both branches | **Done.** Host PR #2 merged into `main` (`6779f6b`). The Workbench's packaging branch was already merged into its `main` (PR #1, `ce65cb3`). | Host `main`; Workbench `main` |
-| 1a | Make the Workbench restore on `main` | **Done** on branch `progressive-disclosure`: YamlDotNet pinned to 17.1.0, as the Host needs. Its test suite (51 tests) passes. | Workbench `Directory.Packages.props` |
-| 2 | Progressive disclosure in the Workbench | **Built 2026-11-10, not committed.** A `catalog` delivery: names and standard descriptions in the prompt; `activate_skill` loads a skill's instructions, and each call is recorded. `native` stays as the upper bound and the default. | Workbench `AgentRunner.cs`, branch `progressive-disclosure` |
+| 1a | Make the Workbench restore on `main` | **Done** on branch `progressive-disclosure`: YamlDotNet pinned to 17.1.0, as the Host needs. Its test suite passes (57 tests, with steps 2 and 4). | Workbench `Directory.Packages.props` |
+| 2 | Progressive disclosure in the Workbench | **Built 2026-11-10; committed (`b762d50`) and pushed.** A `catalog` delivery: names and standard descriptions in the prompt; `activate_skill` loads a skill's instructions, and each call is recorded. `native` stays as the upper bound and the default. | Workbench `AgentRunner.cs`, branch `progressive-disclosure` |
+| 2a | Activation evaluation in the Workbench | **Planned, not started.** Activation expectations for the catalog and tools deliveries, scored and compared like actions (see the step 2a detail). | Workbench `Checks/`, `Runs/Comparison.cs`, the scenario format |
 | 3 | Design: skill resources (`references/`, `assets/`) | **Design written, no code.** Six decisions for the owner (D1 to D6). | `docs/design/skill-resources.md` |
-| 4 | Evidence without paid model runs | **Built 2026-11-10, not committed.** Three held-out near-miss scenarios (`policy-edge`, one per skill) and a `none` baseline delivery (no skill; every call is outside skills). Real-model runs are not started; see step 5. | Workbench |
+| 4 | Evidence without paid model runs | **Built 2026-11-10; committed (`b762d50`) and pushed.** Three held-out near-miss scenarios (`policy-edge`, one per skill) and a `none` baseline delivery (no skill; every call is outside skills). Real-model runs are not started; see step 5. | Workbench |
 | 5 | Real-model runs and client evidence | **Not started.** Needs a model choice, a budget and an API key from the owner. | — |
 
 ### Step 2 detail
@@ -40,6 +41,14 @@ Before step 2, read from the code on 2026-11-10: `AgentRunner` had two deliverie
 Built: a third delivery, `Catalog`. The system prompt lists each skill's name and standard description (from `StandardSkill.Describe`, the same text a native package carries), and nothing else. A harness tool, `activate_skill(id)`, returns the skill's `SKILL.md` body, standing in for the client's file read. Activations are recorded in the transcript. The harness tool is exempt from the outside-skills flag, through `ScenarioRunner.CatalogTools` and not `BuiltIns`, so `ToolChecks` still checks only the Host's own tools. `Native` stays, labelled as an upper bound.
 
 Default delivery stays `Native` for now. Changing it would change what existing batches mean, and batches are not keyed by delivery yet. Switching the default is a follow-up once they are.
+
+### Step 2a detail
+
+The second review's point: an agent that activates an irrelevant skill, reads it, and takes no action still passes a near-miss scenario, because the near miss checks only actions. The gap is narrower than the review said. A scenario can already name `tool: activate_skill` with an `id` argument in `must` or `must_not`: the checker matches any call by name and arguments (`Checks/Checker.cs:10-24`). And `compare` already lists activation calls as call shifts (`Runs/Comparison.cs`, `Shifts`). What is missing: a form that works for every delivery (tools activation is `skills.get`), a separate activation rate per scenario with an interval, and a near-miss expectation that does not depend on one delivery's tool name.
+
+Planned: `activates: [ids]` (the listed skills must be activated during the run) and `mustNotActivate: [ids]` in a scenario's `expect`, checked the way actions are, given their own rate, and included in batch comparisons per scenario and delivery. Near-miss scenarios gain `mustNotActivate` for their skill. Catalog activation is an `activate_skill` call; tools activation is a `skills.get` call. Native and none have no activation step, so their result is not applicable, not a pass.
+
+Open question, for the owner: whether activation expectations count toward a scenario's pass, or are reported beside it. Recommended: beside it at first, so existing pass rates do not move.
 
 ### Step 3 detail
 
@@ -62,7 +71,34 @@ An external review of the Host's skills module and of the direction was checked 
 
 Three points in the review were corrected by checking. The spec's Unicode name wording is ambiguous, but the reference validator accepts Unicode letters, and so does our reader (without the reference's NFKC step; the library plan lists the differences); only the save-time rule refuses them. A backup procedure exists in `docs/guides/skills.md`, though it is not one tested procedure. The admin command already prints sample sizes and intervals.
 
-Nothing from this section is built. Each plan lists the owner's decisions it waits for. None of it is committed.
+### Second review, of the committed plans
+
+A second review asked for six changes. All six are in the plans:
+
+1. **Independence.** The library does not hold the Host's store (labels, version folders, the lock, the label rules). It reads and preserves every file of a package as opaque bytes; the Host decides what it serves (`scripts/` and binary assets are refused by the Host). `ignoreKeys` moves to the Host's publish layer.
+2. **Resource approval** shows the content of each new resource and a readable diff of each changed one (D4, changed).
+3. **Hashing and resources agree.** Resources are hashed over exact bytes, never with `Normalise`. The v2 encoding is specified at byte level (normalise each value, take its length, hash the raw bytes). O-H2 names `allowed-tools` as well as `license`, `compatibility` and `metadata`.
+4. **Activation** is evaluated: step 2a.
+5. **Store guarantee.** A failed publish never moves a label; a handled failure leaves nothing behind; a crash may leave an unlabelled version, which is never served and is reported. The backup procedure quiesces the Host, or states the weaker guarantee (O-S5).
+6. **Attribution window and decisions.** Decisions are selected by review time (O-A2). Human, system and AI decisions are separated (O-A3).
+
+The review also asked that the merge of the two branches' documents be reconciled rather than copied from one side. That is done: `standard-skill-files` was merged into `skills-plan` (`c4174a0`), with the three shared documents read on both sides.
+
+Nothing from this section is built. Each plan lists the owner's decisions it waits for.
+
+## Gates before implementation
+
+From the second review. A gate says what must be decided or written before a piece of work starts. This plan does not authorise any start; the owner does.
+
+| Work | Gate | Status |
+|---|---|---|
+| v1 golden tests (hashing) | none | can start; needs no decision |
+| Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; O-S2, O-S4 and O-S5 to be confirmed |
+| v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written; decisions open |
+| Outcome attribution, option A | O-A2 (window by review time, and the flag name) and O-A3 (whose decisions count) | recommendations written; decisions open |
+| Library scaffold | O-L1 (licence, repository, name), O-L6 (target framework, checked against Stingray's actual target) and O-L4 (the Host keeps the store) | recommendations written; decisions open |
+| Resource storage and serving | D4 (show the content) and the exact-bytes digest (`skill-resources.md`) | D4 changed to show the content; owner to confirm |
+| Activation evaluation (step 2a) | the question of whether activation counts toward a pass | open; recommendation written |
 
 ## Deferred
 
@@ -79,13 +115,14 @@ A second permission system inside skills (policy already controls tools and appr
 
 - **D1–D6:** the resource decisions in [skill-resources.md](skill-resources.md).
 - **Real-model runs:** which model or models, what budget, and whether an API key is available for the Workbench.
-- **Uncommitted work in the Host:** the review fixes from the last round are still uncommitted on branch `standard-skill-files`. They are not in `main`. Committing them needs your go-ahead.
+- **Host work on `standard-skill-files`:** committed (`4b8a8b7`) and pushed. It is not in `main`; merging it needs your go-ahead.
+- **Plan decisions:** each plan lists its own: O-S1 to O-S5, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L7; D1 to D6 in the resources design; and the activation question in step 2a.
 - **Default delivery:** when it switches to `Catalog` (see step 2).
-- **Uncommitted Workbench work:** steps 1a, 2 and 4 are on `progressive-disclosure`, uncommitted. Committing it needs your go-ahead. The three near-miss scenarios are new files.
+- **Workbench work on `progressive-disclosure`:** steps 1a, 2 and 4 are committed (`b762d50`) and pushed. Merging into `main` needs your go-ahead.
 
 ## Verification
 
-- Host: `OpenTail.Host.Tests` passes at `6f1a59b` (1053 tests), the tip that `main` merged in `6779f6b`. The uncommitted work in the Host's working tree brings the count to 1072, and it passed in full on 2026-11-10.
+- Host: `OpenTail.Host.Tests` passes at `4b8a8b7` (1072 tests, none failed or skipped), run on 2026-11-10 before that commit. `main` is at `6779f6b`.
 - Workbench: `OpenTail.Workbench.Tests` passes on `progressive-disclosure`: 57 tests (51 before steps 2 and 4; six added). The whole solution builds with no warnings or errors.
 - Design documents: checked against the Agent Skills specification on 2026-11-10 and against the code listed in each document's contracts section.
 

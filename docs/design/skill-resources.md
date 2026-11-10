@@ -96,11 +96,11 @@ The version folder is written in full, in a temporary folder, and moved into pla
 
 A new optional field, `resources`: an array of `{ "path": "references/rates.md", "sha256": "sha256:<hex>", "bytes": 1234 }`. The store refuses a version whose resource files do not match its declaration, and refuses a declared file that is missing. A file present but not declared is refused too: no undeclared file is ever served.
 
-Declaring the hash is what binds the resource to the version. A reviewer sees the list in the change request.
+Declaring the digest is what binds the resource to the version. The digest is `sha256:` over the resource's exact stored bytes: a raw digest, not a text identity, so it never goes through `SkillText.Normalise`. A reviewer sees the list in the change request, and the content (see Publish).
 
 ### Hash binding
 
-When a version has resources, `ContentHash` includes one extra term: the sorted list of `path sha256` lines. A version without resources hashes exactly as today. This keeps every existing recorded binding valid, and makes the hash of a version with resources change when a resource changes.
+Resources are part of a version's identity only under the v2 algorithm of the hashing plan (its design item 10): the sorted list of each resource's path and digest, encoded as there. Under v1, a version without resources hashes exactly as today, so every existing binding stays valid. A v1 identity has no resource term, so it cannot cover a version with resources. The Host therefore refuses a v1 binding for such a version, and the workbench writes v2 for it. Without that rule, a v1 report could describe a version whose resources had changed.
 
 `SkillVersion` gains an optional `Resources` property with an empty default, so existing construction sites compile unchanged. The workbench's `Skill` maps its folder's resources into it.
 
@@ -110,11 +110,11 @@ When a version has resources, `ContentHash` includes one extra term: the sorted 
 - Files: UTF-8 text only in this version (D1). Extensions allowed: `.md .txt .csv .tsv .json .yaml .yml .html`. Valid UTF-8 without NUL bytes.
 - Limits: 64 KiB per file, 256 KiB per version, at most 50 files. Refused, never truncated, at publish.
 - `scripts/` at the top level is refused at publish, with a message that says why.
-- Line endings are normalised with the existing `SkillText.Normalise` rules for the hash, but the stored bytes are kept as sent.
+- Resource bytes are stored exactly as sent, and their digest is over those exact bytes. `SkillText.Normalise` is not used for resources. Line endings and indentation are therefore part of a resource's identity.
 
 ### Publish
 
-The publish arguments gain an optional `resources` object: `{ "references/rates.md": "<text>" }`. The preview puts the list (path, bytes, hash) into the change request, and the report check is unchanged. Approval writes the files with the version. A republish of an existing version with different resources is refused, like different instructions.
+The publish arguments gain an optional `resources` object: `{ "references/rates.md": "<text>" }`. The preview puts into the change request, for each new or changed resource, its path, its size and its content: the full text of a new file, and a readable diff against the stored version of a changed one. The report check is unchanged. The preview and the execution build the resource list from the same arguments, and a test checks that the bytes shown are the bytes published. Approval writes the files with the version. A republish of an existing version with different resources is refused, like different instructions.
 
 Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds that. A larger resource is a later design (D5).
 
@@ -141,7 +141,7 @@ Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds tha
 
 ## Tests (planned)
 
-- Store: resource declared and present is served; undeclared file refused at publish; declared and missing refused; path traversal refused (`../`, absolute, drive letter, `scripts/`); binary or invalid UTF-8 refused; limit violations refused; republish with different resources refused; hash of a version without resources unchanged (compare against the current `ContentHash` for the three existing skills).
+- Store: resource declared and present is served; undeclared file refused at publish; declared and missing refused; path traversal refused (`../`, absolute, drive letter, `scripts/`); binary or invalid UTF-8 refused; limit violations refused; republish with different resources refused; identity of a version without resources unchanged under v1 (compare against the current `ContentHash` for the three existing skills); a v1 binding refused for a version with resources; the approval preview shows exactly the bytes that are published.
 - Tool: `read_resource` of a declared path returns text and audits `skill_resource_served`; of an undeclared path returns the same error as a missing one; unaffected by the `skill_served` count in `SkillOutcomes`.
 - Workbench: a skill with `references/` loads and packages; a skill with `scripts/` is reported and the rest is written; sandbox run reads a resource.
 
@@ -150,7 +150,7 @@ Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds tha
 - **D1 (owner).** Text resources only in this version, and binary assets later? Proposed: yes.
 - **D2 (owner).** Limits: 64 KiB per file, 256 KiB per version, 50 files. Proposed: these.
 - **D3 (owner).** Refuse `scripts/` in the store and report it in the packager? Proposed: yes.
-- **D4 (owner).** Should the change request show resource contents, or only path, bytes and hash? Proposed: path, bytes and hash; a text diff for a changed resource is a later addition.
+- **D4 (owner).** Should the change request show resource contents, or only path, bytes and hash? Proposed, changed after an external review: show the content, the full text of a new file and a readable diff of a changed one. A hash establishes identity; it does not show a reviewer what they are approving. The limits in D2 keep the text small enough to read.
 - **D5 (owner).** Larger resources, binary assets, or a chunked read: deferred. Proposed: defer.
 - **D6 (owner).** Suggested policy for `skills.read_resource`: `Execute`, like `get`. Proposed: yes.
 
@@ -158,7 +158,7 @@ Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds tha
 
 - A resource is a second place where an instruction can hide. Mitigation: resources are declared and hashed, reviewed by their hash in the change request, and never executed.
 - The arguments of a publish get large. Mitigation: the 256 KiB cap now; a later upload path if needed (D5).
-- Reviewers may not read resources. Mitigation: the change request lists them; a text diff is a later option (D4).
+- Reviewers may not read resources. Mitigation: the change request shows the content of each new or changed resource (D4); a test checks that the bytes shown are the bytes published.
 - Existing reports bind the old hash. Mitigation: no change to the hash of a version without resources.
 
 ## Not in this design

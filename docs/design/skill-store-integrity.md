@@ -4,11 +4,18 @@
 **System:** the Host's skill store and the tools that read it: `OpenTail.Modules.Skills` (`SkillStore`, `SkillsModule`).
 **Not in this plan:** the content hash ([skill-content-hashing.md](skill-content-hashing.md)), outcome attribution ([skill-outcome-attribution.md](skill-outcome-attribution.md)), extracting the standard into a library ([agent-skills-library.md](agent-skills-library.md)), and resources ([skill-resources.md](skill-resources.md)).
 **Code basis:** `opentail-host` working tree on `standard-skill-files` (6f1a59b, plus uncommitted strict-type changes in `SkillStore.cs`). Where `main` (6779f6b, which is `origin/main`; the local `main` ref is older, 6081d5b) differs, it is noted. Checked 2026-11-10: the working tree differs from 6779f6b in `SkillStore.cs` (`Parse` only) and the module README; `SkillsModule.cs` and `Standard/` are as committed.
-**Order with the other plans:** this plan changes the store in place, in the Host, first. The library plan later moves the store code (O-L4) and adds optional `skill.json` keys (O-L3); it moves the code as changed here, with these tests. The hashing plan changes the republish comparison (its design item 6) and adds the `sha256v2:` policy-hash prefix; design item 4 below must accept whatever prefixes the hashing plan has introduced by then.
+**Order with the other plans:** this plan changes the store in place, in the Host, first. The library plan does not move the store (O-L4: the Host keeps it). It adds optional `skill.json` keys (O-L3), which this store reads and writes, and it moves the identity code (O-L5), as changed here, with these tests. The hashing plan changes the republish comparison (its design item 6) and adds the `sha256v2:` policy-hash prefix; design item 4 below must accept whatever prefixes the hashing plan has introduced by then.
 
 ## Purpose
 
-A damaged store fails one item at a time. One bad label, one bad version or one unreadable file must not hide the others, and nothing damaged may be served. A failed publish must leave nothing behind.
+A damaged store fails one item at a time. One bad label, one bad version or one unreadable file must not hide the others, and nothing damaged may be served. What a failed publish leaves behind is defined in the next section. It is deliberately not all-or-nothing, because the move of the version folder and the replacement of `labels.json` are separate filesystem operations.
+
+## The publish guarantee
+
+1. **A failed publish never moves a label.** Whatever fails, the label is either the one it was, or the one a successful publish set.
+2. **A handled failure leaves no temporary file, no temporary folder and no new version folder.** Temporary items are removed in a `finally`. A version folder created by this publish is removed if the label write does not complete. Guarantee 2 is what the tests check.
+3. **An unhandled failure (a crash or a kill) may leave a new version folder with no label.** It is immutable, it is never served (no label points at it), a later publish of the same version with the same content is a no-op that labels it, and the store check reports it as unlabelled.
+4. **Nothing is promised across the two filesystem operations** (the folder move and the labels replacement). The design does not claim all-or-nothing behaviour across them.
 
 ## Findings checked
 
@@ -110,7 +117,7 @@ Each claim from the external review was checked against the code on 2026-11-10.
 | failure after the temporary version folder is created (a write fails) | folder left behind | folder removed; label unchanged |
 | the version folder exists but is incomplete (`Get` returned null because one file is missing), so `Directory.Move` fails | `IOException`; temporary folder left; the publish is refused with an I/O error, not an `ArgumentException` | temporary folder removed; refused with a message naming the incomplete folder (the store check reports it) |
 | the version folder appears between `Get` and the move | not possible between Host publishes (both are under the lock); possible only from another writer | covered by the row above |
-| failure while writing `labels.json.tmp`, or in the final `File.Move` | file left behind; the version folder stays (versions are immutable; a version with no label is not served) | temporary file removed; label unchanged; the new version folder stays, and the message says so |
+| failure while writing `labels.json.tmp`, or in the final `File.Move` | file left behind; the version folder stays (versions are immutable; a version with no label is not served) | handled failure: temporary file removed, label unchanged, and the new version folder removed (guarantee 2); unhandled failure (a crash): the folder stays unlabelled, is never served, and the store check reports it (guarantee 3) |
 
 ## Design
 
@@ -118,10 +125,13 @@ Each claim from the external review was checked against the code on 2026-11-10.
 2. **Publish fails closed on the file, and per skill on an entry.** A malformed `labels.json` (not JSON, root or `skills` not an object) refuses every publish, because the current state of any label is unknown. A damaged entry refuses publishes for that skill only, because its label cannot be checked against `expectedFrom`. The labels are read before any version folder is written, whether or not `expectedFrom` is given, and the write at `SkillStore.cs:147-149` never replaces a damaged value: it refuses instead.
 3. **Each skill is isolated.** `Find` wraps each skill (not each version) and catches the explicit set `ArgumentException`, `IOException`, `UnauthorizedAccessException` and `JsonException`. Each caught case becomes a warning. Discovery never throws for stored content; only programming errors propagate.
 4. **Values are checked when read.** Each `appliesTo` and `tools` entry must be a non-empty string. A policy hash must be null or a known algorithm prefix followed by 64 lowercase hex digits: `sha256:` today, and `sha256v2:` once the hashing plan's step 4 is built (that plan's design item 5). The two plans must land this rule together; a reader that accepts only `sha256:` would report every skill recorded with v2 as damaged. A version that fails is reported as damaged, with the reason. Publish applies the same checks (in `Parse`, so the workbench's direct `SkillStore.Publish` is covered too), so a damaged version cannot be created.
-5. **Publish cleans up.** The temporary folder and temporary labels file are removed in a `finally` when anything after their creation fails. The final move happens only after every file is complete. An incomplete version folder already in place is not overwritten or repaired by a publish; it is refused and named.
+5. **Publish cleans up.** The temporary folder and temporary labels file are removed in a `finally` when anything after their creation fails. The final move happens only after every file is complete. An incomplete version folder already in place is not overwritten or repaired by a publish; it is refused and named. If the label write fails after this publish moved its version folder into place, the new folder is removed when the failure is handled; if the process dies, it stays unlabelled (guarantee 3).
 6. **Policy references.** Detect a clash of file names within one skill, and warn. Whether references should resolve by relative path instead is **O-S1**. The existing references all have the form `policies/<name>.md`, so the resolution rule decides what `PolicyFolder` must contain. Changing it is not part of the first step.
 7. **Store check.** A command that scans a store and lists every problem the read path would report, without serving anything. It is run before stricter reading is enabled on an existing store (see the first step below).
-8. **Backup.** One documented procedure covering both the store and the database, taken in one window: hold the publish lock (`.publish.lock`, as the publish path does) while the store is copied, and take the database snapshot (`sqlite3 queue.db ".backup copy.db"`, from `OPERATIONS.md:233`) inside the same window. The restore note records both. A restore drill is run once and dated. Facts the procedure must state (from `SkillStore.cs:162-174`): the lock is taken without waiting, so an approved publish that executes inside the window fails with "the skill store is busy" and must be resubmitted; the lock is advisory on Unix and binds only processes that take it; on Windows the held `.publish.lock` cannot itself be copied, so the copy excludes it. A person cannot hold a `FileShare.None` handle from a shell portably, so the procedure needs a command that takes the lock, copies the store and runs the database backup (proposed: a subcommand next to the store check of item 7; see O-S4).
+8. **Backup.** Two kinds of writer change the state a backup must capture: skill-store publishes, which take `.publish.lock`, and every Host database write, which the lock does not cover. So the procedure is one of these:
+   - **Option A (recommended): quiesce the Host.** Stop the Host, copy the store folder, take the database snapshot (`sqlite3 queue.db ".backup copy.db"`, from `OPERATIONS.md:233`), and restart. The two copies are consistent with each other. (To verify: that the Host has no pause mode, so a stop is the only quiesce.)
+   - **Option B (weaker, and labelled as such): keep the Host running.** Copy the store while holding `.publish.lock`, then take the database snapshot. An action approved between the two copies can be in one copy and not the other. The restore must reconcile that from the audit trail (to verify that the audit trail identifies it).
+   The restore note records the option, the times and both copies. Facts the procedure must state (from `SkillStore.cs:162-174`): the lock is taken without waiting, so an approved publish that executes while it is held fails with "the skill store is busy" and must be resubmitted; the lock is advisory on Unix and binds only processes that take it; on Windows the held `.publish.lock` cannot be copied, so the copy excludes it. A restore drill is run once, dated, and repeated when the procedure changes.
 9. **Lock test without PowerShell.** The cross-process test starts the test assembly itself in a helper mode (or a small helper console project, referenced by the test project), so it does not depend on PowerShell and cannot skip. The in-process test stays.
 
 ## Decisions for the owner
@@ -129,7 +139,8 @@ Each claim from the external review was checked against the code on 2026-11-10.
 - **O-S1 Policy references.** Keep file-name resolution (with a clash warning), or resolve references relative to `PolicyFolder` and refuse `..`? Recommended: decide after checking how the production deployment lays out `PolicyFolder`; the first step does not change it.
 - **O-S2 Refusing publishes on a damaged labels file.** Recommended: refuse as in design item 2.
 - **O-S3 Existing stores.** Run the store check on the production store before enabling the stricter read checks. Recommended: yes, and fix or report what it finds first.
-- **O-S4 Backup window.** A backup command holds the publish lock, so publishes approved during the backup fail and must be resubmitted. Accept that (recommended: backups are short and the failure says "resubmit"), or make publish wait for the lock with a timeout (a behaviour change to `TakeStoreLock`)?
+- **O-S4 Backup window (Option B only).** Option B holds the publish lock while the store is copied, so a publish approved during that copy fails and must be resubmitted. Accept that (recommended: the copy is short and the failure says "resubmit"), or make publish wait for the lock with a timeout (a behaviour change to `TakeStoreLock`)?
+- **O-S5 Backup consistency.** Quiesce the Host for each backup (Option A, recommended), or accept Option B's window, which the restore must reconcile from the audit trail?
 
 ## Tests (new, written before the change)
 
@@ -144,6 +155,8 @@ Each claim from the external review was checked against the code on 2026-11-10.
 - `A_publish_is_refused_before_any_write_when_labels_is_malformed` (S4, branch table; run through the tool, through the store with `expectedFrom`, and through the store with `expectedFrom` null)
 - `A_publish_never_replaces_a_damaged_labels_entry_and_other_labels_survive` (S9)
 - `A_publish_into_an_incomplete_version_folder_is_refused_and_leaves_no_temporary_folder` (publish table)
+- `A_handled_label_failure_removes_the_new_version_folder_and_moves_no_label` (guarantee 2)
+- `An_unlabelled_version_folder_is_never_served_and_the_store_check_reports_it` (guarantee 3; the test leaves a folder as a crash would)
 - `A_label_that_is_not_a_version_number_is_named_as_such_by_find_and_get`
 - `An_unreadable_policy_file_is_a_warning_not_a_failure_of_get`
 - `Two_policy_references_with_one_file_name_are_named` (S5)
@@ -164,8 +177,8 @@ Each claim from the external review was checked against the code on 2026-11-10.
 - Every row in the three branch tables has a test or a stated reason it needs none.
 - The current Host test suite passes before the change starts, and after it, with the new tests included. (The count is in `skills-plan.md`; re-run it, do not copy it.)
 - Discovery returns a warning, never an exception, for every damage listed in the discovery table.
-- A publish that fails at any step leaves the store as it was: no folder, no temporary file, no label change.
+- A failed publish never moves a label. After a handled failure no temporary file, temporary folder or new version folder remains. After an unhandled failure a new version folder may remain, unlabelled: it is never served, and the store check reports it. The tests cover both cases.
 
 ## Not built
 
-Nothing in this plan is built. Design item 6 waits for O-S1. Item 7 (the store check) needs no decision to build; running it on the production store waits for O-S3. Item 8's command waits for O-S4. Nothing in this plan changes the hash or the stored format. Two rows depend on the hashing plan: the republish comparison ("identical content") and the policy-hash syntax in design item 4.
+Nothing in this plan is built. Design item 6 waits for O-S1. Item 7 (the store check) needs no decision to build; running it on the production store waits for O-S3. Item 8 waits for O-S4 and O-S5. Nothing in this plan changes the hash or the stored format. Two rows depend on the hashing plan: the republish comparison ("identical content") and the policy-hash syntax in design item 4.
