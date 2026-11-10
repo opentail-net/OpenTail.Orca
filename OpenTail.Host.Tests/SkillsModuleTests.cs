@@ -333,7 +333,60 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.Equal("succeeded", S(got, "status"));
         Assert.Contains("Never pay from an email.", got["result"]!["instructions"]!.ToString());
         Assert.Equal(ActionStatus.Succeeded, (await host.Store.GetAsync(S(got, "actionId")))!.Status);
-        Assert.Contains(audit.Inner.Entries, e => e.Event == "post_success_failed" && e.Detail == "result audit: IOException");
+        Assert.Contains(audit.Inner.Entries, e => e.Event == "bookkeeping_failed" && e.Detail == "result audit: IOException");
+    }
+
+    [Fact]
+    public void A_skill_file_without_format_1_is_refused_at_publish()
+    {
+        var store = new SkillStore(Path.Combine(_root, "store"));
+
+        Assert.Throws<ArgumentException>(() => store.Publish("invoice-check", "1", "production",
+            Meta("1").Replace("\"format\": 1", "\"format\": 2", StringComparison.Ordinal), "Never pay from an email.", "none"));
+        Assert.Throws<ArgumentException>(() => store.Publish("invoice-check", "1", "production",
+            Meta("1").Replace("\"format\": 1, ", "", StringComparison.Ordinal), "Never pay from an email.", "none"));
+        Assert.Null(store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Fact]
+    public async Task A_stored_version_in_another_format_is_named_by_find_and_not_served()
+    {
+        // Written by hand, as a future Host or a damaged file would leave it: find names it, get refuses it, and nothing else is hidden.
+        var dir = Path.Combine(_root, "store", "invoice-check", "1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "skill.json"), Meta("1").Replace("\"format\": 1", "\"format\": 2", StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"), "Never pay from an email.");
+        File.WriteAllText(Path.Combine(_root, "store", "labels.json"), """{ "format": 1, "skills": { "invoice-check": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("failed", S(got, "status"));
+        Assert.Contains("must say \"format\": 1", got["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_publish_is_refused_while_another_process_holds_the_store_and_writes_nothing()
+    {
+        // Another Host process holds the store's lock file; this publish must not check expectedFrom and then write over whatever it does.
+        var root = Path.Combine(_root, "store");
+        Directory.CreateDirectory(root);
+        var store = new SkillStore(root);
+        using (new FileStream(Path.Combine(root, ".publish.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none"));
+            Assert.Contains("Nothing was published", ex.Message, StringComparison.Ordinal);
+            Assert.Null(store.LabelledVersion("invoice-check", "production"));
+        }
+
+        // Released: the same publish goes through.
+        store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none");
+        Assert.Equal("1", store.LabelledVersion("invoice-check", "production"));
     }
 
     /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>

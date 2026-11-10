@@ -361,7 +361,8 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
         return Task.FromResult(Create(record, admissions, refused));
     }
 
-    private ActionRecord? Create(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?> refused)
+    private ActionRecord? Create(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?> refused,
+        Func<ActionRecord, AuditEntry>? audit = null)
     {
         using var c = Open();
         using var tx = c.BeginTransaction(deferred: false);
@@ -394,6 +395,7 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
         Bind(ins, toStore);
         ins.ExecuteNonQuery();
         if (Usage.IsEnd(toStore.Status)) AddUsage(c, tx, toStore);
+        if (audit is not null) SqliteAuditSink.Append(c, tx, audit(toStore));
         tx.Commit();
         return toStore;
     }
@@ -553,6 +555,19 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
             ActionStateMachine.CanTransition(expected, next, current.Error?.Retryable ?? false)
                 ? new ActionTransition(next, update(current))
                 : null, [], null, audit);
+
+    public Task<ActionRecord?> TransitionDecidedAuditedAsync(
+        string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
+        Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default) =>
+        TransitionCore(id, expected, decide, [], null, audit);
+
+    public Task<ActionRecord?> TryCreateAuditedAsync(ActionRecord record, IReadOnlyList<Admission> admissions,
+        Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default)
+    {
+        if (!ActionStateMachine.IsValidInitial(record.Status))
+            throw new InvalidOperationException($"{record.Status} is not a valid initial status.");
+        return Task.FromResult(Create(record, admissions, static _ => null, audit));
+    }
 
     // ---- usage rollups ----
 

@@ -155,4 +155,36 @@ public class RetryAndCircuitTests
         Assert.Equal(TimeSpan.FromMinutes(2), c.Backoff(1, TimeSpan.FromMinutes(2)));
         Assert.InRange(c.Backoff(20, null), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(6.25));
     }
+
+    [Fact]
+    public async Task A_failed_circuit_audit_line_does_not_stop_a_probe_from_recording_its_outcome()
+    {
+        // The probe that closes a paused route writes circuit.closed. That line is bookkeeping: when it fails, the probe's outcome is still
+        // committed as Succeeded, not left Executing.
+        var clock = new ManualClock(DateTimeOffset.UtcNow);
+        var svc = new Service();
+        var audit = new FailingOnEvent("circuit.closed");
+        var host = new OpenTailHostBuilder().AddModule(svc).UseClock(clock).UseAudit(audit).UsePolicy(PolicyConfig.Parse("""
+            { "Failures": { "CircuitMode": "Enforce", "CircuitThreshold": 3 }, "Tools": { "svc.send": { "Mode": "Execute" } } }
+            """)).Build();
+        svc.Down = true;
+        for (var i = 0; i < 3; i++) await Call(host, "svc.send");
+        svc.Down = false;
+        clock.Advance(TimeSpan.FromMinutes(2));
+
+        var probe = await Call(host, "svc.send");
+
+        Assert.Equal(ActionStatus.Succeeded, probe.Status);
+        Assert.Equal(ActionStatus.Succeeded, (await host.Store.GetAsync(probe.Id))!.Status);
+        Assert.Contains(audit.Inner.Entries, e => e.Event == "bookkeeping_failed" && e.Detail == "circuit: IOException");
+    }
+
+    /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>
+    private sealed class FailingOnEvent(string failOn) : IAuditSink
+    {
+        public InMemoryAuditSink Inner { get; } = new();
+
+        public Task AppendAsync(AuditEntry entry, CancellationToken ct = default) =>
+            entry.Event == failOn ? throw new IOException("audit trail unavailable") : Inner.AppendAsync(entry, ct);
+    }
 }

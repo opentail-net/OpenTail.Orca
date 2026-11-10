@@ -304,7 +304,7 @@ public sealed class ActionExecutor(
         // With the trail in the same database, the outcome and its entry are one transaction: neither is recorded without the other. Otherwise
         // the entry is appended after the outcome, and a crash between the two loses it.
         var done = AtomicOutcomes
-            ? await ((IAtomicAuditStore)store).TransitionAuditedAsync(record.Id, ActionStatus.Executing, next, update, OutcomeEntry(error), ct)
+            ? await AtomicTrail.For(store, audit)!.TransitionAuditedAsync(record.Id, ActionStatus.Executing, next, update, OutcomeEntry(error), ct)
             : await store.TransitionAsync(record.Id, ActionStatus.Executing, next, update, ct);
         if (done is null)
             throw new InvalidOperationException($"Action {record.Id} left Executing unexpectedly.");
@@ -344,8 +344,9 @@ public sealed class ActionExecutor(
         }, ct);
     }
 
-    /// <summary>Runs one step after the outcome is committed. A failure is written to the trail (see <see cref="RecordFailure"/>) and does
-    /// not propagate: the caller must not see a call that ran as failed.</summary>
+    /// <summary>Runs one bookkeeping step: a trail line, telemetry, a notification, or the result's audit line. A failure is written to the trail
+    /// (see <see cref="RecordFailure"/>) and does not propagate: a call that ran must not be reported as failed, and a failed bookkeeping
+    /// step must not stop an outcome from being committed.</summary>
     private async Task BestEffort(ActionRecord done, string step, Func<Task> work, CancellationToken ct)
     {
         try
@@ -358,13 +359,13 @@ public sealed class ActionExecutor(
         }
     }
 
-    /// <summary>Records that a post-commit step failed. Names the step and the exception type only, never its message, which may hold
+    /// <summary>Records that a bookkeeping step failed. Names the step and the exception type only, never its message, which may hold
     /// arguments. If the trail itself is failing there is nothing more to do without changing the committed outcome.</summary>
     private async Task RecordFailure(ActionRecord done, string step, string kind, CancellationToken ct)
     {
         try
         {
-            await Audit("post_success_failed", done, $"{step}: {kind}", ct);
+            await Audit("bookkeeping_failed", done, $"{step}: {kind}", ct);
         }
         catch (Exception)
         {
@@ -398,25 +399,26 @@ public sealed class ActionExecutor(
         return refused;
     }
 
-    /// <summary>The route's health: the probe that succeeds reopens it; repeated failures of one kind pause it (once per episode in the trail).</summary>
+    /// <summary>The route's health: the probe that succeeds reopens it; repeated failures of one kind pause it (once per episode in the trail).
+    /// The trail lines are bookkeeping: a failure to write one never stops an outcome from being committed.</summary>
     private async Task NoteCircuitAsync(ActionRecord record, ActionError? error, CancellationToken ct)
     {
         if (circuits is null || error?.Code == "circuit_open") return;
         if (error is null)
         {
             if (circuits.Succeeded(record.ToolName) == CircuitEvent.Closed)
-                await Audit("circuit.closed", record, "a probe call succeeded; held calls are released a few at a time", ct);
+                await BestEffort(record, "circuit", () => Audit("circuit.closed", record, "a probe call succeeded; held calls are released a few at a time", ct), ct);
         }
         else if (circuits.Failed(record.ToolName, error.EffectiveKind, error.Code) is { Event: not CircuitEvent.None } change)
         {
             var name = change.Event switch { CircuitEvent.WouldOpen => "circuit.would_open", CircuitEvent.Reopened => "circuit.reopened", _ => "circuit.opened" };
-            await Audit(name, record, $"{change.State!.Fingerprint}; probe after {change.State.ProbeAt:u}", ct);
+            await BestEffort(record, "circuit", () => Audit(name, record, $"{change.State!.Fingerprint}; probe after {change.State.ProbeAt:u}", ct), ct);
             HostTelemetry.Circuits.Add(1, new KeyValuePair<string, object?>("tool", record.ToolName), new KeyValuePair<string, object?>("event", name));
         }
     }
 
     /// <summary>True when an outcome is committed together with its audit entry: the store and the trail are the same database.</summary>
-    private bool AtomicOutcomes => store is IAtomicAuditStore && audit is SqliteAuditSink sink && ReferenceEquals(sink.Store, store);
+    private bool AtomicOutcomes => AtomicTrail.For(store, audit) is not null;
 
     /// <summary>The audit entry of an outcome, built from the record as committed (the fields <see cref="Audit"/> would write).</summary>
     private static Func<ActionRecord, AuditEntry> OutcomeEntry(ActionError? error) =>

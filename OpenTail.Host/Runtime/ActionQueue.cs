@@ -257,12 +257,14 @@ public sealed class ActionQueue(
             RunAt = runAt,
         };
 
-        // The cap is counted in the same transaction that inserts, so it holds across processes.
+        // The cap is counted in the same transaction that inserts, so it holds across processes. The "queued" entry is written in that
+        // transaction as well.
         var cap = policy.Config.MaxPendingPerRequester;
-        var pending = cap > 0
-            ? await store.TryCreateAsync(pendingRecord, [new Admission(
-                new ActionQuery { Status = ActionStatus.Pending, RequesterId = request.Requester.Id }, null, cap)], ct)
-            : await store.CreateAsync(pendingRecord, ct);
+        IReadOnlyList<Admission> capAdmissions = cap > 0
+            ? [new Admission(new ActionQuery { Status = ActionStatus.Pending, RequesterId = request.Requester.Id }, null, cap)]
+            : [];
+        var pending = await CreateAudited(pendingRecord, capAdmissions,
+            EntryOf(runAt is null ? "queued" : "delayed", runAt is null ? null : $"runs at {runAt:u} unless stopped"), ct);
         if (pending is null)
         {
             trace.Add(new("queue cap", "Deny", $"the requester already has {cap} actions waiting", Changed: true));
@@ -279,7 +281,6 @@ public sealed class ActionQueue(
             return full;
         }
 
-        await Audit(runAt is null ? "queued" : "delayed", pending, runAt is null ? null : $"runs at {runAt:u} unless stopped", ct);
         if (pending.Id == id)
         {
             HostTelemetry.Pending.Add(1);
@@ -441,10 +442,9 @@ public sealed class ActionQueue(
                 }
                 if (due.Status == ActionStatus.Pending && due.ExpiresAt is { } deadline && deadline <= _clock.GetUtcNow())
                 {
-                    var expired = await store.TransitionAsync(actionId, ActionStatus.Pending, ActionStatus.Expired, x => x, ct);
+                    var expired = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf("expired", null), ct);
                     if (expired is not null)
                     {
-                        await Audit("expired", expired, null, ct);
                         LeftPending(expired);
                         HostTelemetry.Count(expired);
                         await Publish(ActionEventKind.Expired, expired, null, ct);
@@ -466,21 +466,19 @@ public sealed class ActionQueue(
                         : new ActionTransition(ActionStatus.Pending, updated);
                 }
 
-                var approved = await store.TransitionAsync(actionId, ActionStatus.Pending, Decide, ct);
+                // The entry says which of the two happened, and is written in the same transaction as the decision.
+                Func<ActionRecord, AuditEntry> decisionEntry = d => d.Status == ActionStatus.Pending
+                    ? Entry("approval_recorded", d, $"{ReviewAuthority.Tally(d with { Reviews = d.Reviews.Take(d.Reviews.Count - 1).ToList() }, review, policy.People).Count} of {d.RequiredApprovals}")
+                    : Entry("approved", d, review.Reviewer);
+                var approved = await DecideAudited(actionId, ActionStatus.Pending, Decide, decisionEntry, ct);
                 if (approved is null)
                 {
                     if ((await store.GetAsync(actionId, ct))?.Status == ActionStatus.Pending)
                         throw new InvalidOperationException("You have already approved this action.");
                     return await Conflict(actionId, ActionStatus.Pending, ct);
                 }
-                if (approved.Status == ActionStatus.Pending)
-                {
-                    // Not enough approvals yet: recorded, still waiting.
-                    var have = ReviewAuthority.Tally(approved with { Reviews = approved.Reviews.Take(approved.Reviews.Count - 1).ToList() }, review, policy.People).Count;
-                    await Audit("approval_recorded", approved, $"{have} of {approved.RequiredApprovals}", ct);
-                    return approved;
-                }
-                await Audit("approved", approved, review.Reviewer, ct);
+                // Not enough approvals yet (recorded, still waiting) is returned as it is.
+                if (approved.Status == ActionStatus.Pending) return approved;
                 LeftPending(approved);
                 await Publish(ActionEventKind.Approved, approved, null, ct);
                 return await executor.ExecuteAsync(actionId, ct);
@@ -497,9 +495,9 @@ public sealed class ActionQueue(
             case ReviewDecision.RequestChanges:
             {
                 var next = review.Decision == ReviewDecision.Reject ? ActionStatus.Rejected : ActionStatus.ChangesRequested;
-                var done = await store.TransitionAsync(actionId, ActionStatus.Pending, next, addReview, ct);
+                var done = await ChangeAudited(actionId, ActionStatus.Pending, next, addReview,
+                    EntryOf(next == ActionStatus.Rejected ? "rejected" : "changes_requested", review.Reviewer), ct);
                 if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
-                await Audit(next == ActionStatus.Rejected ? "rejected" : "changes_requested", done, review.Reviewer, ct);
                 LeftPending(done);
                 HostTelemetry.Count(done);
                 await Publish(next == ActionStatus.Rejected ? ActionEventKind.Rejected : ActionEventKind.ChangesRequested, done, null, ct);
@@ -556,9 +554,8 @@ public sealed class ActionQueue(
         var current = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
         if (current.Requester != requester)
             throw new UnauthorizedAccessException("Only the requester can cancel an action.");
-        var done = await store.TransitionAsync(actionId, ActionStatus.Pending, ActionStatus.Cancelled, r => r, ct);
+        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, r => r, EntryOf("cancelled", null), ct);
         if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
-        await Audit("cancelled", done, null, ct);
         LeftPending(done);
         HostTelemetry.Count(done);
         await Publish(ActionEventKind.Cancelled, done, null, ct);
@@ -603,12 +600,11 @@ public sealed class ActionQueue(
                 if (held is not null) await Audit("delay_held", held, $"{(now - at).TotalMinutes:0} min past its time: a person decides", ct);
                 continue;
             }
-            var approved = await store.TransitionAsync(r.Id, ActionStatus.Pending, ActionStatus.Approved, x => x with
+            var approved = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Approved, x => x with
             {
                 Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Approve, "Undo window elapsed; nobody stopped it.", now)],
-            }, ct);
+            }, EntryOf("delay_elapsed", null), ct);
             if (approved is null) continue;
-            await Audit("delay_elapsed", approved, null, ct);
             LeftPending(approved);
             if (await executor.ClaimAndRunAsync(approved, countAttempt: true, ct) is null) continue;
             ran++;
@@ -626,11 +622,10 @@ public sealed class ActionQueue(
         if (r.Status != ActionStatus.Pending || r.RunAt is null) throw new InvalidOperationException("Only a delayed action that has not run yet can be stopped.");
         var mayStop = stoppedBy == r.Requester.Id || r.ReviewerGroup is null || groups.Contains(r.ReviewerGroup, StringComparer.Ordinal);
         if (!mayStop) throw new UnauthorizedAccessException($"Only the requester or the '{r.ReviewerGroup}' group can stop this action.");
-        var done = await store.TransitionAsync(actionId, ActionStatus.Pending, ActionStatus.Cancelled, x => x with
+        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, x => x with
         {
             Reviews = [.. x.Reviews, new ActionReview(stoppedBy, ReviewDecision.Reject, "Stopped during the undo window.", _clock.GetUtcNow())],
-        }, ct) ?? throw new InvalidOperationException("The action has already run or been decided.");
-        await Audit("stopped", done, stoppedBy, ct);
+        }, EntryOf("stopped", stoppedBy), ct) ?? throw new InvalidOperationException("The action has already run or been decided.");
         LeftPending(done);
         HostTelemetry.Count(done);
         await Publish(ActionEventKind.Cancelled, done, "stopped", ct);
@@ -645,10 +640,9 @@ public sealed class ActionQueue(
         var count = 0;
         foreach (var r in pending.Where(p => p.ExpiresAt is { } at && at <= now))
         {
-            var done = await store.TransitionAsync(r.Id, ActionStatus.Pending, ActionStatus.Expired, x => x, ct);
+            var done = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf("expired", null), ct);
             if (done is null) continue;
             count++;
-            await Audit("expired", done, null, ct);
             LeftPending(done);
             HostTelemetry.Count(done);
             await Publish(ActionEventKind.Expired, done, null, ct);
@@ -705,7 +699,48 @@ public sealed class ActionQueue(
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..32].ToLowerInvariant();
 
     private Task Audit(string evt, ActionRecord r, string? detail, CancellationToken ct) =>
-        audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), evt, r.Id, r.ToolName, r.Requester.Id, detail), ct);
+        audit.AppendAsync(Entry(evt, r, detail), ct);
+
+    /// <summary>The audit entry of a change, stamped when it is written (the fields <see cref="Audit(string, ActionRecord, string?, CancellationToken)"/> writes).</summary>
+    private AuditEntry Entry(string evt, ActionRecord r, string? detail) =>
+        new(_clock.GetUtcNow(), evt, r.Id, r.ToolName, r.Requester.Id, detail);
+
+    private Func<ActionRecord, AuditEntry> EntryOf(string evt, string? detail) => r => Entry(evt, r, detail);
+
+    /// <summary>A change to an action and the audit entry that records it: one transaction when the trail is the store's own database, so the
+    /// change cannot happen without its entry, nor the entry without the change. Otherwise the change is applied, then its entry is written.</summary>
+    private async Task<ActionRecord?> ChangeAudited(string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
+        Func<ActionRecord, AuditEntry> entry, CancellationToken ct)
+    {
+        if (AtomicTrail.For(store, audit) is { } atomic)
+            return await atomic.TransitionAuditedAsync(id, expected, next, update, entry, ct);
+        var done = await store.TransitionAsync(id, expected, next, update, ct);
+        if (done is not null) await audit.AppendAsync(entry(done), ct);
+        return done;
+    }
+
+    /// <summary>As <see cref="ChangeAudited"/>, for a change whose next status is decided inside the store's transaction.</summary>
+    private async Task<ActionRecord?> DecideAudited(string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
+        Func<ActionRecord, AuditEntry> entry, CancellationToken ct)
+    {
+        if (AtomicTrail.For(store, audit) is { } atomic)
+            return await atomic.TransitionDecidedAuditedAsync(id, expected, decide, entry, ct);
+        var done = await store.TransitionAsync(id, expected, decide, ct);
+        if (done is not null) await audit.AppendAsync(entry(done), ct);
+        return done;
+    }
+
+    /// <summary>Creates an action and writes its entry in the same transaction when the trail is the store's own database. An idempotent repeat
+    /// returns the existing action and writes nothing, since nothing changed; a refusal returns null and writes nothing.</summary>
+    private async Task<ActionRecord?> CreateAudited(ActionRecord record, IReadOnlyList<Admission> admissions,
+        Func<ActionRecord, AuditEntry> entry, CancellationToken ct)
+    {
+        if (AtomicTrail.For(store, audit) is { } atomic)
+            return await atomic.TryCreateAuditedAsync(record, admissions, entry, ct);
+        var created = admissions.Count > 0 ? await store.TryCreateAsync(record, admissions, ct) : await store.CreateAsync(record, ct);
+        if (created is not null && created.Id == record.Id) await audit.AppendAsync(entry(created), ct);
+        return created;
+    }
 
     private Task Audit(string evt, string id, ActionRequest req, string tool, string detail, DateTimeOffset at, CancellationToken ct) =>
         audit.AppendAsync(new AuditEntry(at, evt, id, tool, req.Requester.Id, detail), ct);

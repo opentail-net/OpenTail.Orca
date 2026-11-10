@@ -272,8 +272,8 @@ OpenTelemetry (`System.Diagnostics`; subscribe to the `OpenTail.Host` source and
 
 Useful audit events: `policy_decision`, `queued`, `approved`, `approval_recorded`, `rejected`, `changes_requested`, `edit_refused`,
 `review_refused`, `execution_succeeded`, `execution_failed`, `interrupted`, `expired`, `notification_dead`, `retention_purge`,
-`trust_promoted`, `trust_demoted`, `event_sink_error`, `post_success_failed` (a bookkeeping step after a call's outcome failed; the outcome stands,
-and the entry names the step and the exception type, not its message); and since the audit, work and failures work: `policy_loaded`,
+`trust_promoted`, `trust_demoted`, `event_sink_error`, `bookkeeping_failed` (a bookkeeping step failed: a call's labels, usage, result audit or
+circuit note; the outcome stands, and the entry names the step and the exception type, not its message); and since the audit, work and failures work: `policy_loaded`,
 `profile_added`/`profile_changed`/`profile_removed`/`people_changed`, `key_added`/`key_removed`/`key_rotated`/`key_profile_changed`,
 `action_viewed`, `export`, `decision_records_purge`, `retry_automatic`, `circuit.opened`/`circuit.would_open`/`circuit.reopened`/
 `circuit.closed`, `work.created`/`work.claimed`/`work.done`/`work.failed`/`work.lease_lost`/`work.dead`/`work.expired`,
