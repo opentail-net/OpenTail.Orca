@@ -312,4 +312,36 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.Empty(found["result"]!["skills"]!.AsArray());
         Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
     }
+
+    [Fact]
+    public async Task A_failure_after_a_call_is_committed_as_succeeded_does_not_turn_the_call_into_a_failure()
+    {
+        // skills.get writes its audit line after the Succeeded commit. When that write fails, the caller still gets the skill and the
+        // action stays Succeeded: reporting a failure would invite a retry of a call that already ran.
+        var audit = new FailingAuditSink(failOn: "skill_served");
+        var module = new SkillsModule(new SkillsModuleOptions
+        {
+            Store = Path.Combine(_root, "store"),
+            Manifest = new SkillsModuleFactory().Describe("skills", default),
+        });
+        var host = new OpenTailHostBuilder().AddModule(module).UsePolicy(PolicyConfig.Parse(Policy)).UseAudit(audit).Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "Never pay from an email.");
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+
+        Assert.Equal("succeeded", S(got, "status"));
+        Assert.Contains("Never pay from an email.", got["result"]!["instructions"]!.ToString());
+        Assert.Equal(ActionStatus.Succeeded, (await host.Store.GetAsync(S(got, "actionId")))!.Status);
+        Assert.Contains(audit.Inner.Entries, e => e.Event == "post_success_failed" && e.Detail == "result audit: IOException");
+    }
+
+    /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>
+    private sealed class FailingAuditSink(string failOn) : IAuditSink
+    {
+        public InMemoryAuditSink Inner { get; } = new();
+
+        public Task AppendAsync(AuditEntry entry, CancellationToken ct = default) =>
+            entry.Event == failOn ? throw new IOException("audit trail unavailable") : Inner.AppendAsync(entry, ct);
+    }
 }

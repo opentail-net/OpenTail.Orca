@@ -10,7 +10,7 @@ namespace OpenTail.Host;
 /// cannot apply the same transition twice. Limits (admissions) are counted in the same transaction that inserts, so
 /// they hold across processes too. The full record is kept as JSON; the columns exist for indexing.
 /// </summary>
-public sealed class SqliteActionStore : IActionStore, IUsageStore
+public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditStore
 {
     /// <summary>Schema 2: requester-scoped idempotency, sessions, subject taint, trust promotions. Schema 3: notices. Schema 4: daily
     /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals.</summary>
@@ -347,17 +347,21 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
     {
         if (!ActionStateMachine.IsValidInitial(record.Status))
             throw new InvalidOperationException($"{record.Status} is not a valid initial status.");
-        return Task.FromResult(Create(record, [])!);
+        return Task.FromResult(Create(record, [], static _ => null)!);
     }
 
-    public Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, CancellationToken ct = default)
+    public Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, CancellationToken ct = default) =>
+        TryCreateAsync(record, admissions, static _ => null, ct);
+
+    public Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?> refused,
+        CancellationToken ct = default)
     {
         if (!ActionStateMachine.IsValidInitial(record.Status))
             throw new InvalidOperationException($"{record.Status} is not a valid initial status.");
-        return Task.FromResult(Create(record, admissions));
+        return Task.FromResult(Create(record, admissions, refused));
     }
 
-    private ActionRecord? Create(ActionRecord record, IReadOnlyList<Admission> admissions)
+    private ActionRecord? Create(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?> refused)
     {
         using var c = Open();
         using var tx = c.BeginTransaction(deferred: false);
@@ -375,6 +379,28 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
                 return Deserialize(existing);
         }
 
+        // A refused admission stores what the caller says to store (for example the action, failed), or nothing: either way in this
+        // transaction, so the count and the insert cannot be split by another caller.
+        var refusedBy = FirstRefusal(c, tx, admissions);
+        var toStore = refusedBy < 0 ? record : refused(refusedBy);
+        if (toStore is null) return null; // rolls back on dispose
+
+        using var ins = c.CreateCommand();
+        ins.Transaction = tx;
+        ins.CommandText = """
+            INSERT INTO actions(id, tool, module, status, requester_id, session_id, idem_key, args_hash, created_at, updated_at, json)
+            VALUES($id,$tool,$module,$status,$req,$ses,$idem,$hash,$c,$u,$json)
+            """;
+        Bind(ins, toStore);
+        ins.ExecuteNonQuery();
+        if (Usage.IsEnd(toStore.Status)) AddUsage(c, tx, toStore);
+        tx.Commit();
+        return toStore;
+    }
+
+    /// <summary>The index of the first admission already at its limit, or -1. Runs inside the caller's transaction.</summary>
+    private int FirstRefusal(SqliteConnection c, SqliteTransaction tx, IReadOnlyList<Admission> admissions)
+    {
         for (var i = 0; i < admissions.Count; i++)
         {
             using var count = c.CreateCommand();
@@ -387,20 +413,9 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
                 count.Parameters.AddWithValue($"$a{i}w", (_clock.GetUtcNow() - w).ToUniversalTime().ToString("O"));
             }
             count.CommandText = "SELECT COUNT(*) FROM actions" + (where.Count > 0 ? " WHERE " + string.Join(" AND ", where) : "");
-            if ((long)(count.ExecuteScalar() ?? 0L) >= admissions[i].MaxCount) return null; // rolls back on dispose
+            if ((long)(count.ExecuteScalar() ?? 0L) >= admissions[i].MaxCount) return i;
         }
-
-        using var ins = c.CreateCommand();
-        ins.Transaction = tx;
-        ins.CommandText = """
-            INSERT INTO actions(id, tool, module, status, requester_id, session_id, idem_key, args_hash, created_at, updated_at, json)
-            VALUES($id,$tool,$module,$status,$req,$ses,$idem,$hash,$c,$u,$json)
-            """;
-        Bind(ins, record);
-        ins.ExecuteNonQuery();
-        if (Usage.IsEnd(record.Status)) AddUsage(c, tx, record);
-        tx.Commit();
-        return record;
+        return -1;
     }
 
     public Task<ActionRecord?> GetAsync(string id, CancellationToken ct = default)
@@ -475,7 +490,20 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
                 : null, ct);
 
     public Task<ActionRecord?> TransitionAsync(
-        string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide, CancellationToken ct = default)
+        string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
+        IReadOnlyList<Admission> admissions, Func<int, ActionRecord, ActionRecord> refused, CancellationToken ct = default) =>
+        TransitionCore(id, expected, current =>
+            ActionStateMachine.CanTransition(expected, next, current.Error?.Retryable ?? false)
+                ? new ActionTransition(next, update(current))
+                : null, admissions, refused);
+
+    public Task<ActionRecord?> TransitionAsync(
+        string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide, CancellationToken ct = default) =>
+        TransitionCore(id, expected, decide, [], null);
+
+    /// <summary>The transition, the admissions it checks, and (when given) the audit entry it is committed with, all in one transaction.</summary>
+    private Task<ActionRecord?> TransitionCore(string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
+        IReadOnlyList<Admission> admissions, Func<int, ActionRecord, ActionRecord>? refused, Func<ActionRecord, AuditEntry>? audit = null)
     {
         using var c = Open();
         using var tx = c.BeginTransaction(deferred: false); // write lock up front: this is the compare-and-set
@@ -488,7 +516,17 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
 
         var current = Deserialize(json);
         if (current.Status != expected) return Task.FromResult<ActionRecord?>(null);
-        if (decide(current) is not { } t) return Task.FromResult<ActionRecord?>(null);
+        // Admissions are counted in this transaction. A refusal changes the action only to what the caller's refusal says (for example failed).
+        var refusedBy = FirstRefusal(c, tx, admissions);
+        ActionTransition? t;
+        if (refusedBy >= 0)
+        {
+            if (refused is null) return Task.FromResult<ActionRecord?>(null);
+            var alt = refused(refusedBy, current);
+            t = new ActionTransition(alt.Status, alt);
+        }
+        else t = decide(current);
+        if (t is null) return Task.FromResult<ActionRecord?>(null);
         if (!ActionStateMachine.CanTransition(expected, t.Next, current.Error?.Retryable ?? false))
             return Task.FromResult<ActionRecord?>(null);
 
@@ -503,9 +541,18 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
         write.Parameters.AddWithValue("$id", id);
         write.ExecuteNonQuery();
         if (Usage.IsEnd(updated.Status)) AddUsage(c, tx, updated);
+        if (audit is not null) SqliteAuditSink.Append(c, tx, audit(updated));
         tx.Commit();
         return Task.FromResult<ActionRecord?>(updated);
     }
+
+    public Task<ActionRecord?> TransitionAuditedAsync(
+        string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
+        Func<ActionRecord, AuditEntry> audit, CancellationToken ct = default) =>
+        TransitionCore(id, expected, current =>
+            ActionStateMachine.CanTransition(expected, next, current.Error?.Retryable ?? false)
+                ? new ActionTransition(next, update(current))
+                : null, [], null, audit);
 
     // ---- usage rollups ----
 
@@ -723,10 +770,22 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore
 /// </summary>
 public sealed class SqliteAuditSink(SqliteActionStore store) : IAuditSink, IAuditReader
 {
+    /// <summary>The store whose database holds the trail. The executor commits an outcome together with its entry only when this is the
+    /// store it runs on (see <see cref="IAtomicAuditStore"/>).</summary>
+    public SqliteActionStore Store => store;
+
     public Task AppendAsync(AuditEntry e, CancellationToken ct = default)
     {
         using var c = store.OpenConnection();
         using var tx = c.BeginTransaction(deferred: false); // the chain needs the previous hash and the next seq to be stable
+        Append(c, tx, e);
+        tx.Commit();
+        return Task.CompletedTask;
+    }
+
+    /// <summary>Appends one chained entry inside the caller's transaction, so it commits or rolls back with whatever else that transaction does.</summary>
+    internal static void Append(SqliteConnection c, SqliteTransaction tx, AuditEntry e)
+    {
         using var last = c.CreateCommand();
         last.Transaction = tx;
         last.CommandText = "SELECT hash FROM audit ORDER BY seq DESC LIMIT 1";
@@ -748,8 +807,6 @@ public sealed class SqliteAuditSink(SqliteActionStore store) : IAuditSink, IAudi
         set.Parameters.AddWithValue("$h", AuditChain.Hash(seq, e.At.ToString("O"), e.Event, e.ActionId, e.ToolName, e.Actor, e.Detail, prev));
         set.Parameters.AddWithValue("$s", seq);
         set.ExecuteNonQuery();
-        tx.Commit();
-        return Task.CompletedTask;
     }
 
     /// <summary>The newest chained entry, without reading the whole trail.</summary>

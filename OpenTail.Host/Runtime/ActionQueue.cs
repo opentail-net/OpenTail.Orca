@@ -320,9 +320,13 @@ public sealed class ActionQueue(
                     return await QueueAsync(baseRecord, decision, runAt);
                 }
                 var executing = baseRecord with { Status = ActionStatus.Executing, Attempts = 1, LeaseUntil = now + executor.LeaseDuration };
-                // A budget on the rule is counted in the same transaction that inserts, so it holds across processes.
-                var running = decision.Admissions.Count > 0
-                    ? await store.TryCreateAsync(executing, decision.Admissions, ct)
+                // A budget on the rule and the tool's rate limit are counted in the same transaction that inserts, so they hold across
+                // processes. A spent budget queues the call for a reviewer; a spent rate limit fails it (see RateGate).
+                var gate = RateGate.For(baseRecord.ToolName, decision.Policy.RateLimit);
+                var budgets = decision.Admissions.Count;
+                IReadOnlyList<Admission> admissions = [.. decision.Admissions, .. gate.Admissions];
+                var running = admissions.Count > 0
+                    ? await store.TryCreateAsync(executing, admissions, i => i < budgets ? null : gate.Refuse(executing, i - budgets, now), ct)
                     : await store.CreateAsync(executing, ct);
                 if (running is null)
                 {
@@ -341,6 +345,7 @@ public sealed class ActionQueue(
                 }
                 // An idempotent resubmission returns the existing record; only run what we just created.
                 if (running.Id != id) return running;
+                if (running.Status == ActionStatus.Failed) return await executor.ReportRefusalAsync(running, ct); // its rate limit is spent
                 // The MCP handler may answer with a task if this runs long: let it see the action now, before it finishes.
                 ActionCapture.Record(running);
                 var ran = await executor.RunClaimedAsync(running, ct);
@@ -605,10 +610,7 @@ public sealed class ActionQueue(
             if (approved is null) continue;
             await Audit("delay_elapsed", approved, null, ct);
             LeftPending(approved);
-            var claimed = await store.TransitionAsync(r.Id, ActionStatus.Approved, ActionStatus.Executing,
-                x => x with { Attempts = x.Attempts + 1, LeaseUntil = now + executor.LeaseDuration }, ct);
-            if (claimed is null) continue;
-            await executor.RunClaimedAsync(claimed, ct);
+            if (await executor.ClaimAndRunAsync(approved, countAttempt: true, ct) is null) continue;
             ran++;
         }
         return ran;

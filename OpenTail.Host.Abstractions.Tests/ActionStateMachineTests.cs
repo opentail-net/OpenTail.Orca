@@ -15,6 +15,7 @@ public class ActionStateMachineTests
         (ActionStatus.Pending, ActionStatus.Expired),
         (ActionStatus.Pending, ActionStatus.Cancelled),
         (ActionStatus.Approved, ActionStatus.Executing),
+        (ActionStatus.Approved, ActionStatus.Failed), // refused at the claim by an admission
         (ActionStatus.Executing, ActionStatus.Succeeded),
         (ActionStatus.Executing, ActionStatus.Failed),
     ];

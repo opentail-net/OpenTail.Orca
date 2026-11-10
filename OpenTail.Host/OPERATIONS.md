@@ -272,7 +272,8 @@ OpenTelemetry (`System.Diagnostics`; subscribe to the `OpenTail.Host` source and
 
 Useful audit events: `policy_decision`, `queued`, `approved`, `approval_recorded`, `rejected`, `changes_requested`, `edit_refused`,
 `review_refused`, `execution_succeeded`, `execution_failed`, `interrupted`, `expired`, `notification_dead`, `retention_purge`,
-`trust_promoted`, `trust_demoted`, `event_sink_error`; and since the audit, work and failures work: `policy_loaded`,
+`trust_promoted`, `trust_demoted`, `event_sink_error`, `post_success_failed` (a bookkeeping step after a call's outcome failed; the outcome stands,
+and the entry names the step and the exception type, not its message); and since the audit, work and failures work: `policy_loaded`,
 `profile_added`/`profile_changed`/`profile_removed`/`people_changed`, `key_added`/`key_removed`/`key_rotated`/`key_profile_changed`,
 `action_viewed`, `export`, `decision_records_purge`, `retry_automatic`, `circuit.opened`/`circuit.would_open`/`circuit.reopened`/
 `circuit.closed`, `work.created`/`work.claimed`/`work.done`/`work.failed`/`work.lease_lost`/`work.dead`/`work.expired`,
@@ -306,3 +307,11 @@ a second person in a real browser. MCP tasks are implemented for queued, delayed
 with the SDK's own client only; their push notifications and Slack approve-buttons are not implemented. Modules run inside the Host process unless
 `modules.json` isolates them (a worker process per module; containment needs the operator's account and network setup). The
 GitHub Issues module has been tested against a stateful fake of the GitHub API over real HTTP, not yet against github.com. See [SECURITY.md](SECURITY.md).
+
+Two constraints to keep in view:
+
+- **Execution lease.** An executing action's lease is five minutes by default and is not extended. Recovery treats a lapsed lease as an
+  interrupted call, so a tool that legitimately runs longer can be retried while its first call is still running. Only tools declared
+  idempotent by key are retried this way. Configure a longer lease, or keep tool calls bounded.
+- **Capacity is per process.** Capacity limits are in-memory token buckets, so several Host processes do not share one capacity budget.
+  Rate limits and action budgets are counted in the database and do hold across processes.
