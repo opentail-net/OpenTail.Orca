@@ -14,6 +14,7 @@ Designs for Host work that is planned but not built, newest first. The cross-rep
 | [Work items and continuations](work-and-continuations.md): an inbox for agents, parking and resuming after a wait | 17 | Proposed 2026-10-18 |
 | [Roles and permissions](roles-and-permissions.md): agent profiles bound to the credential, the `Administers` flag | 12 | Steps 1 to 3 built 2026-10-18 |
 | [skills.publish questions](skills-publish-questions.md) | 12 | Built 2026-10-18 |
+| [Standard skill files](standard-skill-files.md): the Agent Skills form of a skill version, checked at publish and at export; no new package | — | Phases 1 and 2 built 2026-11-09, uncommitted; decisions 3, 4 and 7 provisional |
 | [Adaptive limits and intrusion detection](adaptive-limits.md) | 13 | Groundwork built 2026-10-18; enforcement waits |
 | [Where data goes](data-flow.md): labels and flow rules | 14 | Decided 2026-10-18; waits |
 | [Execute with an undo window](undo-window.md) | 15 | Decided 2026-10-18; waits |

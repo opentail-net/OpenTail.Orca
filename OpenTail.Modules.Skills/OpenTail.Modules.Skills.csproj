@@ -6,6 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <PackageReference Include="YamlDotNet" />
     <Using Include="Microsoft.Extensions.AI" />
     <Using Include="OpenTail.Host.Abstractions" />
     <Using Include="System.ComponentModel" />
