@@ -279,4 +279,37 @@ public sealed class SkillsModuleTests : IDisposable
         diff = JsonNode.Parse(JsonNode.Parse((await host.Store.GetAsync(S(loose, "actionId")))!.PreviewJson!)!["DiffJson"]!.ToString())!;
         Assert.StartsWith("Not bound:", diff["reportCheck"]!.ToString());
     }
+
+    [Fact]
+    public async Task A_metadata_change_to_a_published_version_is_refused_when_requested_not_at_approval()
+    {
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "Version one.");
+
+        // The same text with a different skill.json: the store refuses it at approval, so the request itself must be refused now.
+        var owner = Meta("1").Replace("\"owner\": \"finance-ops\"", "\"owner\": \"someone-else\"", StringComparison.Ordinal);
+        var refused = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "Change the owner."),
+            ("expectedFrom", "1"), ("skillJson", owner), ("instructions", "Version one."));
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("already published with different content", refused.ToJsonString());
+
+        // Identical content is still an ordinary proposal.
+        var same = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "Again."),
+            ("expectedFrom", "1"), ("skillJson", Meta("1")), ("instructions", "Version one."));
+        Assert.Equal("pending_approval", S(same, "status"));
+    }
+
+    [Fact]
+    public async Task Find_names_a_label_whose_version_files_are_missing_instead_of_hiding_it()
+    {
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "Version one.");
+        Directory.Delete(Path.Combine(_root, "store", "invoice-check", "1"), recursive: true); // the store is damaged behind the Host's back
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+    }
 }
