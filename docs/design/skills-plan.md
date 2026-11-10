@@ -88,6 +88,18 @@ The review also asked that the merge of the two branches' documents be reconcile
 
 Nothing from this section is built. Each plan lists the owner's decisions it waits for.
 
+## Order of work
+
+Agreed after the review of the plans, 2026-11-10. The plans were ordered by design; this order is by value and risk. Each step names the decision it waits on, and nothing later starts before the step before it is done or deliberately set aside.
+
+1. **Stop the publish that overwrites damaged labels (S9).** Store plan, design item 2, and the tests named there. This is a data-loss risk on the Host today, so it is taken out of the store plan and done on its own, without waiting for the rest of that plan (cleanup, store check, backup). Waits on O-S2 (recommended: refuse the publish, as design item 2 says).
+2. **v1 golden hash tests.** Hashing plan, work order step 1. Records the current identities before anything changes. Needs no decision.
+3. **Activation scoring in the Workbench (step 2a).** Makes the discoverability criterion measured. Waits on the question of whether activation counts toward a pass (recommended: reported beside it).
+4. **Measure real decision counts.** Count clean, ambiguous and unattributed decisions on a real store, without changing attribution. The result decides whether option A is built, and whether its thresholds can be reached at all. Needs the owner's store; no store is available in this repository.
+5. **Decide, not before:** attribution option A (only if step 4 shows enough data, and after O-A2 and O-A3); the library (deferred until the licence, O-L1, is settled); resources (deferred until a real skill needs a reference file).
+
+Everything else in the plans waits behind these steps.
+
 ## Gates before implementation
 
 From the second review. A gate says what must be decided or written before a piece of work starts. This plan does not authorise any start; the owner does.
