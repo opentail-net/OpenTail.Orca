@@ -36,7 +36,7 @@ A skill is a folder with a plain-language instruction file (`SKILL.md`) and some
 4. Check whether there are enough real decisions to measure anything.
 5. Only then decide on the outcome measurement, the library and reference files.
 
-None of these has started. Each waits for the owner's decisions, except step 2, which needs none. Runs against a real model also wait for the owner (a model, a budget and a key).
+None of the five steps has started. Earlier work (the catalog delivery, the no-skill baseline and the near-miss scenarios) is built and committed on a Workbench branch, but it is not one of these steps. Each waits for the owner's decisions, except step 2, which needs none. Runs against a real model also wait for the owner (a model, a budget and a key).
 
 ---
 
