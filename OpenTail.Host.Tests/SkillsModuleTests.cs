@@ -410,6 +410,65 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.Null(store.LabelledVersion("invoice-check", "production"));
     }
 
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("""["an", "array"]""")]
+    [InlineData("""{ "format": 1, "skills": "a string" }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": 5 } }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": { "production": null } } }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": { "production": 1 } } }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": { "production": "1", "staging": null } } }""")]
+    public void A_publish_is_refused_before_any_write_when_labels_is_malformed(string labelsJson)
+    {
+        // expectedFrom is null, so nothing else would read the labels before the version folder is written: the damage must still be found first.
+        var storeDir = Path.Combine(_root, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "labels.json"), labelsJson);
+        var store = new SkillStore(storeDir);
+
+        Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: null));
+
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "1")), "no version folder may be written");
+        Assert.Equal(labelsJson, File.ReadAllText(Path.Combine(storeDir, "labels.json")));
+    }
+
+    [Fact]
+    public void A_publish_is_refused_before_any_write_when_labels_is_malformed_and_expectedFrom_is_given()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "labels.json"), "not json at all");
+        var store = new SkillStore(storeDir);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none"));
+
+        Assert.Contains("labels.json", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "1")));
+    }
+
+    [Fact]
+    public void A_publish_never_replaces_a_damaged_labels_entry_and_other_labels_survive()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "labels.json"), """
+            { "format": 1, "skills": { "email-triage": null, "reply-draft": { "production": "2", "staging": "3" } } }
+            """);
+        var store = new SkillStore(storeDir);
+
+        store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none");
+
+        var written = JsonNode.Parse(File.ReadAllText(Path.Combine(storeDir, "labels.json")))!;
+        Assert.Equal("1", written["skills"]!["invoice-check"]!["production"]!.ToString());
+        Assert.Equal("2", written["skills"]!["reply-draft"]!["production"]!.ToString());
+        Assert.Equal("3", written["skills"]!["reply-draft"]!["staging"]!.ToString());
+        // The damaged entry of another skill is kept as it was, not replaced by an empty object.
+        Assert.True(written["skills"]!.AsObject().ContainsKey("email-triage"));
+        Assert.Null(written["skills"]!["email-triage"]);
+    }
+
     [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {

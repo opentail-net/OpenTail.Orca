@@ -116,9 +116,12 @@ public sealed partial class SkillStore(string root)
         {
             // Held from the expectedFrom check to the label write, so another process cannot move the label in between.
             using var held = TakeStoreLock();
-            if (expectedFrom is not null && (LabelledVersion(id, label) ?? NoVersion) != expectedFrom)
+            // The labels file is read once, under the lock, before anything is written. A damaged file, or a damaged entry for this skill,
+            // refuses the publish with the reason and is never replaced (store plan, design item 2).
+            var labels = ReadLabelsForWrite(id);
+            if (expectedFrom is not null && (LabelOf(labels, id, label) ?? NoVersion) != expectedFrom)
                 throw new InvalidOperationException($"The '{label}' label of {id} moved since this was reviewed (it was expected at {expectedFrom}, " +
-                                                    $"it is at {LabelledVersion(id, label) ?? NoVersion}). Nothing was published: resubmit.");
+                                                    $"it is at {LabelOf(labels, id, label) ?? NoVersion}). Nothing was published: resubmit.");
             var existing = Get(id, version);
             if (metadataJson is not null || instructions is not null)
             {
@@ -144,7 +147,6 @@ public sealed partial class SkillStore(string root)
             else if (existing is null) throw new ArgumentException($"{id} has no published version {version}; send skillJson and instructions to add it.");
 
             var labelsPath = Path.Combine(Root, "labels.json");
-            var labels = File.Exists(labelsPath) ? JsonNode.Parse(File.ReadAllText(labelsPath)) as JsonObject ?? [] : new JsonObject { ["format"] = 1 };
             var skills = labels["skills"] as JsonObject ?? (JsonObject)(labels["skills"] = new JsonObject());
             var forSkill = skills[id] as JsonObject ?? (JsonObject)(skills[id] = new JsonObject());
             forSkill[label] = version;
@@ -172,6 +174,35 @@ public sealed partial class SkillStore(string root)
                                                 "Nothing was published: resubmit.", ex);
         }
     }
+
+    /// <summary>The labels file, read for a write. A file that is not JSON, or whose root or <c>skills</c> is not an object, is refused; so is a
+    /// damaged entry for <paramref name="id"/> (not an object, or a label that is not text). The refusal names the problem and nothing is written.
+    /// Other skills' entries are not checked, and are kept exactly as they are when the file is written back.</summary>
+    private JsonObject ReadLabelsForWrite(string id)
+    {
+        var path = Path.Combine(Root, "labels.json");
+        if (!File.Exists(path)) return new JsonObject { ["format"] = 1 };
+        JsonNode? node;
+        try { node = JsonNode.Parse(File.ReadAllText(path)); }
+        catch (JsonException ex) { throw new ArgumentException("labels.json is not valid JSON, so nothing was published. Repair it by hand first. " + ex.Message); }
+        if (node is not JsonObject root) throw new ArgumentException("labels.json is not a JSON object, so nothing was published. Repair it by hand first.");
+        if (root.TryGetPropertyValue("skills", out var skills))
+        {
+            if (skills is not JsonObject skillsObject) throw new ArgumentException("labels.json's 'skills' is not an object, so nothing was published. Repair it by hand first.");
+            if (skillsObject.TryGetPropertyValue(id, out var entry))
+            {
+                if (entry is not JsonObject forSkill) throw new ArgumentException($"labels.json's entry for {id} is not an object, so nothing was published. Repair it by hand first.");
+                foreach (var (name, value) in forSkill)
+                    if (value is not JsonValue v || v.GetValueKind() != JsonValueKind.String)
+                        throw new ArgumentException($"labels.json's '{name}' label for {id} is not a version text, so nothing was published. Repair it by hand first.");
+            }
+        }
+        return root;
+    }
+
+    /// <summary>The version a label holds in a labels file read by <see cref="ReadLabelsForWrite"/>, or null when it has none.</summary>
+    private static string? LabelOf(JsonObject labels, string id, string label) =>
+        labels["skills"] is JsonObject skills && skills[id] is JsonObject forSkill && forSkill[label] is JsonValue v ? v.GetValue<string>() : null;
 
     [GeneratedRegex("^[a-z0-9]+(-[a-z0-9]+)*$")]
     private static partial Regex IdPattern();
