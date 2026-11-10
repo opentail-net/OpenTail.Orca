@@ -87,8 +87,9 @@ If the policy for `skills.publish` is looser than this, the Host refuses to star
 | A label moves only if it still points where the reviewer saw it (`expectedFrom`). | `PublishPreview` at request time. `SkillStore.Publish` at approval, under the lock. |
 | A version is written in full before it appears: a temporary folder, then one move. `labels.json` is replaced by one move too. | `SkillStore.Publish` |
 | Only an approved `skills.publish` writes here. The module never deletes a version. | The factory's notes; `SkillStore` has no delete method |
+| A publish holds the store's lock file (`.publish.lock`) from its `expectedFrom` check to its label write. A publish from another process while it is held is refused, and writes nothing. | `SkillStore.TakeStoreLock` |
 
-There is no cache. Each `find` or `get` reads `labels.json` and the files it needs. `skill.json` is kept as sent. The Host reads `id`, `version`, `summary`, `appliesTo`, `tools`, `policies` and `owner`, and it does not read `format`.
+There is no cache. Each `find` or `get` reads `labels.json` and the files it needs. `skill.json` is kept as sent. The Host reads `id`, `version`, `summary`, `appliesTo`, `tools`, `policies` and `owner`, and it requires `"format": 1`: any other format, or none, is refused at publish and when read.
 
 ## The tools
 
@@ -99,7 +100,7 @@ Argument: `situation`, optional. Omit it to list every skill.
 - Lists every skill that has a version at the served label. Nothing is filtered out. With no match, every skill still comes back, with the lowest scores last.
 - **Score.** The situation is split on spaces, commas, full stops and semicolons. Words of three or more characters count. A word scores when it appears, ignoring case and inside a longer word, in the summary, the `appliesTo` entries or the id (dashes read as spaces). The score is the number of words that score. Ties sort by id. `tools` and `policies` are not searched.
 - Returns `{ label, skills: [ { id, version, summary, appliesTo } ], warnings, next }`. `next` tells the agent to call `skills.get`. `warnings` is always present, and empty when nothing is wrong.
-- A skill whose label points at a version with missing files is left out of `skills` and named in `warnings`: `The store lists <id>@<v> but its files are missing; it is not offered.` `skills.get` fails for the same skill.
+- A skill whose label points at a version with missing files is left out of `skills` and named in `warnings`: `The store lists <id>@<v> but its files are missing; it is not offered.` `skills.get` fails for the same skill. A version whose files cannot be read (for example, one in another format) is named the same way, with the reason, and the other skills are still listed.
 
 ### `skills.get` (Read)
 
@@ -177,6 +178,8 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 | Serving a skill does not taint the session | `skills.get` returns no outside content | same as above |
 | A version cannot change under its number | Preview (at request time) and store (at approval) | `A_version_cannot_be_republished_with_different_content_and_bad_requests_are_refused_at_once`; `A_metadata_change_to_a_published_version_is_refused_when_requested_not_at_approval` |
 | A broken label is named, not hidden | `SkillsModule.Find` | `Find_names_a_label_whose_version_files_are_missing_instead_of_hiding_it` |
+| A version in another format is refused at publish, and is not served | `SkillStore.Parse` | `A_skill_file_without_format_1_is_refused_at_publish`; `A_stored_version_in_another_format_is_named_by_find_and_not_served` |
+| Two processes cannot publish to one store at the same time | `SkillStore.TakeStoreLock` | `A_publish_is_refused_while_another_process_holds_the_store_and_writes_nothing` |
 | A label moves only from the version that was reviewed | Preview and store | `Approving_an_old_proposal_after_the_label_moved_publishes_nothing`; `A_publish_without_expectedFrom_or_with_a_wrong_one_is_refused_at_once` |
 | A report describes the content proposed | `CheckReport` | `A_report_bound_to_other_content_is_refused_and_a_matching_one_is_marked_bound` |
 | A rollback is an ordinary publish | `Publish` | `Rolling_back_is_publishing_an_earlier_version_through_the_same_approval` |
@@ -188,20 +191,19 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 
 ## Known limits and gaps
 
-Found by reading the code while writing this. The first draft listed ten; the first two were fixed in `1464f70` (a metadata-only change is now refused at request time, and `find` names a broken label). The rest are open. Each open one is a candidate for a decision.
+Found by reading the code while writing this. Fixed since: a metadata-only change is refused at request time, and `find` names a broken label (`1464f70`); the format is checked, and a publish is locked across processes (see the invariants). The rest are open. Each open one is a candidate for a decision.
 
-1. **The write lock covers one process only.** `SkillStore.WriteLock` is a static object (`SkillStore.cs:22`). Two Host processes on one store folder are not serialised, so the `expectedFrom` check and the write of `labels.json` can interleave. The roles design assumes one writer. That is an operating rule, not something the code enforces.
-2. **The Host does not read `format` in `skill.json`.** `SkillStore.Parse` ignores it. The workbench's format notes say a reader refuses an unknown format. That is not true of the Host.
-3. **The store is not in the SQLite backup.** [OPERATIONS.md](../OpenTail.Host/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) covers the database file only. The [runbook](../docs/guides/skills.md#backups-and-recovery) covers the store.
-4. **A cosmetic change to a stored version is accepted and changes nothing.** The stored text stays as it was first published, while the approval still moves the label. This is intended. It is listed so that it is not a surprise.
-5. **The report is read from its first 40 lines only**, so a binding line further down does not count. The change request shows only the first 20,000 characters of a report.
-6. **Matching is loose.** It is substring matching on words of three or more characters, so it can find skills the situation does not really concern. Every skill is listed anyway, and the agent decides.
-7. **The standard form differs from the reference validator.** The reference validator reads YAML with `strictyaml` (Python). The Host uses YamlDotNet's event parser. The two may disagree on edge inputs (per the design record, not yet checked).
-8. **Frontmatter detection is line-based.** Instructions that begin with a Markdown rule (`---`) and have another `---` line later are read as frontmatter, and are then refused or misread. Start the instructions with a heading.
+1. **The store lock is a file lock on the store folder.** It holds across processes on a local disk. On a network share, file locks may not be enforced, so keep one publishing Host per store there.
+2. **The store is not in the SQLite backup.** [OPERATIONS.md](../OpenTail.Host/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) covers the database file only. The [runbook](../docs/guides/skills.md#backups-and-recovery) covers the store.
+3. **A cosmetic change to a stored version is accepted and changes nothing.** The stored text stays as it was first published, while the approval still moves the label. This is intended. It is listed so that it is not a surprise.
+4. **The report is read from its first 40 lines only**, so a binding line further down does not count. The change request shows only the first 20,000 characters of a report.
+5. **Matching is loose.** It is substring matching on words of three or more characters, so it can find skills the situation does not really concern. Every skill is listed anyway, and the agent decides.
+6. **The standard form differs from the reference validator.** The reference validator reads YAML with `strictyaml` (Python). The Host uses YamlDotNet's event parser. The two may disagree on edge inputs (per the design record, not yet checked).
+7. **Frontmatter detection is line-based.** Instructions that begin with a Markdown rule (`---`) and have another `---` line later are read as frontmatter, and are then refused or misread. Start the instructions with a heading.
 
 ## Tests
 
-- `OpenTail.Host.Tests/SkillsModuleTests.cs`: 14 tests for the tools, approval, rollback, drift, configuration, the report binding, metadata changes and broken labels.
+- `OpenTail.Host.Tests/SkillsModuleTests.cs`: 18 tests for the tools, approval, rollback, drift, configuration, the report binding, metadata changes, broken labels, the format check, the store lock and a failing audit line after a call.
 - `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`: the standard form.
 - `OpenTail.Host.Tests/SkillOutcomesTests.cs`: the tests for `SkillOutcomes.cs`.
 - To run the Skills tests: `dotnet test OpenTail.Host.Tests --filter "FullyQualifiedName~Skill|FullyQualifiedName~Standard"`. On 2026-11-10 that gave 66 passing, and the whole `OpenTail.Host.Tests` project gave 1040 passing.

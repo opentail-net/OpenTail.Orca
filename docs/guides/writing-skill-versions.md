@@ -27,7 +27,7 @@ The Host reads these fields:
 | `policies` | no | A list of `{ "ref": "policies/payment-verification.md", "hash": "sha256:…" }`. `hash` is the normalised hash of the policy text the skill was tested against, or `null`. Only the file name of `ref` is used for the drift check |
 | `owner` | no | The team that owns the skill |
 
-The Host does not read `format`. The workbench writes `"format": 1`, and the Host ignores it.
+`format` must be `1`. The Host refuses any other value, and a file with no `format`, both at publish and when a stored version is read. The workbench writes `"format": 1`.
 
 Keep the file exactly as you want it served. Republishing an existing version with different `skill.json` text is refused when the request is made.
 

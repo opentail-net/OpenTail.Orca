@@ -62,7 +62,18 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
         foreach (var (id, labels) in _store.ReadLabels())
         {
             if (!labels.TryGetValue(options.Label, out var version)) continue;
-            if (_store.Get(id, version) is not { } s)
+            SkillVersion? s;
+            try
+            {
+                s = _store.Get(id, version);
+            }
+            catch (ArgumentException ex)
+            {
+                // One damaged or unsupported version does not hide the others: it is named, and skills.get refuses it.
+                warnings.Add($"The store lists {id}@{version}, but its files cannot be read: {ex.Message}");
+                continue;
+            }
+            if (s is null)
             {
                 // Left out of the list, but named: a damaged store is seen here rather than hidden. skills.get fails for it too.
                 warnings.Add($"The store lists {id}@{version} but its files are missing; it is not offered.");

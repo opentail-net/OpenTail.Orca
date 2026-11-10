@@ -19,6 +19,11 @@ public sealed record SkillVersion(
 public sealed partial class SkillStore(string root)
 {
     public static readonly IReadOnlyList<string> Labels = ["production", "staging"];
+
+    /// <summary>The skill.json format this Host reads and writes.</summary>
+    public const int SupportedFormat = 1;
+
+    /// <summary>Serialises publishes within one process. Across processes, <see cref="TakeStoreLock"/> does it.</summary>
     private static readonly object WriteLock = new();
 
     public string Root { get; } = root;
@@ -59,6 +64,9 @@ public sealed partial class SkillStore(string root)
         IReadOnlyList<string> List(string key) => o[key] is JsonArray a ? [.. a.Select(n => n?.ToString() ?? "")] : [];
         if (Text("id") != id) throw new ArgumentException($"skill.json names '{Text("id")}', not '{id}'.");
         if (Text("version") != version) throw new ArgumentException($"skill.json is version {Text("version")}, not {version}.");
+        // The format is checked, not ignored: a file in a format this Host does not read is refused, at publish and at read.
+        if (!(o["format"] is JsonValue f && f.TryGetValue(out int format) && format == SupportedFormat))
+            throw new ArgumentException($"skill.json must say \"format\": {SupportedFormat}. This Host reads format {SupportedFormat} only.");
         if (string.IsNullOrWhiteSpace(instructions)) throw new ArgumentException("The instructions (SKILL.md) are empty.");
         var policies = o["policies"] is JsonArray p
             ? p.Select(n => new SkillPolicy(n?["ref"]?.ToString() ?? throw new ArgumentException("A policy needs 'ref'."), n?["hash"]?.ToString())).ToList()
@@ -78,6 +86,8 @@ public sealed partial class SkillStore(string root)
         if (!IsId(id) || !IsVersion(version) || !Labels.Contains(label)) throw new ArgumentException("Invalid skill id, version or label.");
         lock (WriteLock)
         {
+            // Held from the expectedFrom check to the label write, so another process cannot move the label in between.
+            using var held = TakeStoreLock();
             if (expectedFrom is not null && (LabelledVersion(id, label) ?? NoVersion) != expectedFrom)
                 throw new InvalidOperationException($"The '{label}' label of {id} moved since this was reviewed (it was expected at {expectedFrom}, " +
                                                     $"it is at {LabelledVersion(id, label) ?? NoVersion}). Nothing was published: resubmit.");
@@ -113,6 +123,25 @@ public sealed partial class SkillStore(string root)
             var tmpLabels = labelsPath + ".tmp";
             File.WriteAllText(tmpLabels, labels.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
             File.Move(tmpLabels, labelsPath, overwrite: true);
+        }
+    }
+
+    /// <summary>
+    /// Opens the store's lock file exclusively, for the length of a publish. A second Host process that publishes to the same folder while
+    /// this one holds it is refused, rather than checking expectedFrom and then writing over the other's change. Nothing is written by a refused
+    /// publish. The lock is advisory on Unix and mandatory on Windows; either way it is only held by Host processes that take it.
+    /// </summary>
+    private FileStream TakeStoreLock()
+    {
+        Directory.CreateDirectory(Root);
+        try
+        {
+            return new FileStream(Path.Combine(Root, ".publish.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        }
+        catch (IOException ex)
+        {
+            throw new InvalidOperationException("The skill store is busy: another publish holds it, or its folder cannot be locked. " +
+                                                "Nothing was published: resubmit.", ex);
         }
     }
 

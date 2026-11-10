@@ -103,14 +103,26 @@ A refusal is returned at once as `invalid_arguments`, and nothing is queued. A f
 | `Not bound: the report names no content for this skill.` | Change request (shown, not refused) | The report has no binding line | The reviewer sees it as unchecked. Attach a comparison report to bind it. |
 | `No published skill '<id>' (label production).` | `skills.get` | No version at the label | Check the label. Publish, or promote. |
 | `The store lists <id>@<v> but its files are missing.` | `skills.get`; `skills.find` names it in `warnings` | `labels.json` points at a version folder that is gone | Restore the store folder from backup. |
+| `The skill store is busy: another publish holds it, or its folder cannot be locked.` | Request | Another Host is publishing to the same store right now, or the folder cannot be locked | Wait a moment and resubmit. Nothing was published. |
+| `skill.json must say "format": 1.` | Request, or a `warnings` entry from `skills.find` | The version's `skill.json` is in another format, or has none | Correct it in a new version. Stored versions cannot be edited: see [before upgrading](#before-upgrading). |
 | The Host refuses to start, naming `ReviewerGroup`, `SelfApproval Forbid` or `AllowEdits false` | Startup | The policy for `skills.publish` is looser than the suggested one | Adopt the suggested policy: `--adopt-policy skills`. |
 | The Host refuses to start, naming a profile with `skills.publish` | Startup | A profile names `skills.publish` next to another tool above Read | Split the profile. |
 | `Config.Store is required.` | Startup | No `Store` in the config | Add it. |
 | `Config.Label must be one of production, staging.` | Startup | Any other label | Correct it. |
 | `Config.PolicyFolder <path> does not exist.` | Startup | The path is wrong. Relative paths are relative to `modules.json` | Correct the path, or remove the setting. |
 
+## Before upgrading
+
+Every stored version must say `"format": 1`. A stored version that does not is refused when it is read: `skills.find` names it in `warnings`, and `skills.get` refuses it. Check the store before upgrading:
+
+```
+grep -L '"format": 1' <store>/*/*/skill.json
+```
+
+Each file the command lists would stop being served. Republish that content as a new version with `"format": 1` and move the label to it. Do not edit a stored version: versions never change, and the Host does not rewrite them.
+
 ## Open questions
 
 - **Approver groups on the approval page.** The Host docs show groups for Teams reviewers only. Confirm how the approval page assigns `skill-approvers`.
-- **A single writer per store.** The module's write lock covers one process only, so two Hosts publishing to one folder could interleave. Limit 1 in the [module reference](../../OpenTail.Modules.Skills/README.md#known-limits-and-gaps) explains it. Decide whether to enforce it in code or only by operating rule.
+- **Network shares.** A publish holds the store's lock file, and a second publishing Host is refused while it is held. File locks may not be enforced on a network share, so keep the store on a local disk, or run one publishing Host per store there. Limit 1 in the [module reference](../../OpenTail.Modules.Skills/README.md#known-limits-and-gaps) explains it.
 - **Standard-form decisions 3, 4 and 7**, which are provisional until the owner reviews them ([standard skill files](../design/standard-skill-files.md)).
