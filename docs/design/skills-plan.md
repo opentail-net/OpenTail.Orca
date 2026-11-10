@@ -50,6 +50,8 @@ Planned: `activates: [ids]` (the listed skills must be activated during the run)
 
 **Success.** An activation counts only when the load succeeded and returned the intended skill. A catalog activation is an `activate_skill` call whose result names the skill's id and version (`served`). A tools activation is a `skills.get` call that returned the intended id and version without an error. A failed or refused call is an attempt, not an activation. The record keeps the skill and version loaded. Activation results are reported separately from action pass rates, as recommended.
 
+Detailed design, with contracts, branch tables and tests: [workbench-activation-evaluation.md](workbench-activation-evaluation.md). The text here is the summary.
+
 Open question, for the owner: whether activation expectations count toward a scenario's pass, or are reported beside it. Recommended: beside it at first, so existing pass rates do not move.
 
 ### Step 3 detail
@@ -94,9 +96,9 @@ Agreed after the review of the plans, 2026-11-10. The plans were ordered by desi
 
 1. **Stop the publish that overwrites damaged labels (S9).** Store plan, design item 2, and the tests named there. This is a data-loss risk on the Host today, so it is taken out of the store plan and done on its own, without waiting for the rest of that plan (cleanup, store check, backup). Waits on O-S2 (recommended: refuse the publish, as design item 2 says) and on O-S6 (the repair procedure must exist before publishes start refusing damage; recommended: by hand, with the Host stopped).
 2. **v1 golden hash tests.** Hashing plan, work order step 1. Records the current identities before anything changes. Needs no decision.
-3. **Activation scoring in the Workbench (step 2a).** Makes the discoverability criterion measured. Waits on the question of whether activation counts toward a pass (recommended: reported beside it).
+3. **Activation scoring in the Workbench (step 2a).** Makes the discoverability criterion measured. Designed in [workbench-activation-evaluation.md](workbench-activation-evaluation.md). Waits on the question of whether activation counts toward a pass (recommended: reported beside it).
 4. **Measure real decision counts.** Count clean, ambiguous and unattributed decisions on a real store, without changing attribution. The result decides whether option A is built, and whether its thresholds can be reached at all. Needs the owner's store; no store is available in this repository.
-5. **Decide, not before:** attribution option A (only if step 4 shows enough data, and after O-A2 and O-A3); the library (deferred until the licence, O-L1, is settled); resources (deferred until a real skill needs a reference file).
+5. **Decide, not before:** attribution option A (only if step 4 shows enough data, and after O-A2 and O-A3); the library (its licence is decided for now, so it waits only for its place in this order); resources (deferred until a real skill needs a reference file).
 
 Everything else in the plans waits behind these steps.
 
@@ -110,9 +112,9 @@ From the second review. A gate says what must be decided or written before a pie
 | Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; the tests can be written now. The changes they drive wait on decisions: refusing publishes on O-S2 and O-S6 (how damage is repaired once publishes refuse it); the backup on O-S4 and O-S5; policy-reference resolution on O-S1; deploying the stricter reading on an existing store on O-S3 |
 | v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written (terminators, presence markers and sorted metadata added in review); decisions open, and the store must keep an absent owner apart from an empty one first, and the v2 field list must be final before the first v2 identity is written (design item 4) |
 | Outcome attribution, option A | O-A2 (window by review time, and the flag name) and O-A3 (whose decisions count) | recommendations written; decisions open. Also needed first, and not decisions: the measurement of order-of-work step 4; a subject on the two `ActionQueue` reviews that carry none; the check that a review moves the action's update time (all in `skill-outcome-attribution.md`, "Not built") |
-| Library scaffold | O-L1 (licence: a release gate, since the copyright holder must be able to relicense any copied Host code), O-L6 (net10.0 recommended; the owner confirms it against Stingray), O-L4 (the Host keeps the store) and O-L8 (concurrent modification) | recommendations written; decisions open |
+| Library scaffold | O-L1 (licence: decided for now, the Host's own PolyForm Strict; a permissive licence can come later, after a check of copyright), O-L6 (net10.0 recommended; the owner confirms it against Stingray), O-L4 (the Host keeps the store) and O-L8 (concurrent modification) | recommendations written; decisions open |
 | Resource storage and serving | D4 (show the content) and the exact-bytes digest (`skill-resources.md`) | D4 changed to show the content; owner to confirm. D1 to D6 are all open. Resources enter a version's identity only under v2 hashing, so storing them also waits on the v2 hashing gate above |
-| Activation evaluation (step 2a) | the question of whether activation counts toward a pass | open; recommendation written |
+| Activation evaluation (step 2a) | the question of whether activation counts toward a pass (recommended: beside the pass rate), and its design document | designed; the decision is open |
 
 ## Deferred
 
@@ -131,6 +133,7 @@ A second permission system inside skills (policy already controls tools and appr
 - **Real-model runs:** which model or models, what budget, and whether an API key is available for the Workbench.
 - **Host work on `standard-skill-files`:** committed (`4b8a8b7`) and pushed. It is not in `main`; merging it needs your go-ahead.
 - **`metadata.version` on new standard submissions:** the design says it is optional, "if present, must equal the version" (`standard-skill-files.md:156`). The Agent Skills specification makes the whole `metadata` field optional. Recommended: keep the rule. Host-generated packages carry `metadata.version`, imported frontmatter may omit it, and a supplied value must match the Host's version. An earlier review asked for it to be required; a later review withdrew that. Owner decides; the code and tests follow the decision.
+- **Agreed 2026-11-10:** undo-window stops and expiries leave the human rate and are counted separately (attribution plan, Decided); a read-only measurement report comes before any attribution build (attribution plan, Decided); activation has its own design, `workbench-activation-evaluation.md`; the preview has its own branch table (store plan); a partial approval counts once, at the final approval (attribution plan, Decided); library v1 extension fields are scalar-only, with a diagnostic for complex values (library plan).
 - **Plan decisions:** each plan lists its own: O-S1 to O-S6, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L8; D1 to D6 in the resources design; and the activation question in step 2a.
 - **Default delivery:** when it switches to `Catalog` (see step 2).
 - **Workbench work on `progressive-disclosure`:** steps 1a, 2 and 4 are committed (`b762d50`) and pushed. Merging into `main` needs your go-ahead.

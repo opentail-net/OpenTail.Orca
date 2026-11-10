@@ -124,6 +124,26 @@ Each claim from the external review was checked against the code on 2026-11-10.
 | the version folder appears between `Get` and the move | not possible between Host publishes (both are under the lock); possible only from another writer | covered by the row above |
 | failure while writing `labels.json.tmp`, or in the final `File.Move` | file left behind; the version folder stays (versions are immutable; a version with no label is not served) | handled failure: temporary file removed, label unchanged, and the new version folder removed (guarantee 2); unhandled failure (a crash): the folder stays unlabelled, is never served, and the store check reports it (guarantee 3) |
 
+## Branch-by-branch: preview (the `skills.publish` preview)
+
+The preview is what the reviewer approves. It is a snapshot: the store may change before execution, so execution checks again under the lock (the publish table above). The preview must also be read-only.
+
+| Preview condition | Required behaviour | Today |
+|---|---|---|
+| malformed labels file | refuse the preview; name the problem | the preview calls `LabelledVersion` (`SkillsModule.cs:186`), which throws; the reason is not shaped for the reviewer (exception type to verify) |
+| a damaged skill label entry (null, or not a version) | refuse the preview; do not assume there is no label | `ReadLabels` throws for a null (`SkillStore.cs:41`); a non-version string reads as "files are missing" |
+| the current label points at a missing or incomplete version | refuse, and identify the broken version | the preview reports "first publication" (`SkillsModule.cs:190-193`), because `Get` returns null for the label's version; the diff and the wording misstate the change |
+| the target version folder exists but is incomplete | refuse; do not treat it as new | `Get` returns null (`:169`), so the preview treats the version as new; the later move cannot succeed |
+| the target version is unreadable or corrupt | refuse, with the reason | `Get` throws `ArgumentException` (refused) or `IOException` (escapes, a gap noted above) |
+| `expectedFrom` missing or stale | refuse the preview | refused (`:187-189`) |
+| the existing version has different content | refuse the preview | refused (`:180-182`) |
+| valid first publication | an accurate first-publication preview | shown |
+| valid update or rollback | an accurate before and after diff | shown; `kind` from the version numbers (`:192-193`) |
+| the label moves after the preview and before execution | execution refuses under the store lock; nothing is published | the store rechecks `expectedFrom` under the lock (`SkillStore.cs:119`); a test must prove it |
+| the preview itself | writes nothing: no file, no folder, no label | takes no lock; a test must prove nothing is written |
+
+Tests (new): `A_preview_with_a_label_pointing_at_a_missing_version_is_refused_and_names_it`; `A_preview_with_an_incomplete_target_folder_is_refused_not_shown_as_new`; `A_preview_with_a_stale_expectedFrom_is_refused`; `A_label_that_moves_after_the_preview_is_refused_at_execution_and_nothing_is_published`; `A_preview_writes_nothing`.
+
 ## Design
 
 1. **Labels are read as a result, not an exception.** `ReadLabels` returns the valid labels together with problems, each naming the file, the skill and the label where known. Callers decide: `Find` and `Get` report them; publish handles them as below. `LabelledVersion` keeps its signature and throws `ArgumentException` naming `labels.json` when the file, or this skill's entry or label, is damaged.
