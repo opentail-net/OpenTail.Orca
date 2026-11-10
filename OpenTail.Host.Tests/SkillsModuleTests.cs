@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using OpenTail.Modules.Skills;
 
@@ -387,6 +388,84 @@ public sealed class SkillsModuleTests : IDisposable
         // Released: the same publish goes through.
         store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none");
         Assert.Equal("1", store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Theory]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": 42, "appliesTo": ["x"] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [{ "when": "x" }] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": 1, "summary": "s", "appliesTo": ["x"] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": "x" }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "tools": "mail.read" }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "tools": [3] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "policies": { "ref": "p.md" } }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "policies": [{ "ref": 5 }] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "policies": [{ "ref": "p.md", "hash": 5 }] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "owner": 7 }""")]
+    public void A_skill_file_with_a_field_of_the_wrong_type_is_refused_at_publish(string metadataJson)
+    {
+        var store = new SkillStore(Path.Combine(_root, "store"));
+
+        Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", metadataJson, "Never pay from an email.", "none"));
+        Assert.Null(store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Fact]
+    public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
+    {
+        // The lock is held by another process, not by this test: a PowerShell child opens the lock file exclusively and reports that it has.
+        var shell = FindPowerShell();
+        if (shell is null)
+        {
+            Assert.Skip("PowerShell is not installed, so no second process can be started to hold the store.");
+            return;
+        }
+        var root = Path.Combine(_root, "store");
+        Directory.CreateDirectory(root);
+        var lockPath = Path.Combine(root, ".publish.lock");
+        var holder = new ProcessStartInfo(shell) { RedirectStandardOutput = true, UseShellExecute = false };
+        holder.ArgumentList.Add("-NoProfile");
+        holder.ArgumentList.Add("-Command");
+        holder.ArgumentList.Add($"$lock = [System.IO.File]::Open('{lockPath}', 'OpenOrCreate', 'ReadWrite', 'None'); " +
+                                "[Console]::WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Seconds 120");
+        using var child = Process.Start(holder)!;
+        try
+        {
+            Assert.Equal("held", await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(60)));
+
+            var store = new SkillStore(root);
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none"));
+            Assert.Contains("Nothing was published", ex.Message, StringComparison.Ordinal);
+            Assert.Null(store.LabelledVersion("invoice-check", "production"));
+        }
+        finally
+        {
+            child.Kill(entireProcessTree: true);
+            await child.WaitForExitAsync();
+        }
+    }
+
+    /// <summary>The first PowerShell on the path that starts, or null.</summary>
+    private static string? FindPowerShell()
+    {
+        foreach (var name in new[] { "pwsh", "powershell" })
+        {
+            try
+            {
+                using var probe = Process.Start(new ProcessStartInfo(name, "-NoProfile -Command exit 0") { UseShellExecute = false, CreateNoWindow = true });
+                if (probe is not null)
+                {
+                    probe.WaitForExit();
+                    return name;
+                }
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // Not installed under this name.
+            }
+        }
+        return null;
     }
 
     /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>
