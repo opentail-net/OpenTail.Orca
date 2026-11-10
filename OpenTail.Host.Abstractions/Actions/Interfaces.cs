@@ -43,6 +43,12 @@ public interface IActionStore
     /// Returns null when an admission refuses (nothing is stored). An idempotent repeat returns the existing record.</summary>
     Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, CancellationToken ct = default);
 
+    /// <summary>Like <see cref="TryCreateAsync(ActionRecord, IReadOnlyList{Admission}, CancellationToken)"/>, but a refused admission does not
+    /// have to mean nothing is stored: <paramref name="refused"/> is given the index of the admission that refused and returns the record to
+    /// store instead (for example a failed one), or null to store nothing. Either way the decision and the store are one transaction.</summary>
+    Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?> refused,
+        CancellationToken ct = default);
+
     Task<ActionRecord?> GetAsync(string id, CancellationToken ct = default);
 
     /// <summary>Counts matching records (ignores <c>Limit</c>).</summary>
@@ -66,6 +72,18 @@ public interface IActionStore
         string id,
         ActionStatus expected,
         Func<ActionRecord, ActionTransition?> decide,
+        CancellationToken ct = default);
+
+    /// <summary>Like the first overload, but the admissions are checked in the same transaction first. When one is already at its limit,
+    /// <paramref name="refused"/> is given its index and the stored record, and returns the record to store instead (for example the action
+    /// failed as rate-limited). Nothing is claimed in that case, so a limit is never exceeded by callers that arrive together.</summary>
+    Task<ActionRecord?> TransitionAsync(
+        string id,
+        ActionStatus expected,
+        ActionStatus next,
+        Func<ActionRecord, ActionRecord> update,
+        IReadOnlyList<Admission> admissions,
+        Func<int, ActionRecord, ActionRecord> refused,
         CancellationToken ct = default);
 }
 

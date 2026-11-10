@@ -58,9 +58,27 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
         var words = (situation ?? "").Split((char[])[' ', ',', '.', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(w => w.Length > 2).ToList();
         var found = new List<(SkillVersion Skill, int Score)>();
+        var warnings = new List<string>();
         foreach (var (id, labels) in _store.ReadLabels())
         {
-            if (!labels.TryGetValue(options.Label, out var version) || _store.Get(id, version) is not { } s) continue;
+            if (!labels.TryGetValue(options.Label, out var version)) continue;
+            SkillVersion? s;
+            try
+            {
+                s = _store.Get(id, version);
+            }
+            catch (ArgumentException ex)
+            {
+                // One damaged or unsupported version does not hide the others: it is named, and skills.get refuses it.
+                warnings.Add($"The store lists {id}@{version}, but its files cannot be read: {ex.Message}");
+                continue;
+            }
+            if (s is null)
+            {
+                // Left out of the list, but named: a damaged store is seen here rather than hidden. skills.get fails for it too.
+                warnings.Add($"The store lists {id}@{version} but its files are missing; it is not offered.");
+                continue;
+            }
             var text = s.Summary + " " + string.Join(" ", s.AppliesTo) + " " + s.Id.Replace('-', ' ');
             found.Add((s, words.Count(w => text.Contains(w, StringComparison.OrdinalIgnoreCase))));
         }
@@ -69,6 +87,7 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
             label = options.Label,
             skills = found.OrderByDescending(f => f.Score).ThenBy(f => f.Skill.Id, StringComparer.Ordinal)
                 .Select(f => new { id = f.Skill.Id, version = f.Skill.Version, summary = f.Skill.Summary, appliesTo = f.Skill.AppliesTo }),
+            warnings,
             next = "Call skills.get with the id of the skill that matches, and follow its instructions.",
         };
     }
@@ -156,7 +175,10 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
                 var prepared = StandardPublish.Prepare(id, version, json, md, isNewVersion: existing is null, ignoreKeys);
                 target = prepared.Target;
                 frontmatterWarnings = prepared.Warnings;
-                if (existing is not null && SkillText.Normalise(existing.Instructions) != SkillText.Normalise(target.Instructions))
+                // The store compares the same two things at approval. Comparing them here refuses the request when it is made, rather than
+                // after a reviewer has read it and approved it.
+                if (existing is not null && (SkillText.Normalise(existing.Instructions) != SkillText.Normalise(target.Instructions) ||
+                                             SkillText.Normalise(existing.MetadataJson) != SkillText.Normalise(target.MetadataJson)))
                     throw new ArgumentException($"{id} version {version} is already published with different content; use a new version number.");
             }
             else target = existing ?? throw new ArgumentException($"{id} has no published version {version}; send skillJson and instructions to add it.");

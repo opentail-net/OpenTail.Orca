@@ -15,14 +15,18 @@ public sealed class InMemoryActionStore(TimeProvider? clock = null) : IActionSto
         lock (_gate) return Task.FromResult(CreateLocked(record, [])!);
     }
 
-    public Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, CancellationToken ct = default)
+    public Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, CancellationToken ct = default) =>
+        TryCreateAsync(record, admissions, static _ => null, ct);
+
+    public Task<ActionRecord?> TryCreateAsync(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?> refused,
+        CancellationToken ct = default)
     {
         if (!ActionStateMachine.IsValidInitial(record.Status))
             throw new InvalidOperationException($"{record.Status} is not a valid initial status.");
-        lock (_gate) return Task.FromResult(CreateLocked(record, admissions));
+        lock (_gate) return Task.FromResult(CreateLocked(record, admissions, refused));
     }
 
-    private ActionRecord? CreateLocked(ActionRecord record, IReadOnlyList<Admission> admissions)
+    private ActionRecord? CreateLocked(ActionRecord record, IReadOnlyList<Admission> admissions, Func<int, ActionRecord?>? refused = null)
     {
         if (record.IdempotencyKey is { } key)
         {
@@ -30,12 +34,21 @@ public sealed class InMemoryActionStore(TimeProvider? clock = null) : IActionSto
             var k = (record.Requester.Id, record.ToolName, key, record.ArgumentsHash);
             if (_byKey.TryGetValue(k, out var existing)) return _byId[existing];
         }
-        foreach (var a in admissions)
-            if (Matching(a.Filter, a.Window).Count() >= a.MaxCount) return null;
-        if (record.IdempotencyKey is { } key2)
-            _byKey[(record.Requester.Id, record.ToolName, key2, record.ArgumentsHash)] = record.Id;
-        _byId[record.Id] = record;
-        return record;
+        var refusedBy = FirstRefusal(admissions);
+        var toStore = refusedBy < 0 ? record : refused?.Invoke(refusedBy);
+        if (toStore is null) return null;
+        if (toStore.IdempotencyKey is { } key2)
+            _byKey[(toStore.Requester.Id, toStore.ToolName, key2, toStore.ArgumentsHash)] = toStore.Id;
+        _byId[toStore.Id] = toStore;
+        return toStore;
+    }
+
+    /// <summary>The index of the first admission already at its limit, or -1. Called under the lock.</summary>
+    private int FirstRefusal(IReadOnlyList<Admission> admissions)
+    {
+        for (var i = 0; i < admissions.Count; i++)
+            if (Matching(admissions[i].Filter, admissions[i].Window).Count() >= admissions[i].MaxCount) return i;
+        return -1;
     }
 
     private IEnumerable<ActionRecord> Matching(ActionQuery query, TimeSpan? window = null)
@@ -86,13 +99,34 @@ public sealed class InMemoryActionStore(TimeProvider? clock = null) : IActionSto
                 : null, ct);
 
     public Task<ActionRecord?> TransitionAsync(
-        string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide, CancellationToken ct = default)
+        string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
+        IReadOnlyList<Admission> admissions, Func<int, ActionRecord, ActionRecord> refused, CancellationToken ct = default) =>
+        TransitionCore(id, expected, current =>
+            ActionStateMachine.CanTransition(expected, next, current.Error?.Retryable ?? false)
+                ? new ActionTransition(next, update(current))
+                : null, admissions, refused);
+
+    public Task<ActionRecord?> TransitionAsync(
+        string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide, CancellationToken ct = default) =>
+        TransitionCore(id, expected, decide, [], null);
+
+    private Task<ActionRecord?> TransitionCore(string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
+        IReadOnlyList<Admission> admissions, Func<int, ActionRecord, ActionRecord>? refused)
     {
         lock (_gate)
         {
             if (!_byId.TryGetValue(id, out var current) || current.Status != expected)
                 return Task.FromResult<ActionRecord?>(null);
-            if (decide(current) is not { } t) return Task.FromResult<ActionRecord?>(null);
+            var refusedBy = FirstRefusal(admissions);
+            ActionTransition? t;
+            if (refusedBy >= 0)
+            {
+                if (refused is null) return Task.FromResult<ActionRecord?>(null);
+                var alt = refused(refusedBy, current);
+                t = new ActionTransition(alt.Status, alt);
+            }
+            else t = decide(current);
+            if (t is null) return Task.FromResult<ActionRecord?>(null);
             if (!ActionStateMachine.CanTransition(expected, t.Next, current.Error?.Retryable ?? false))
                 return Task.FromResult<ActionRecord?>(null);
             var updated = t.Record with { Status = t.Next, UpdatedAt = _clock.GetUtcNow() };

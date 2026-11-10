@@ -31,14 +31,13 @@ public sealed class ActionExecutor(
     /// must be split or its lease extended (not yet supported): recovery would treat it as interrupted.</summary>
     public TimeSpan LeaseDuration { get; } = lease ?? TimeSpan.FromMinutes(5);
 
-    /// <summary>Claims an Approved action (compare-and-set, so only one caller wins) and runs it.</summary>
+    /// <summary>Claims an Approved action (compare-and-set, so only one caller wins) and runs it, or fails it if its rate limit is spent.</summary>
     public async Task<ActionRecord> ExecuteAsync(string actionId, CancellationToken ct = default)
     {
-        var claimed = await store.TransitionAsync(actionId, ActionStatus.Approved, ActionStatus.Executing,
-            r => r with { LeaseUntil = _clock.GetUtcNow() + LeaseDuration }, ct);
-        if (claimed is null)
-            return await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
-        return await RunClaimedAsync(claimed, ct);
+        var current = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
+        if (current.Status == ActionStatus.Approved && await ClaimAndRunAsync(current, countAttempt: false, ct) is { } ran)
+            return ran;
+        return await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
     }
 
     /// <summary>Runs an action already in Executing (execute-mode creation, or just claimed).</summary>
@@ -58,9 +57,7 @@ public sealed class ActionExecutor(
             return await Finish(record, null, new ActionError("suspended",
                 "The requester is suspended: nothing it asked for runs until an operator clears it. A reviewer can retry it then.", true), ct, started);
 
-        if (record.PolicySnapshot?.RateLimit is { } limit && await ExceedsAsync(record, limit, ct) is { } which)
-            return await Finish(record, null,
-                new ActionError("rate_limited", $"Limit of {which} reached for this tool. A reviewer can retry later.", true), ct, started);
+        // The rate limit took its slot in the transaction that claimed (or created) this action; see RateGate.
 
         if (!catalog.TryGet(record.ToolName, out var tool))
             return await Finish(record, null, new ActionError("unknown_tool", "Tool is not loaded.", false), ct, started);
@@ -92,6 +89,11 @@ public sealed class ActionExecutor(
         }
 
         var args = record.EffectiveArgumentsJson;
+        var usage = store as IUsageStore;
+        string value;
+        ResultStats? stats = null;
+        IReadOnlyList<string> entityHashes = [];
+        var measureFailed = false;
         try
         {
             if (inputGuardrails is { Count: > 0 })
@@ -126,19 +128,18 @@ public sealed class ActionExecutor(
                     if (r.RewrittenValue is not null) result = r.RewrittenValue;
                 }
 
-            // Usage: what the result touched, for the daily rollup (written with the transition) and telemetry.
-            var usage = store as IUsageStore;
-            var (stats, entityHashes) = ResultMeasure.Measure(tool.Descriptor.Counts, args, result, usage is null || tool.Descriptor.Counts?.EntityKeys is null ? null : usage.EntitySalt);
-            var done = await Finish(record, result, null, ct, started, stats);
-            labels?.RememberValues(done.SessionId, done.Requester.Id, tool.Descriptor, result);
-            // A decoy record in what came back: no real task needs one.
-            if (levels is not null && decoys is { Count: > 0 } && IdentityLevels.ContainsDecoy(decoys, result))
-                await levels.DecoyReadAsync(done.Requester.Id, done.ToolName, ct);
-            if (usage is not null && entityHashes.Count > 0)
-                usage.RecordEntities(DateOnly.FromDateTime(done.UpdatedAt.UtcDateTime), done.Requester.Id, done.ToolName, [.. entityHashes]);
-            if (tool.Descriptor.AuditResult is { } ra && ResultField(result, ra.Field) is { } detail)
-                await Audit(ra.Event, done, detail, ct);
-            return done;
+            // Usage: what the result touched, for the daily rollup and telemetry. Bookkeeping only: if it fails the counts are lost,
+            // the outcome is not.
+            try
+            {
+                (stats, entityHashes) = ResultMeasure.Measure(tool.Descriptor.Counts, args, result,
+                    usage is null || tool.Descriptor.Counts?.EntityKeys is null ? null : usage.EntitySalt);
+            }
+            catch (Exception)
+            {
+                measureFailed = true;
+            }
+            value = result;
         }
         catch (ToolTransientException ex)
         {
@@ -168,6 +169,12 @@ public sealed class ActionExecutor(
             return await Finish(record, null, new ActionError("tool_exception", Redaction.Scrub(ex.Message), false)
                 { Kind = ex is ArgumentException ? ToolFailureKind.Contract : ToolFailureKind.Bug }, ct, started);
         }
+
+        // The tool has run and its result is in hand. The outcome is committed as Succeeded here, outside the try above, so nothing that
+        // follows can be reported as a tool failure: the external effect has already happened.
+        var done = await Finish(record, value, null, ct, started, stats);
+        await AfterSuccessAsync(done, tool.Descriptor, value, entityHashes, usage, measureFailed, ct);
+        return done;
     }
 
     /// <summary>
@@ -184,11 +191,8 @@ public sealed class ActionExecutor(
 
         foreach (var r in await store.QueryAsync(new ActionQuery { Status = ActionStatus.Approved, Limit = int.MaxValue }, ct))
         {
-            var claimed = await store.TransitionAsync(r.Id, ActionStatus.Approved, ActionStatus.Executing,
-                x => x with { LeaseUntil = now + LeaseDuration }, ct);
-            if (claimed is null) continue;
+            if (await ClaimAndRunAsync(r, countAttempt: false, ct) is null) continue;
             started++;
-            await RunClaimedAsync(claimed, ct);
         }
 
         foreach (var r in await store.QueryAsync(new ActionQuery { Status = ActionStatus.Executing, Limit = int.MaxValue }, ct))
@@ -216,11 +220,8 @@ public sealed class ActionExecutor(
                             "Tool is idempotent by key; retried after interruption.", now)],
                     }, ct);
                 if (again is null) continue;
-                var claimed = await store.TransitionAsync(r.Id, ActionStatus.Approved, ActionStatus.Executing,
-                    x => x with { LeaseUntil = now + LeaseDuration }, ct);
-                if (claimed is null) continue;
+                if (await ClaimAndRunAsync(again, countAttempt: false, ct) is null) continue;
                 retried++;
-                await RunClaimedAsync(claimed, ct);
             }
         }
 
@@ -259,10 +260,7 @@ public sealed class ActionExecutor(
             }, ct);
             if (again is null) continue;
             await Audit("retry_automatic", again, held ? "released from a paused route" : $"attempt {again.Attempts}", ct);
-            var claimed = await store.TransitionAsync(r.Id, ActionStatus.Approved, ActionStatus.Executing,
-                x => x with { LeaseUntil = now + LeaseDuration }, ct);
-            if (claimed is null) continue;
-            await RunClaimedAsync(claimed, ct);
+            if (await ClaimAndRunAsync(again, countAttempt: false, ct) is null) continue;
             ran++;
         }
         return ran;
@@ -296,28 +294,142 @@ public sealed class ActionExecutor(
             && catalog.TryGet(record.ToolName, out var reg) && reg.Descriptor.IdempotentByKey && circuits is not null)
             retryAt = _clock.GetUtcNow() + circuits.Backoff(record.Attempts, error.RetryAfter);
 
-        // The route's health: the probe that succeeds reopens it; repeated failures of one kind pause it (once per episode in the trail).
-        if (circuits is not null && error?.Code != "circuit_open")
-        {
-            if (error is null)
-            {
-                if (circuits.Succeeded(record.ToolName) == CircuitEvent.Closed)
-                    await Audit("circuit.closed", record, "a probe call succeeded; held calls are released a few at a time", ct);
-            }
-            else if (circuits.Failed(record.ToolName, error.EffectiveKind, error.Code) is { Event: not CircuitEvent.None } change)
-            {
-                var name = change.Event switch { CircuitEvent.WouldOpen => "circuit.would_open", CircuitEvent.Reopened => "circuit.reopened", _ => "circuit.opened" };
-                await Audit(name, record, $"{change.State!.Fingerprint}; probe after {change.State.ProbeAt:u}", ct);
-                HostTelemetry.Circuits.Add(1, new KeyValuePair<string, object?>("tool", record.ToolName), new KeyValuePair<string, object?>("event", name));
-            }
-        }
+        await NoteCircuitAsync(record, error, ct);
         var next = error is null ? ActionStatus.Succeeded : ActionStatus.Failed;
         long? bytes = resultJson is null ? null : ResultMeasure.Bytes(resultJson);
-        var done = await store.TransitionAsync(record.Id, ActionStatus.Executing, next,
-            r => r with { ResultJson = resultJson, ResultBytes = bytes, ResultStats = stats, Error = error, LeaseUntil = null, RetryAt = retryAt }, ct);
+        Func<ActionRecord, ActionRecord> update = r => r with
+        {
+            ResultJson = resultJson, ResultBytes = bytes, ResultStats = stats, Error = error, LeaseUntil = null, RetryAt = retryAt,
+        };
+        // With the trail in the same database, the outcome and its entry are one transaction: neither is recorded without the other. Otherwise
+        // the entry is appended after the outcome, and a crash between the two loses it.
+        var done = AtomicOutcomes
+            ? await AtomicTrail.For(store, audit)!.TransitionAuditedAsync(record.Id, ActionStatus.Executing, next, update, OutcomeEntry(error), ct)
+            : await store.TransitionAsync(record.Id, ActionStatus.Executing, next, update, ct);
         if (done is null)
             throw new InvalidOperationException($"Action {record.Id} left Executing unexpectedly.");
-        await Audit(error is null ? "execution_succeeded" : "execution_failed", done, error?.Code, ct);
+        // The outcome is committed. Reporting it cannot change the outcome or turn it into a failure.
+        await ReportAsync(done, error, startedAt, auditWritten: AtomicOutcomes, ct);
+        return done;
+    }
+
+    /// <summary>Bookkeeping after a success: data labels, the decoy check, usage and the result's audit line. The outcome is already
+    /// committed, so each step is best-effort (see <see cref="BestEffort"/>).</summary>
+    private async Task AfterSuccessAsync(ActionRecord done, ToolDescriptor descriptor, string value, IReadOnlyList<string> entityHashes,
+        IUsageStore? usage, bool measureFailed, CancellationToken ct)
+    {
+        if (measureFailed) await RecordFailure(done, "usage", "result not measured", ct);
+        await BestEffort(done, "data labels", () =>
+        {
+            labels?.RememberValues(done.SessionId, done.Requester.Id, descriptor, value);
+            return Task.CompletedTask;
+        }, ct);
+        await BestEffort(done, "decoy check", async () =>
+        {
+            // A decoy record in what came back: no real task needs one.
+            if (levels is not null && decoys is { Count: > 0 } && IdentityLevels.ContainsDecoy(decoys, value))
+                await levels.DecoyReadAsync(done.Requester.Id, done.ToolName, ct);
+        }, ct);
+        await BestEffort(done, "usage", () =>
+        {
+            if (usage is not null && entityHashes.Count > 0)
+                usage.RecordEntities(DateOnly.FromDateTime(done.UpdatedAt.UtcDateTime), done.Requester.Id, done.ToolName, [.. entityHashes]);
+            return Task.CompletedTask;
+        }, ct);
+        await BestEffort(done, "result audit", () =>
+        {
+            if (descriptor.AuditResult is { } ra && ResultField(value, ra.Field) is { } detail)
+                return Audit(ra.Event, done, detail, ct);
+            return Task.CompletedTask;
+        }, ct);
+    }
+
+    /// <summary>Runs one bookkeeping step: a trail line, telemetry, a notification, or the result's audit line. A failure is written to the trail
+    /// (see <see cref="RecordFailure"/>) and does not propagate: a call that ran must not be reported as failed, and a failed bookkeeping
+    /// step must not stop an outcome from being committed.</summary>
+    private async Task BestEffort(ActionRecord done, string step, Func<Task> work, CancellationToken ct)
+    {
+        try
+        {
+            await work();
+        }
+        catch (Exception ex)
+        {
+            await RecordFailure(done, step, ex.GetType().Name, ct);
+        }
+    }
+
+    /// <summary>Records that a bookkeeping step failed. Names the step and the exception type only, never its message, which may hold
+    /// arguments. If the trail itself is failing there is nothing more to do without changing the committed outcome.</summary>
+    private async Task RecordFailure(ActionRecord done, string step, string kind, CancellationToken ct)
+    {
+        try
+        {
+            await Audit("bookkeeping_failed", done, $"{step}: {kind}", ct);
+        }
+        catch (Exception)
+        {
+            // The trail is down; the committed outcome stands.
+        }
+    }
+
+    /// <summary>
+    /// Claims an approved action and runs it. The tool's rate limit is checked in the claim's own transaction (see <see cref="RateGate"/>):
+    /// a refused claim fails the action instead of running it. Returns null when the action is no longer approved (another caller took it).
+    /// </summary>
+    internal async Task<ActionRecord?> ClaimAndRunAsync(ActionRecord approved, bool countAttempt, CancellationToken ct)
+    {
+        var now = _clock.GetUtcNow();
+        var gate = RateGate.For(approved.ToolName, approved.PolicySnapshot?.RateLimit);
+        var claimed = await store.TransitionAsync(approved.Id, ActionStatus.Approved, ActionStatus.Executing,
+            r => r with { LeaseUntil = now + LeaseDuration, Attempts = countAttempt ? r.Attempts + 1 : r.Attempts },
+            gate.Admissions, (i, current) => gate.Refuse(current, i, now), ct);
+        if (claimed is null) return null;
+        return claimed.Status == ActionStatus.Failed
+            ? await ReportRefusalAsync(claimed, ct)
+            : await RunClaimedAsync(claimed, ct);
+    }
+
+    /// <summary>A refusal at the claim or at creation: the action never ran. It is reported as any failure is, and counts toward the
+    /// route's health as it always has.</summary>
+    internal async Task<ActionRecord> ReportRefusalAsync(ActionRecord refused, CancellationToken ct)
+    {
+        await NoteCircuitAsync(refused, refused.Error, ct);
+        await ReportAsync(refused, refused.Error, null, auditWritten: false, ct);
+        return refused;
+    }
+
+    /// <summary>The route's health: the probe that succeeds reopens it; repeated failures of one kind pause it (once per episode in the trail).
+    /// The trail lines are bookkeeping: a failure to write one never stops an outcome from being committed.</summary>
+    private async Task NoteCircuitAsync(ActionRecord record, ActionError? error, CancellationToken ct)
+    {
+        if (circuits is null || error?.Code == "circuit_open") return;
+        if (error is null)
+        {
+            if (circuits.Succeeded(record.ToolName) == CircuitEvent.Closed)
+                await BestEffort(record, "circuit", () => Audit("circuit.closed", record, "a probe call succeeded; held calls are released a few at a time", ct), ct);
+        }
+        else if (circuits.Failed(record.ToolName, error.EffectiveKind, error.Code) is { Event: not CircuitEvent.None } change)
+        {
+            var name = change.Event switch { CircuitEvent.WouldOpen => "circuit.would_open", CircuitEvent.Reopened => "circuit.reopened", _ => "circuit.opened" };
+            await BestEffort(record, "circuit", () => Audit(name, record, $"{change.State!.Fingerprint}; probe after {change.State.ProbeAt:u}", ct), ct);
+            HostTelemetry.Circuits.Add(1, new KeyValuePair<string, object?>("tool", record.ToolName), new KeyValuePair<string, object?>("event", name));
+        }
+    }
+
+    /// <summary>True when an outcome is committed together with its audit entry: the store and the trail are the same database.</summary>
+    private bool AtomicOutcomes => AtomicTrail.For(store, audit) is not null;
+
+    /// <summary>The audit entry of an outcome, built from the record as committed (the fields <see cref="Audit"/> would write).</summary>
+    private static Func<ActionRecord, AuditEntry> OutcomeEntry(ActionError? error) =>
+        d => new AuditEntry(d.UpdatedAt, error is null ? "execution_succeeded" : "execution_failed", d.Id, d.ToolName, d.Requester.Id, error?.Code);
+
+    /// <summary>Reports a committed outcome: the audit line (unless the outcome was committed with it), telemetry and the notification.
+    /// The parts after the commit are best-effort: they cannot change the outcome or turn it into a failure.</summary>
+    private async Task ReportAsync(ActionRecord done, ActionError? error, long? startedAt, bool auditWritten, CancellationToken ct)
+    {
+        if (!auditWritten)
+            await BestEffort(done, "outcome audit", () => Audit(error is null ? "execution_succeeded" : "execution_failed", done, error?.Code, ct), ct);
         HostTelemetry.Count(done);
         if (done.Status == ActionStatus.Succeeded) HostTelemetry.CountResult(done);
         if (startedAt is { } t0)
@@ -326,29 +438,8 @@ public sealed class ActionExecutor(
                 new KeyValuePair<string, object?>("status", done.Status.ToString()));
         System.Diagnostics.Activity.Current?.SetTag("opentail.status", done.Status.ToString());
         if (events is not null)
-            await events.PublishAsync(done.Status == ActionStatus.Succeeded ? ActionEventKind.Succeeded : ActionEventKind.Failed,
-                done, error?.Code, ct);
-        return done;
-    }
-
-    /// <summary>Blast-radius check, enforced at execution time so it also binds approved actions.</summary>
-    private async Task<string?> ExceedsAsync(ActionRecord record, RateLimit limit, CancellationToken ct)
-    {
-        async Task<int> CountSince(TimeSpan window)
-        {
-            var since = _clock.GetUtcNow() - window;
-            var n = 0;
-            foreach (var status in new[] { ActionStatus.Succeeded, ActionStatus.Executing })
-                n += (await store.QueryAsync(new ActionQuery
-                {
-                    ToolName = record.ToolName, Status = status, UpdatedSince = since, Limit = int.MaxValue,
-                }, ct)).Count(r => r.Id != record.Id);
-            return n;
-        }
-
-        if (limit.PerHour > 0 && await CountSince(TimeSpan.FromHours(1)) >= limit.PerHour) return $"{limit.PerHour}/hour";
-        if (limit.PerDay > 0 && await CountSince(TimeSpan.FromDays(1)) >= limit.PerDay) return $"{limit.PerDay}/day";
-        return null;
+            await BestEffort(done, "events", () => events.PublishAsync(
+                done.Status == ActionStatus.Succeeded ? ActionEventKind.Succeeded : ActionEventKind.Failed, done, error?.Code, ct), ct);
     }
 
     private Task Audit(string evt, ActionRecord r, string? detail, CancellationToken ct) =>

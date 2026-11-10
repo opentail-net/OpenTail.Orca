@@ -312,7 +312,10 @@ public static class StandardSkill
             else
             {
                 unknown.Add(key);
-                SkipNode(parser, valueEvent);
+                // The value is dropped, or ignored when the caller acknowledges the key. Anchors and tags are refused here too.
+                var clean = SkipNode(parser, valueEvent);
+                if (!clean && valueEvent is not AnchorAlias)
+                    diagnostics.Add(Error("SKILL-FRONTMATTER", $"'{key}' uses an anchor or a tag, which are not allowed in the frontmatter.", key));
             }
         }
 
@@ -325,12 +328,14 @@ public static class StandardSkill
 
     private static void ReadMetadata(Parser parser, ParsingEvent valueEvent, List<StandardDiagnostic> diagnostics, Dictionary<string, string> metadata)
     {
-        if (valueEvent is not MappingStart)
+        if (valueEvent is not MappingStart metadataStart)
         {
             diagnostics.Add(Error("SKILL-FRONTMATTER", "'metadata' must be a mapping of string keys to string values.", "metadata"));
             SkipNode(parser, valueEvent);
             return;
         }
+        if (HasAnchorOrTag(metadataStart))
+            diagnostics.Add(Error("SKILL-FRONTMATTER", "'metadata' uses an anchor or a tag, which are not allowed in the frontmatter.", "metadata"));
         while (true)
         {
             var keyEvent = Next(parser);
@@ -349,20 +354,26 @@ public static class StandardSkill
         }
     }
 
-    private static void SkipNode(Parser parser, ParsingEvent start)
+    /// <summary>Skips a node. Returns false if the node, or anything inside it, has an anchor or a tag, or is an alias.</summary>
+    private static bool SkipNode(Parser parser, ParsingEvent start)
     {
+        var clean = !IsAnchorOrTag(start);
         if (start is not (SequenceStart or MappingStart))
-            return;
+            return clean;
         var depth = 1;
         while (depth > 0)
         {
             var next = Next(parser);
+            clean &= !IsAnchorOrTag(next);
             if (next is SequenceStart or MappingStart)
                 depth++;
             else if (next is SequenceEnd or MappingEnd)
                 depth--;
         }
+        return clean;
     }
+
+    private static bool IsAnchorOrTag(ParsingEvent e) => e is AnchorAlias || (e is NodeEvent node && HasAnchorOrTag(node));
 
     private static ParsingEvent Next(Parser parser)
     {

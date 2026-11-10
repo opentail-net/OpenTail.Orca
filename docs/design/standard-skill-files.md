@@ -1,6 +1,6 @@
 # Design: standard skill files
 
-**Status:** phases 1 and 2 built 2026-11-09, uncommitted, in `opentail-host` and one file in `opentail-workbench`. Decisions 1, 2, 5 and 6 are the owner's, confirmed 2026-11-09. Decisions 3, 4 and 7 were taken provisionally by Claude on the same day, for the owner to review. Written from reading `opentail-host` at `6081d5b`, `opentail-workbench` at `6d3e220`, the [Agent Skills specification](https://agentskills.io/specification) (fetched 2026-11-09), and the reference validator `skills-ref` (its `validator.py` and `parser.py`, fetched 2026-11-09; its test fixtures are not yet read). The implementation record is at the end.
+**Status:** phases 1 and 2 built 2026-11-09, committed in `opentail-host` (`dc957f7`) and `opentail-workbench` (`e83e469`). Decisions 1, 2, 5 and 6 are the owner's, confirmed 2026-11-09. Decisions 3, 4 and 7 were taken provisionally by Claude on the same day, for the owner to review. Written from reading `opentail-host` at `6081d5b`, `opentail-workbench` at `6d3e220`, the [Agent Skills specification](https://agentskills.io/specification) (fetched 2026-11-09), and the reference validator `skills-ref` (its `validator.py` and `parser.py`, fetched 2026-11-09; its test fixtures are not yet read). The implementation record is at the end.
 
 **Where it fits:** the Host's skills module (`OpenTail.Modules.Skills`), with the workbench's package writer as the one consumer outside it. It adds no package, no repository, no catalog, no loader and no runtime. Skills stay where they are: the Host's store, its labels, its approval and its `skills.get`.
 
@@ -265,6 +265,8 @@ Implemented in `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishT
 **Still to run on the owner's machine:** the full `OpenTail.Host.Tests` and `OpenTail.Workbench.Tests` projects, with the feed token, to cover the 22 workbench tests and the rest of the Host suite.
 
 **Not tests:** a `---` inside the body; an empty body on publish (`SkillStore.Parse` already refuses it); export as a unit test (a one-off before-and-after comparison was done instead).
+
+**Update 2026-11-10.** The YamlDotNet pin was 17.0.1, and restore against the GitHub feed failed: `OpenTail.Connectivity.Files` needs 17.1.0 or later through `Transformations.Text` (NU1109). The pin is 17.1.0 in `538e77c`. With the feed token, `OpenTail.Host.Tests` restores and passes: 1037 tests. The module reference's first two open items were fixed in `1464f70`: the publish preview now compares `skill.json` for a republished version as well as the instructions, and `skills.find` names a label whose files are missing in a `warnings` list. The workbench's `Directory.Packages.props` still pins 17.0.1. This was not checked, and it may need the same change.
 
 ## Known limits
 

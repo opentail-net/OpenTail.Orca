@@ -35,7 +35,8 @@ public static class ActionStateMachine
         // Pending -> Pending: a partial approval (fewer distinct approvals than required so far).
         ActionStatus.Pending => to is ActionStatus.Pending or ActionStatus.Approved or ActionStatus.Rejected
             or ActionStatus.ChangesRequested or ActionStatus.Expired or ActionStatus.Cancelled,
-        ActionStatus.Approved => to is ActionStatus.Executing,
+        // Approved -> Failed: refused before it could run, when an admission (a rate limit) is already at its limit at the claim.
+        ActionStatus.Approved => to is ActionStatus.Executing or ActionStatus.Failed,
         ActionStatus.Executing => to is ActionStatus.Succeeded or ActionStatus.Failed,
         ActionStatus.Failed => retryable && to is ActionStatus.Approved,
         _ => false,

@@ -279,4 +279,122 @@ public sealed class SkillsModuleTests : IDisposable
         diff = JsonNode.Parse(JsonNode.Parse((await host.Store.GetAsync(S(loose, "actionId")))!.PreviewJson!)!["DiffJson"]!.ToString())!;
         Assert.StartsWith("Not bound:", diff["reportCheck"]!.ToString());
     }
+
+    [Fact]
+    public async Task A_metadata_change_to_a_published_version_is_refused_when_requested_not_at_approval()
+    {
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "Version one.");
+
+        // The same text with a different skill.json: the store refuses it at approval, so the request itself must be refused now.
+        var owner = Meta("1").Replace("\"owner\": \"finance-ops\"", "\"owner\": \"someone-else\"", StringComparison.Ordinal);
+        var refused = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "Change the owner."),
+            ("expectedFrom", "1"), ("skillJson", owner), ("instructions", "Version one."));
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("already published with different content", refused.ToJsonString());
+
+        // Identical content is still an ordinary proposal.
+        var same = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "Again."),
+            ("expectedFrom", "1"), ("skillJson", Meta("1")), ("instructions", "Version one."));
+        Assert.Equal("pending_approval", S(same, "status"));
+    }
+
+    [Fact]
+    public async Task Find_names_a_label_whose_version_files_are_missing_instead_of_hiding_it()
+    {
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "Version one.");
+        Directory.Delete(Path.Combine(_root, "store", "invoice-check", "1"), recursive: true); // the store is damaged behind the Host's back
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+    }
+
+    [Fact]
+    public async Task A_failure_after_a_call_is_committed_as_succeeded_does_not_turn_the_call_into_a_failure()
+    {
+        // skills.get writes its audit line after the Succeeded commit. When that write fails, the caller still gets the skill and the
+        // action stays Succeeded: reporting a failure would invite a retry of a call that already ran.
+        var audit = new FailingAuditSink(failOn: "skill_served");
+        var module = new SkillsModule(new SkillsModuleOptions
+        {
+            Store = Path.Combine(_root, "store"),
+            Manifest = new SkillsModuleFactory().Describe("skills", default),
+        });
+        var host = new OpenTailHostBuilder().AddModule(module).UsePolicy(PolicyConfig.Parse(Policy)).UseAudit(audit).Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "Never pay from an email.");
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+
+        Assert.Equal("succeeded", S(got, "status"));
+        Assert.Contains("Never pay from an email.", got["result"]!["instructions"]!.ToString());
+        Assert.Equal(ActionStatus.Succeeded, (await host.Store.GetAsync(S(got, "actionId")))!.Status);
+        Assert.Contains(audit.Inner.Entries, e => e.Event == "bookkeeping_failed" && e.Detail == "result audit: IOException");
+    }
+
+    [Fact]
+    public void A_skill_file_without_format_1_is_refused_at_publish()
+    {
+        var store = new SkillStore(Path.Combine(_root, "store"));
+
+        Assert.Throws<ArgumentException>(() => store.Publish("invoice-check", "1", "production",
+            Meta("1").Replace("\"format\": 1", "\"format\": 2", StringComparison.Ordinal), "Never pay from an email.", "none"));
+        Assert.Throws<ArgumentException>(() => store.Publish("invoice-check", "1", "production",
+            Meta("1").Replace("\"format\": 1, ", "", StringComparison.Ordinal), "Never pay from an email.", "none"));
+        Assert.Null(store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Fact]
+    public async Task A_stored_version_in_another_format_is_named_by_find_and_not_served()
+    {
+        // Written by hand, as a future Host or a damaged file would leave it: find names it, get refuses it, and nothing else is hidden.
+        var dir = Path.Combine(_root, "store", "invoice-check", "1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "skill.json"), Meta("1").Replace("\"format\": 1", "\"format\": 2", StringComparison.Ordinal));
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"), "Never pay from an email.");
+        File.WriteAllText(Path.Combine(_root, "store", "labels.json"), """{ "format": 1, "skills": { "invoice-check": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("failed", S(got, "status"));
+        Assert.Contains("must say \"format\": 1", got["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_publish_is_refused_while_another_process_holds_the_store_and_writes_nothing()
+    {
+        // Another Host process holds the store's lock file; this publish must not check expectedFrom and then write over whatever it does.
+        var root = Path.Combine(_root, "store");
+        Directory.CreateDirectory(root);
+        var store = new SkillStore(root);
+        using (new FileStream(Path.Combine(root, ".publish.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None))
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none"));
+            Assert.Contains("Nothing was published", ex.Message, StringComparison.Ordinal);
+            Assert.Null(store.LabelledVersion("invoice-check", "production"));
+        }
+
+        // Released: the same publish goes through.
+        store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none");
+        Assert.Equal("1", store.LabelledVersion("invoice-check", "production"));
+    }
+
+    /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>
+    private sealed class FailingAuditSink(string failOn) : IAuditSink
+    {
+        public InMemoryAuditSink Inner { get; } = new();
+
+        public Task AppendAsync(AuditEntry entry, CancellationToken ct = default) =>
+            entry.Event == failOn ? throw new IOException("audit trail unavailable") : Inner.AppendAsync(entry, ct);
+    }
 }
