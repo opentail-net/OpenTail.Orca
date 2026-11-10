@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OpenTail.Modules.Skills.Standard;
 
 namespace OpenTail.Modules.Skills;
 
@@ -110,11 +111,16 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
         [Description("skill.json of a new version. Omit when the version is already in the store (a rollback).")] string? skillJson = null,
         [Description("SKILL.md of a new version. Omit when the version is already in the store.")] string? instructions = null,
         [Description("The workbench's scenario report for this version, in Markdown, for the reviewer.")] string? report = null,
-        [Description("The version the label points at now, or \"none\". The publish is refused if the label has moved since.")] string? expectedFrom = null)
+        [Description("The version the label points at now, or \"none\". The publish is refused if the label has moved since.")] string? expectedFrom = null,
+        [Description("Unknown frontmatter keys to ignore, by exact name, when the instructions begin with a frontmatter block. Each must be in the file.")] string[]? ignoreFrontmatterKeys = null)
     {
         // The preview already refused a missing expectedFrom; check again here, at the moment it runs.
         var from = _store.LabelledVersion(skillId, label);
-        _store.Publish(skillId, version, label, skillJson, instructions, expectedFrom ?? throw new ArgumentException("expectedFrom is required."));
+        // The preparation the preview ran, so the stored instructions are the ones the reviewer saw.
+        var stored = skillJson is not null && instructions is not null
+            ? StandardPublish.Prepare(skillId, version, skillJson, instructions, isNewVersion: _store.Get(skillId, version) is null, ignoreFrontmatterKeys).Target.Instructions
+            : instructions;
+        _store.Publish(skillId, version, label, skillJson, stored, expectedFrom ?? throw new ArgumentException("expectedFrom is required."));
         return new { published = $"{skillId}@{version}", label, previous = from };
     }
 
@@ -126,6 +132,8 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
             using var doc = JsonDocument.Parse(argumentsJson);
             var r = doc.RootElement;
             string? S(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+            IReadOnlyList<string>? Strings(string name) => r.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+                ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : null;
             var id = S("skillId") ?? throw new ArgumentException("skillId is required.");
             var version = S("version") ?? throw new ArgumentException("version is required.");
             var label = S("label") ?? "production";
@@ -138,13 +146,17 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
                 $"expectedFrom is required: the version the '{label}' label points at now, or \"{SkillStore.NoVersion}\" if none.");
 
             var (json, md) = (S("skillJson"), S("instructions"));
+            var ignoreKeys = Strings("ignoreFrontmatterKeys");
             var existing = store.Get(id, version);
             SkillVersion target;
+            IReadOnlyList<string> frontmatterWarnings = [];
             if (json is not null || md is not null)
             {
                 if (json is null || md is null) throw new ArgumentException("A new version needs both skillJson and instructions.");
-                target = SkillStore.Parse(json, md, id, version);
-                if (existing is not null && SkillText.Normalise(existing.Instructions) != SkillText.Normalise(md))
+                var prepared = StandardPublish.Prepare(id, version, json, md, isNewVersion: existing is null, ignoreKeys);
+                target = prepared.Target;
+                frontmatterWarnings = prepared.Warnings;
+                if (existing is not null && SkillText.Normalise(existing.Instructions) != SkillText.Normalise(target.Instructions))
                     throw new ArgumentException($"{id} version {version} is already published with different content; use a new version number.");
             }
             else target = existing ?? throw new ArgumentException($"{id} has no published version {version}; send skillJson and instructions to add it.");
@@ -173,6 +185,7 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
                 policiesChanged = from is null ? Array.Empty<string>() : target.Policies.Where(p => from.Policies.All(o => o.Ref != p.Ref || o.Hash != p.Hash)).Select(p => p.Ref).ToArray(),
                 reportCheck,
                 report = reportText,
+                frontmatterWarnings,
             });
             return Task.FromResult(new PreviewResult(summary, diff));
         }
