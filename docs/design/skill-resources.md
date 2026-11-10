@@ -44,7 +44,7 @@ Read from the code on 2026-11-10, at `opentail-host` `6779f6b` and `opentail-wor
 
 **Host store** (`OpenTail.Modules.Skills/SkillStore.cs`)
 - `SkillStore.Publish(id, version, label, metadataJson, instructions, expectedFrom)`: a version's files never change; republishing the same content is a no-op; different content under an existing number is refused; the label moves only if `expectedFrom` still matches; the publish holds `.publish.lock` throughout.
-- `SkillStore.Get(id, version)` and `Parse(metadataJson, instructions, id, version)`: `skill.json` must be format 1, with each field of its stated type (checked since `1de39fe`). `Parse` is also used by the standard-form publish path and by the workbench.
+- `SkillStore.Get(id, version)` and `Parse(metadataJson, instructions, id, version)`: `skill.json` must be format 1 (required since `1de39fe`). Each field's type is checked only from `4b8a8b7`, which is on `standard-skill-files` and not in `main`; at `6779f6b` the fields are not type-checked (checked 2026-11-10 with `git show 6779f6b:OpenTail.Modules.Skills/SkillStore.cs`). `Parse` is also used by the standard-form publish path and by the workbench.
 - `SkillStore.Root` layout: `<root>/<id>/<version>/skill.json` and `SKILL.md`, and `<root>/labels.json`.
 
 **Host hashes** (`SkillText.cs`)
@@ -68,7 +68,7 @@ Read from the code on 2026-11-10, at `opentail-host` `6779f6b` and `opentail-wor
 | Case | Today | Under this design |
 |---|---|---|
 | Version with no resources: publish, republish, label move | Stored as today | Unchanged |
-| `ContentHash` of such a version | Hash of the eight fields above | Unchanged (the resource term is added only when there are resources) |
+| `ContentHash` of such a version | Hash of the eight fields above | Unchanged under v1, which has no resource term at all. Under v2 every version carries the term, and a version with no resources contributes an empty list (hashing plan, design item 10) |
 | `skills.get` of such a version | Fields listed above | Same fields, plus `resources: []` (additive) |
 | `skills.find` | Unchanged | Unchanged |
 | Report binding of such a version | Checked against `ContentHash` | Unchanged |

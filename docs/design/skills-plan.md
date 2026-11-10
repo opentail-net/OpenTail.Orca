@@ -17,7 +17,7 @@ A skill's instructions never grant authority. Policy and tools decide what the a
 | Criterion | What success looks like | Where it is measured today |
 |---|---|---|
 | Discoverability | Relevant skills activate; irrelevant ones do not | Partly: selection scenarios check outcomes, not activation. A scenario can check activation today only by naming `tool: activate_skill`, which works for the catalog delivery alone. Step 2a adds a form that works for every delivery, and a separate activation rate. |
-| Usefulness | Results improve against a baseline without the skill | Not yet: the Workbench compares skill versions, not skill against no skill. Step 4 adds the baseline mode. |
+| Usefulness | Results improve against a baseline without the skill | Not measured yet: the no-skill baseline is built (step 4, on `progressive-disclosure`), but no real-model batch has compared a skill with it. |
 | Safety | Forbidden actions do not increase | Yes: `must_not` checks on every scenario |
 | Portability | The same skill packages for compatible clients | Partly: `SKILL.md` packages work; resources do not (step 3) |
 | Governance | Versions are tested, reviewed, auditable and reversible | Yes: approval, labels, immutable versions, audit, rollback |
@@ -92,7 +92,7 @@ Nothing from this section is built. Each plan lists the owner's decisions it wai
 
 Agreed after the review of the plans, 2026-11-10. The plans were ordered by design; this order is by value and risk. Each step names the decision it waits on, and nothing later starts before the step before it is done or deliberately set aside.
 
-1. **Stop the publish that overwrites damaged labels (S9).** Store plan, design item 2, and the tests named there. This is a data-loss risk on the Host today, so it is taken out of the store plan and done on its own, without waiting for the rest of that plan (cleanup, store check, backup). Waits on O-S2 (recommended: refuse the publish, as design item 2 says).
+1. **Stop the publish that overwrites damaged labels (S9).** Store plan, design item 2, and the tests named there. This is a data-loss risk on the Host today, so it is taken out of the store plan and done on its own, without waiting for the rest of that plan (cleanup, store check, backup). Waits on O-S2 (recommended: refuse the publish, as design item 2 says) and on O-S6 (the repair procedure must exist before publishes start refusing damage; recommended: by hand, with the Host stopped).
 2. **v1 golden hash tests.** Hashing plan, work order step 1. Records the current identities before anything changes. Needs no decision.
 3. **Activation scoring in the Workbench (step 2a).** Makes the discoverability criterion measured. Waits on the question of whether activation counts toward a pass (recommended: reported beside it).
 4. **Measure real decision counts.** Count clean, ambiguous and unattributed decisions on a real store, without changing attribution. The result decides whether option A is built, and whether its thresholds can be reached at all. Needs the owner's store; no store is available in this repository.
@@ -107,11 +107,11 @@ From the second review. A gate says what must be decided or written before a pie
 | Work | Gate | Status |
 |---|---|---|
 | v1 golden tests (hashing) | none | can start; needs no decision |
-| Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; O-S2, O-S4, O-S5 and O-S6 (how damage is repaired once publishes refuse it) to be confirmed |
+| Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; the tests can be written now. The changes they drive wait on decisions: refusing publishes on O-S2 and O-S6 (how damage is repaired once publishes refuse it); the backup on O-S4 and O-S5; policy-reference resolution on O-S1; deploying the stricter reading on an existing store on O-S3 |
 | v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written (terminators, presence markers and sorted metadata added in review); decisions open, and the store must keep an absent owner apart from an empty one first, and the v2 field list must be final before the first v2 identity is written (design item 4) |
-| Outcome attribution, option A | O-A2 (window by review time, and the flag name) and O-A3 (whose decisions count) | recommendations written; decisions open |
+| Outcome attribution, option A | O-A2 (window by review time, and the flag name) and O-A3 (whose decisions count) | recommendations written; decisions open. Also needed first, and not decisions: the measurement of order-of-work step 4; a subject on the two `ActionQueue` reviews that carry none; the check that a review moves the action's update time (all in `skill-outcome-attribution.md`, "Not built") |
 | Library scaffold | O-L1 (licence: a release gate, since the copyright holder must be able to relicense any copied Host code), O-L6 (net10.0 recommended; the owner confirms it against Stingray), O-L4 (the Host keeps the store) and O-L8 (concurrent modification) | recommendations written; decisions open |
-| Resource storage and serving | D4 (show the content) and the exact-bytes digest (`skill-resources.md`) | D4 changed to show the content; owner to confirm |
+| Resource storage and serving | D4 (show the content) and the exact-bytes digest (`skill-resources.md`) | D4 changed to show the content; owner to confirm. D1 to D6 are all open. Resources enter a version's identity only under v2 hashing, so storing them also waits on the v2 hashing gate above |
 | Activation evaluation (step 2a) | the question of whether activation counts toward a pass | open; recommendation written |
 
 ## Deferred
@@ -130,14 +130,14 @@ A second permission system inside skills (policy already controls tools and appr
 - **D1–D6:** the resource decisions in [skill-resources.md](skill-resources.md).
 - **Real-model runs:** which model or models, what budget, and whether an API key is available for the Workbench.
 - **Host work on `standard-skill-files`:** committed (`4b8a8b7`) and pushed. It is not in `main`; merging it needs your go-ahead.
-- **`metadata.version` on new standard submissions:** the design says it is optional, "if present, must equal the version" (`standard-skill-files.md:156`). A review asks for it to be required, with a test for its absence. Owner decides; the code and tests follow the decision.
+- **`metadata.version` on new standard submissions:** the design says it is optional, "if present, must equal the version" (`standard-skill-files.md:156`). The Agent Skills specification makes the whole `metadata` field optional. Recommended: keep the rule. Host-generated packages carry `metadata.version`, imported frontmatter may omit it, and a supplied value must match the Host's version. An earlier review asked for it to be required; a later review withdrew that. Owner decides; the code and tests follow the decision.
 - **Plan decisions:** each plan lists its own: O-S1 to O-S6, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L8; D1 to D6 in the resources design; and the activation question in step 2a.
 - **Default delivery:** when it switches to `Catalog` (see step 2).
 - **Workbench work on `progressive-disclosure`:** steps 1a, 2 and 4 are committed (`b762d50`) and pushed. Merging into `main` needs your go-ahead.
 
 ## Verification
 
-Repository state: Host `skills-plan` at `6b1a9f8` (pushed; eight commits ahead of `main`); Host `standard-skill-files` at `4b8a8b7` (pushed, not in `main`); Host `main` at `6779f6b`; Workbench `progressive-disclosure` at `b762d50` (pushed); Workbench `main` at `ce65cb3`. The plans are on `skills-plan`, not `main`.
+Repository state: Host `skills-plan` at `d1fd757` when this revision was written (pushed; nine commits ahead of `origin/main`, counted with `git rev-list`; a later plan commit moves both figures, so check with `git log`); Host `standard-skill-files` at `4b8a8b7` (pushed, not in `main`); Host `main` at `6779f6b`; Workbench `progressive-disclosure` at `b762d50` (pushed); Workbench `main` at `ce65cb3`. The plans are on `skills-plan`, not `main`.
 
 - Host: `OpenTail.Host.Tests` passes at `4b8a8b7` (1072 tests, none failed or skipped), run on 2026-11-10 before that commit. `main` is at `6779f6b`.
 - Workbench: `OpenTail.Workbench.Tests` passes on `progressive-disclosure`: 57 tests (51 before steps 2 and 4; six added). The whole solution builds with no warnings or errors.
