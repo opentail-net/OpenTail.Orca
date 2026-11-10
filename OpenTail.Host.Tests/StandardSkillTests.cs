@@ -93,11 +93,24 @@ public sealed class StandardSkillTests
     [InlineData("name: a\ndescription: x\nallowed-tools:\n  - Read")]
     [InlineData("name: a\ndescription: x\nmetadata:\n  deep:\n    x: y")]
     [InlineData("name: a\ndescription: x\nmetadata:\n  version: !!str 5")]
+    [InlineData("name: a\ndescription: x\nmetadata: &metadata\n  version: \"5\"")]
+    [InlineData("name: a\ndescription: x\nmetadata: !!map\n  version: \"5\"")]
     public void Anchors_aliases_sequences_and_nested_metadata_are_refused(string frontmatter)
     {
         var file = StandardSkill.Parse("---\n" + frontmatter + "\n---\n");
 
         Assert.Contains(file.Diagnostics, d => d.IsError);
+    }
+
+    [Fact]
+    public void An_anchor_or_tag_inside_an_acknowledged_unknown_key_is_still_refused()
+    {
+        // Acknowledging a key drops its value, but it must not let an anchor or tag through.
+        var anchored = StandardSkill.Parse("---\nname: a\ndescription: x\nowner: &o\n  team: ops\n---\n", ["owner"]);
+        Assert.Contains(anchored.Diagnostics, d => d.IsError && d.Key == "owner" && d.Message.Contains("anchor or a tag", StringComparison.Ordinal));
+
+        var tagged = StandardSkill.Parse("---\nname: a\ndescription: x\nowner: !!str ops\n---\n", ["owner"]);
+        Assert.Contains(tagged.Diagnostics, d => d.IsError && d.Key == "owner");
     }
 
     [Fact]

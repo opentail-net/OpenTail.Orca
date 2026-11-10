@@ -204,7 +204,7 @@ Found by reading the code while writing this. The first draft listed ten; the fi
 - `OpenTail.Host.Tests/SkillsModuleTests.cs`: 14 tests for the tools, approval, rollback, drift, configuration, the report binding, metadata changes and broken labels.
 - `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`: the standard form.
 - `OpenTail.Host.Tests/SkillOutcomesTests.cs`: the tests for `SkillOutcomes.cs`.
-- To run the Skills tests: `dotnet test OpenTail.Host.Tests --filter "FullyQualifiedName~Skill|FullyQualifiedName~Standard"`. On 2026-11-10 that gave 63 passing, and the whole `OpenTail.Host.Tests` project gave 1037 passing.
+- To run the Skills tests: `dotnet test OpenTail.Host.Tests --filter "FullyQualifiedName~Skill|FullyQualifiedName~Standard"`. On 2026-11-10 that gave 66 passing, and the whole `OpenTail.Host.Tests` project gave 1040 passing.
 - **Restoring the test project needs the GitHub package feed.** `nuget.config` reads `GITHUB_PACKAGES_TOKEN` for the `OpenTail.Connectivity.*` packages. Set it for the command; the comment in `nuget.config` says how to get a token. On 2026-11-10, `gh auth token` gave one that worked. Do not write the token to a file.
 
 ## Related
