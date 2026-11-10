@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json.Nodes;
 using OpenTail.Modules.Skills;
 
@@ -387,6 +388,259 @@ public sealed class SkillsModuleTests : IDisposable
         // Released: the same publish goes through.
         store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none");
         Assert.Equal("1", store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Theory]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": 42, "appliesTo": ["x"] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [{ "when": "x" }] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": 1, "summary": "s", "appliesTo": ["x"] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": "x" }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "tools": "mail.read" }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "tools": [3] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "policies": { "ref": "p.md" } }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "policies": [{ "ref": 5 }] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "policies": [{ "ref": "p.md", "hash": 5 }] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": ["x"], "owner": 7 }""")]
+    public void A_skill_file_with_a_field_of_the_wrong_type_is_refused_at_publish(string metadataJson)
+    {
+        var store = new SkillStore(Path.Combine(_root, "store"));
+
+        Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", metadataJson, "Never pay from an email.", "none"));
+        Assert.Null(store.LabelledVersion("invoice-check", "production"));
+    }
+
+    private static string MetaFor(string id, string version) => $$"""
+        { "format": 1, "id": "{{id}}", "version": "{{version}}",
+          "summary": "Reply to a routine customer enquiry, following the customer-service policies.",
+          "appliesTo": [ "a customer asks about an order's status" ],
+          "tools": [ "mail.send" ], "policies": [], "owner": "customer-service" }
+        """;
+
+    /// <summary>Publishes a version straight into the store, without approval, for a test that needs a second skill in the store.</summary>
+    private void PublishDirect(string id, string version) =>
+        new SkillStore(Path.Combine(_root, "store")).Publish(id, version, "production", MetaFor(id, version), "Reply briefly and politely.", "none");
+
+    private void WriteLabels(string json)
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "store"));
+        File.WriteAllText(Path.Combine(_root, "store", "labels.json"), json);
+    }
+
+    [Fact]
+    public async Task A_malformed_labels_file_is_named_by_find_and_nothing_is_served_from_it()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("this is not json");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("labels.json", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+
+        // skills.get refuses by name rather than guessing.
+        var ex = Assert.Throws<ArgumentException>(() => new SkillStore(Path.Combine(_root, "store")).LabelledVersion("reply-draft", "production"));
+        Assert.Contains("labels.json", ex.Message);
+    }
+
+    [Fact]
+    public async Task A_null_label_names_that_skill_and_serves_the_others()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": null }, "reply-draft": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        var skills = found["result"]!["skills"]!.AsArray();
+        Assert.Single(skills);
+        Assert.Equal("reply-draft", skills[0]!["id"]!.ToString());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check", warning);
+        Assert.Contains("production", warning);
+    }
+
+    [Fact]
+    public async Task A_skill_entry_that_is_not_an_object_is_named()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": 5, "reply-draft": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        var skills = found["result"]!["skills"]!.AsArray();
+        Assert.Single(skills);
+        Assert.Equal("reply-draft", skills[0]!["id"]!.ToString());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check", warning);
+        Assert.Contains("not an object", warning);
+    }
+
+    [Fact]
+    public async Task A_numeric_label_value_is_refused_and_named()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "reply-draft": { "production": 1 } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("reply-draft", warning);
+        Assert.Contains("not a version text", warning);
+    }
+
+    [Fact]
+    public async Task A_label_that_is_not_a_version_number_is_named_as_such_by_find_and_get()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "reply-draft": { "production": "latest" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("not a version number", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+
+        var ex = Assert.Throws<ArgumentException>(() => new SkillStore(Path.Combine(_root, "store")).LabelledVersion("reply-draft", "production"));
+        Assert.Contains("not a version number", ex.Message);
+    }
+
+    [Fact]
+    public async Task A_version_whose_files_cannot_be_read_does_not_hide_the_others()
+    {
+        PublishDirect("invoice-check", "1");
+        PublishDirect("reply-draft", "1");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        // Another process holds one version's skill.json open exclusively: its files cannot be read, and the other skill must still be listed.
+        using var locked = new FileStream(Path.Combine(_root, "store", "invoice-check", "1", "skill.json"), FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var found = await pair.CallAsync("skills.find");
+        var skills = found["result"]!["skills"]!.AsArray();
+        Assert.Single(skills);
+        Assert.Equal("reply-draft", skills[0]!["id"]!.ToString());
+        Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("""["an", "array"]""")]
+    [InlineData("""{ "format": 1, "skills": "a string" }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": 5 } }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": { "production": null } } }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": { "production": 1 } } }""")]
+    [InlineData("""{ "format": 1, "skills": { "invoice-check": { "production": "1", "staging": null } } }""")]
+    public void A_publish_is_refused_before_any_write_when_labels_is_malformed(string labelsJson)
+    {
+        // expectedFrom is null, so nothing else would read the labels before the version folder is written: the damage must still be found first.
+        var storeDir = Path.Combine(_root, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "labels.json"), labelsJson);
+        var store = new SkillStore(storeDir);
+
+        Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: null));
+
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "1")), "no version folder may be written");
+        Assert.Equal(labelsJson, File.ReadAllText(Path.Combine(storeDir, "labels.json")));
+    }
+
+    [Fact]
+    public void A_publish_is_refused_before_any_write_when_labels_is_malformed_and_expectedFrom_is_given()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "labels.json"), "not json at all");
+        var store = new SkillStore(storeDir);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none"));
+
+        Assert.Contains("labels.json", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "1")));
+    }
+
+    [Fact]
+    public void A_publish_never_replaces_a_damaged_labels_entry_and_other_labels_survive()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        Directory.CreateDirectory(storeDir);
+        File.WriteAllText(Path.Combine(storeDir, "labels.json"), """
+            { "format": 1, "skills": { "email-triage": null, "reply-draft": { "production": "2", "staging": "3" } } }
+            """);
+        var store = new SkillStore(storeDir);
+
+        store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none");
+
+        var written = JsonNode.Parse(File.ReadAllText(Path.Combine(storeDir, "labels.json")))!;
+        Assert.Equal("1", written["skills"]!["invoice-check"]!["production"]!.ToString());
+        Assert.Equal("2", written["skills"]!["reply-draft"]!["production"]!.ToString());
+        Assert.Equal("3", written["skills"]!["reply-draft"]!["staging"]!.ToString());
+        // The damaged entry of another skill is kept as it was, not replaced by an empty object.
+        Assert.True(written["skills"]!.AsObject().ContainsKey("email-triage"));
+        Assert.Null(written["skills"]!["email-triage"]);
+    }
+
+    [Fact]
+    public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
+    {
+        // The lock is held by another process, not by this test: a PowerShell child opens the lock file exclusively and reports that it has.
+        var shell = FindPowerShell();
+        if (shell is null)
+        {
+            Assert.Skip("PowerShell is not installed, so no second process can be started to hold the store.");
+            return;
+        }
+        var root = Path.Combine(_root, "store");
+        Directory.CreateDirectory(root);
+        var lockPath = Path.Combine(root, ".publish.lock");
+        var holder = new ProcessStartInfo(shell) { RedirectStandardOutput = true, UseShellExecute = false };
+        holder.ArgumentList.Add("-NoProfile");
+        holder.ArgumentList.Add("-Command");
+        holder.ArgumentList.Add($"$lock = [System.IO.File]::Open('{lockPath}', 'OpenOrCreate', 'ReadWrite', 'None'); " +
+                                "[Console]::WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Seconds 120");
+        using var child = Process.Start(holder)!;
+        try
+        {
+            Assert.Equal("held", await child.StandardOutput.ReadLineAsync().WaitAsync(TimeSpan.FromSeconds(60)));
+
+            var store = new SkillStore(root);
+            var ex = Assert.Throws<InvalidOperationException>(() =>
+                store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", "none"));
+            Assert.Contains("Nothing was published", ex.Message, StringComparison.Ordinal);
+            Assert.Null(store.LabelledVersion("invoice-check", "production"));
+        }
+        finally
+        {
+            child.Kill(entireProcessTree: true);
+            await child.WaitForExitAsync();
+        }
+    }
+
+    /// <summary>The first PowerShell on the path that starts, or null.</summary>
+    private static string? FindPowerShell()
+    {
+        foreach (var name in new[] { "pwsh", "powershell" })
+        {
+            try
+            {
+                using var probe = Process.Start(new ProcessStartInfo(name, "-NoProfile -Command exit 0") { UseShellExecute = false, CreateNoWindow = true });
+                if (probe is not null)
+                {
+                    probe.WaitForExit();
+                    return name;
+                }
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // Not installed under this name.
+            }
+        }
+        return null;
     }
 
     /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>

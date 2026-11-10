@@ -89,7 +89,7 @@ If the policy for `skills.publish` is looser than this, the Host refuses to star
 | Only an approved `skills.publish` writes here. The module never deletes a version. | The factory's notes; `SkillStore` has no delete method |
 | A publish holds the store's lock file (`.publish.lock`) from its `expectedFrom` check to its label write. A publish from another process while it is held is refused, and writes nothing. | `SkillStore.TakeStoreLock` |
 
-There is no cache. Each `find` or `get` reads `labels.json` and the files it needs. `skill.json` is kept as sent. The Host reads `id`, `version`, `summary`, `appliesTo`, `tools`, `policies` and `owner`, and it requires `"format": 1`: any other format, or none, is refused at publish and when read.
+There is no cache. Each `find` or `get` reads `labels.json` and the files it needs. `skill.json` is kept as sent. The Host reads `id`, `version`, `summary`, `appliesTo`, `tools`, `policies` and `owner`, and it requires `"format": 1`: any other format, or none, is refused at publish and when read. Each of those fields must have the type the format gives it (text; a list of text for `appliesTo` and `tools`; a list of objects for `policies`). A value of another type is refused, not converted.
 
 ## The tools
 
@@ -179,7 +179,8 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 | A version cannot change under its number | Preview (at request time) and store (at approval) | `A_version_cannot_be_republished_with_different_content_and_bad_requests_are_refused_at_once`; `A_metadata_change_to_a_published_version_is_refused_when_requested_not_at_approval` |
 | A broken label is named, not hidden | `SkillsModule.Find` | `Find_names_a_label_whose_version_files_are_missing_instead_of_hiding_it` |
 | A version in another format is refused at publish, and is not served | `SkillStore.Parse` | `A_skill_file_without_format_1_is_refused_at_publish`; `A_stored_version_in_another_format_is_named_by_find_and_not_served` |
-| Two processes cannot publish to one store at the same time | `SkillStore.TakeStoreLock` | `A_publish_is_refused_while_another_process_holds_the_store_and_writes_nothing` |
+| Two processes cannot publish to one store at the same time | `SkillStore.TakeStoreLock` | `A_publish_is_refused_while_another_process_holds_the_store_and_writes_nothing` (the lock file, held in this process); `A_publish_is_refused_while_a_separate_process_holds_the_store` (a PowerShell child process holds it; skipped where PowerShell is absent) |
+| A field of the wrong type is refused, not converted | `SkillStore.Parse` | `A_skill_file_with_a_field_of_the_wrong_type_is_refused_at_publish` (ten cases) |
 | A label moves only from the version that was reviewed | Preview and store | `Approving_an_old_proposal_after_the_label_moved_publishes_nothing`; `A_publish_without_expectedFrom_or_with_a_wrong_one_is_refused_at_once` |
 | A report describes the content proposed | `CheckReport` | `A_report_bound_to_other_content_is_refused_and_a_matching_one_is_marked_bound` |
 | A rollback is an ordinary publish | `Publish` | `Rolling_back_is_publishing_an_earlier_version_through_the_same_approval` |
@@ -203,7 +204,7 @@ Found by reading the code while writing this. Fixed since: a metadata-only chang
 
 ## Tests
 
-- `OpenTail.Host.Tests/SkillsModuleTests.cs`: 18 tests for the tools, approval, rollback, drift, configuration, the report binding, metadata changes, broken labels, the format check, the store lock and a failing audit line after a call.
+- `OpenTail.Host.Tests/SkillsModuleTests.cs`: 20 test methods for the tools, approval, rollback, drift, configuration, the report binding, metadata changes, broken labels, the format check, the store lock and a failing audit line after a call.
 - `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`: the standard form.
 - `OpenTail.Host.Tests/SkillOutcomesTests.cs`: the tests for `SkillOutcomes.cs`.
 - To run the Skills tests: `dotnet test OpenTail.Host.Tests --filter "FullyQualifiedName~Skill|FullyQualifiedName~Standard"`. On 2026-11-10 that gave 66 passing, and the whole `OpenTail.Host.Tests` project gave 1040 passing.

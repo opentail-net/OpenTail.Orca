@@ -46,15 +46,13 @@ public sealed class ActionQueue(
         if (!catalog.TryGet(request.ToolName, out var tool))
         {
             trace.Add(new("tool", "Deny", "no loaded module declares this tool", Changed: true));
-            var unknown = await store.CreateAsync(Rec() with
+            return await CreateDenied(Rec() with
             {
                 ModuleId = "unknown",
                 Status = ActionStatus.Denied,
                 PolicyMode = ToolMode.Deny,
                 Error = new ActionError("unknown_tool", "No such tool.", false),
-            }, ct);
-            await Audit("denied", unknown, "unknown_tool", ct);
-            return unknown;
+            }, "unknown_tool", ct);
         }
 
         // Outside the caller's agent profile: refused before policy, taint or anything else, and audited (a later tripwire reads
@@ -77,26 +75,23 @@ public sealed class ActionQueue(
             && !(policy.Config.Agents.TryGetValue(asker, out var ap) && wanted is not null && ap.Requestable.Contains(wanted, StringComparer.Ordinal)))
         {
             trace.Add(new("access request", "Deny", $"'{wanted}' is not requestable under profile {asker}", Changed: true));
-            var refusedRequest = await store.CreateAsync(Rec() with
+            return await CreateDenied(Rec() with
             {
                 ModuleId = tool.Descriptor.ModuleId,
                 Status = ActionStatus.Denied,
                 PolicyMode = ToolMode.Deny,
                 Error = new ActionError("invalid_arguments", $"'{wanted}' is not a tool you may ask for.", false),
-            }, ct);
-            await Audit("denied", refusedRequest, "not_requestable", ct);
-            return refusedRequest;
+            }, "not_requestable", ct);
         }
         if (!admitted)
         {
-            var refused = await store.CreateAsync(Rec() with
+            var refused = await CreateDenied(Rec() with
             {
                 ModuleId = tool.Descriptor.ModuleId,
                 Status = ActionStatus.Denied,
                 PolicyMode = ToolMode.Deny,
                 Error = new ActionError("not_in_profile", "This tool is not available to you.", false),
-            }, ct);
-            await Audit("denied", refused, $"not_in_profile ({request.Profile ?? "none"})", ct);
+            }, $"not_in_profile ({request.Profile ?? "none"})", ct);
             HostTelemetry.Count(refused);
             // A healthy agent never sees a tool outside its profile, so naming one is a tripwire. The local operator has no profile.
             if (levels is not null && request.Profile is not null) await levels.OutOfProfileAsync(request.Requester.Id, tool.Descriptor.Name, ct);
@@ -109,14 +104,13 @@ public sealed class ActionQueue(
             && await levels.DecoySentAsync(request.Requester.Id, tool.Descriptor.Name, ct))
         {
             trace.Add(new("decoy", "Deny", "a decoy record's marker in the arguments of an outbound tool; identity suspended", Changed: true));
-            var decoy = await store.CreateAsync(Rec() with
+            var decoy = await CreateDenied(Rec() with
             {
                 ModuleId = tool.Descriptor.ModuleId,
                 Status = ActionStatus.Denied,
                 PolicyMode = ToolMode.Deny,
                 Error = new ActionError("suspended", "This identity is suspended. An operator must clear it.", false),
-            }, ct);
-            await Audit("denied", decoy, "decoy_sent", ct);
+            }, "decoy_sent", ct);
             HostTelemetry.Count(decoy);
             return decoy;
         }
@@ -127,14 +121,13 @@ public sealed class ActionQueue(
             Changed: level == IdentityLevel.Suspended));
         if (level == IdentityLevel.Suspended)
         {
-            var suspended = await store.CreateAsync(Rec() with
+            var suspended = await CreateDenied(Rec() with
             {
                 ModuleId = tool.Descriptor.ModuleId,
                 Status = ActionStatus.Denied,
                 PolicyMode = ToolMode.Deny,
                 Error = new ActionError("suspended", "This identity is suspended. An operator must clear it.", false),
-            }, ct);
-            await Audit("denied", suspended, "suspended", ct);
+            }, "suspended", ct);
             HostTelemetry.Count(suspended);
             return suspended;
         }
@@ -231,13 +224,12 @@ public sealed class ActionQueue(
             {
                 trace.Add(new("preview", "Deny", "the tool says these arguments can never be valid", Changed: true));
                 // The tool says these arguments could never be approved. Tell the AI now instead of wasting a review.
-                var invalid = await store.CreateAsync(baseRecord with
+                var invalid = await CreateDenied(baseRecord with
                 {
                     DecisionTrace = [.. trace],
                     Status = ActionStatus.Denied,
                     Error = new ActionError("invalid_arguments", Redaction.Scrub(ex.Message), true),
-                }, ct);
-                await Audit("denied", invalid, "invalid_arguments", ct);
+                }, "invalid_arguments", ct);
                 HostTelemetry.Count(invalid);
                 return invalid;
             }
@@ -268,14 +260,13 @@ public sealed class ActionQueue(
         if (pending is null)
         {
             trace.Add(new("queue cap", "Deny", $"the requester already has {cap} actions waiting", Changed: true));
-            var full = await store.CreateAsync(baseRecord with
+            var full = await CreateDenied(baseRecord with
             {
                 DecisionTrace = [.. trace],
                 Status = ActionStatus.Denied,
                 Error = new ActionError("queue_full",
                     $"You already have {cap} actions waiting for approval. Wait for decisions before submitting more.", true),
-            }, ct);
-            await Audit("denied", full, "queue_full", ct);
+            }, "queue_full", ct);
             HostTelemetry.Count(full);
             await Publish(ActionEventKind.Denied, full, "queue_full", ct);
             return full;
@@ -295,12 +286,11 @@ public sealed class ActionQueue(
         {
             case ToolMode.Deny:
             {
-                var denied = await store.CreateAsync(baseRecord with
+                var denied = await CreateDenied(baseRecord with
                 {
                     Status = ActionStatus.Denied,
                     Error = new ActionError("denied", $"Denied by policy ({decision.Rule}).", false),
-                }, ct);
-                await Audit("denied", denied, decision.Rule, ct);
+                }, decision.Rule, ct);
                 HostTelemetry.Count(denied);
                 return denied;
             }
@@ -326,9 +316,12 @@ public sealed class ActionQueue(
                 var gate = RateGate.For(baseRecord.ToolName, decision.Policy.RateLimit);
                 var budgets = decision.Admissions.Count;
                 IReadOnlyList<Admission> admissions = [.. decision.Admissions, .. gate.Admissions];
-                var running = admissions.Count > 0
-                    ? await store.TryCreateAsync(executing, admissions, i => i < budgets ? null : gate.Refuse(executing, i - budgets, now), ct)
-                    : await store.CreateAsync(executing, ct);
+                // The entry of the call is written with it: "execution_started" for a call that runs, "execution_failed" for one the rate limit refused.
+                var running = await AtomicTrail.CreateAdmittedAsync(store, audit, executing, admissions,
+                    i => i < budgets ? null : gate.Refuse(executing, i - budgets, now),
+                    d => d.Status == ActionStatus.Executing
+                        ? new AuditEntry(_clock.GetUtcNow(), "execution_started", d.Id, d.ToolName, d.Requester.Id, null)
+                        : new AuditEntry(_clock.GetUtcNow(), "execution_failed", d.Id, d.ToolName, d.Requester.Id, d.Error?.Code), ct);
                 if (running is null)
                 {
                     // The budget is spent: the rule no longer applies, so the call waits for a reviewer like any other.
@@ -346,10 +339,10 @@ public sealed class ActionQueue(
                 }
                 // An idempotent resubmission returns the existing record; only run what we just created.
                 if (running.Id != id) return running;
-                if (running.Status == ActionStatus.Failed) return await executor.ReportRefusalAsync(running, ct); // its rate limit is spent
+                if (running.Status == ActionStatus.Failed) return await executor.ReportRefusalAsync(running, ct, auditWritten: true); // its rate limit is spent
                 // The MCP handler may answer with a task if this runs long: let it see the action now, before it finishes.
                 ActionCapture.Record(running);
-                var ran = await executor.RunClaimedAsync(running, ct);
+                var ran = await executor.RunClaimedAsync(running, ct, startedWritten: true);
                 if (trust is not null) await trust.DemoteIfFailedAsync(ran, ct);
                 return ran;
             }
@@ -485,10 +478,9 @@ public sealed class ActionQueue(
             }
             case ReviewDecision.Retry:
             {
-                var retry = await store.TransitionAsync(actionId, ActionStatus.Failed, ActionStatus.Approved,
-                    r => addReview(r) with { Attempts = r.Attempts + 1, Error = null, ResultJson = null }, ct);
+                var retry = await ChangeAudited(actionId, ActionStatus.Failed, ActionStatus.Approved,
+                    r => addReview(r) with { Attempts = r.Attempts + 1, Error = null, ResultJson = null }, EntryOf("retry_approved", review.Reviewer), ct);
                 if (retry is null) return await Conflict(actionId, ActionStatus.Failed, ct);
-                await Audit("retry_approved", retry, review.Reviewer, ct);
                 return await executor.ExecuteAsync(actionId, ct);
             }
             case ReviewDecision.Reject:
@@ -596,8 +588,8 @@ public sealed class ActionQueue(
             var delay = at - r.CreatedAt;
             if (now - at > delay)
             {
-                var held = await store.TransitionAsync(r.Id, ActionStatus.Pending, ActionStatus.Pending, x => x with { RunAt = null }, ct);
-                if (held is not null) await Audit("delay_held", held, $"{(now - at).TotalMinutes:0} min past its time: a person decides", ct);
+                await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending, x => x with { RunAt = null },
+                    EntryOf("delay_held", $"{(now - at).TotalMinutes:0} min past its time: a person decides"), ct);
                 continue;
             }
             var approved = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Approved, x => x with
@@ -709,38 +701,24 @@ public sealed class ActionQueue(
 
     /// <summary>A change to an action and the audit entry that records it: one transaction when the trail is the store's own database, so the
     /// change cannot happen without its entry, nor the entry without the change. Otherwise the change is applied, then its entry is written.</summary>
-    private async Task<ActionRecord?> ChangeAudited(string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
-        Func<ActionRecord, AuditEntry> entry, CancellationToken ct)
-    {
-        if (AtomicTrail.For(store, audit) is { } atomic)
-            return await atomic.TransitionAuditedAsync(id, expected, next, update, entry, ct);
-        var done = await store.TransitionAsync(id, expected, next, update, ct);
-        if (done is not null) await audit.AppendAsync(entry(done), ct);
-        return done;
-    }
+    private Task<ActionRecord?> ChangeAudited(string id, ActionStatus expected, ActionStatus next, Func<ActionRecord, ActionRecord> update,
+        Func<ActionRecord, AuditEntry> entry, CancellationToken ct) =>
+        AtomicTrail.ChangeAsync(store, audit, id, expected, next, update, entry, ct);
+
+    /// <summary>A refused request is stored as a denied action, and the denial is written in the same transaction.</summary>
+    private async Task<ActionRecord> CreateDenied(ActionRecord record, string detail, CancellationToken ct) =>
+        await CreateAudited(record, [], EntryOf("denied", detail), ct) ?? throw new InvalidOperationException("A denied action could not be stored.");
 
     /// <summary>As <see cref="ChangeAudited"/>, for a change whose next status is decided inside the store's transaction.</summary>
-    private async Task<ActionRecord?> DecideAudited(string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
-        Func<ActionRecord, AuditEntry> entry, CancellationToken ct)
-    {
-        if (AtomicTrail.For(store, audit) is { } atomic)
-            return await atomic.TransitionDecidedAuditedAsync(id, expected, decide, entry, ct);
-        var done = await store.TransitionAsync(id, expected, decide, ct);
-        if (done is not null) await audit.AppendAsync(entry(done), ct);
-        return done;
-    }
+    private Task<ActionRecord?> DecideAudited(string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,
+        Func<ActionRecord, AuditEntry> entry, CancellationToken ct) =>
+        AtomicTrail.DecideAsync(store, audit, id, expected, decide, entry, ct);
 
     /// <summary>Creates an action and writes its entry in the same transaction when the trail is the store's own database. An idempotent repeat
     /// returns the existing action and writes nothing, since nothing changed; a refusal returns null and writes nothing.</summary>
-    private async Task<ActionRecord?> CreateAudited(ActionRecord record, IReadOnlyList<Admission> admissions,
-        Func<ActionRecord, AuditEntry> entry, CancellationToken ct)
-    {
-        if (AtomicTrail.For(store, audit) is { } atomic)
-            return await atomic.TryCreateAuditedAsync(record, admissions, entry, ct);
-        var created = admissions.Count > 0 ? await store.TryCreateAsync(record, admissions, ct) : await store.CreateAsync(record, ct);
-        if (created is not null && created.Id == record.Id) await audit.AppendAsync(entry(created), ct);
-        return created;
-    }
+    private Task<ActionRecord?> CreateAudited(ActionRecord record, IReadOnlyList<Admission> admissions,
+        Func<ActionRecord, AuditEntry> entry, CancellationToken ct) =>
+        AtomicTrail.CreateAsync(store, audit, record, admissions, entry, ct);
 
     private Task Audit(string evt, string id, ActionRequest req, string tool, string detail, DateTimeOffset at, CancellationToken ct) =>
         audit.AppendAsync(new AuditEntry(at, evt, id, tool, req.Requester.Id, detail), ct);

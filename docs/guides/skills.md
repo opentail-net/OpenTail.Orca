@@ -105,6 +105,7 @@ A refusal is returned at once as `invalid_arguments`, and nothing is queued. A f
 | `The store lists <id>@<v> but its files are missing.` | `skills.get`; `skills.find` names it in `warnings` | `labels.json` points at a version folder that is gone | Restore the store folder from backup. |
 | `The skill store is busy: another publish holds it, or its folder cannot be locked.` | Request | Another Host is publishing to the same store right now, or the folder cannot be locked | Wait a moment and resubmit. Nothing was published. |
 | `skill.json must say "format": 1.` | Request, or a `warnings` entry from `skills.find` | The version's `skill.json` is in another format, or has none | Correct it in a new version. Stored versions cannot be edited: see [before upgrading](#before-upgrading). |
+| `skill.json needs '<field>', as a non-empty string.` or `skill.json '<field>' must be a list of strings.` | Request, or a `warnings` entry from `skills.find` | A field has the wrong type, such as a number where text is expected | Correct the field in a new version. The [authoring guide](writing-skill-versions.md) lists each field's type. |
 | The Host refuses to start, naming `ReviewerGroup`, `SelfApproval Forbid` or `AllowEdits false` | Startup | The policy for `skills.publish` is looser than the suggested one | Adopt the suggested policy: `--adopt-policy skills`. |
 | The Host refuses to start, naming a profile with `skills.publish` | Startup | A profile names `skills.publish` next to another tool above Read | Split the profile. |
 | `Config.Store is required.` | Startup | No `Store` in the config | Add it. |
@@ -119,7 +120,7 @@ Every stored version must say `"format": 1`. A stored version that does not is r
 grep -L '"format": 1' <store>/*/*/skill.json
 ```
 
-Each file the command lists would stop being served. Republish that content as a new version with `"format": 1` and move the label to it. Do not edit a stored version: versions never change, and the Host does not rewrite them.
+Each file the command lists would stop being served. Republish that content as a new version with `"format": 1` and move the label to it. A stored version with a field of the wrong type is refused the same way: the [authoring guide](writing-skill-versions.md) lists each field's type, and there is no command that finds those, so read any version that `skills.find` names in `warnings` against it. Do not edit a stored version: versions never change, and the Host does not rewrite them.
 
 ## Open questions
 
