@@ -154,7 +154,7 @@ The scaffold waits for O-L1 (licence, repository, package name), which is a rele
 - **O-L5 Identity owner.** Recommended: the library, after the hashing plan's decisions (O-H1 to O-H6).
 - **O-L6 Target framework.** Recommended: net10.0. The Host (`OpenTail.Modules.Skills.csproj:3`) and the workbench (`Directory.Build.props:3`) use it, and the external review reports that Stingray's `Directory.Build.props` targets net10.0 too. That report is not checked from this repository; the owner confirms it before the gate closes. Choose an older target only if a consumer needs one.
 - **O-L7 `SKILL.md` name.** The reference accepts exactly `SKILL.md` and `skill.md`, and tries `SKILL.md` first. Accept both in the library (recommended, as the reference does), with `SKILL.md` preferred? The Host keeps writing `SKILL.md` and reads only that name (`SkillStore.cs:53`).
-- **O-L8 Concurrent modification.** Require the package directory to be unchanged while it is read (recommended, as the default), or add a safe-open check that confirms the opened file is the one the path check examined (platform-specific; its .NET mechanisms are to verify).
+- **O-L8 Concurrent modification.** The default (a) does not protect against a process that changes the package while it is read; it detects some changes, and a change made in the gap between two checks goes unnoticed. That is an acceptable threat model only if callers read packages that cannot be written during the read. For a general-purpose library that reads downloaded packages, the external review and I prefer (b), the safe open, unless its .NET mechanisms fail verification. The owner decides.
 
 ## Verification still to do
 

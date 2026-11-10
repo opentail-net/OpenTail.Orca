@@ -26,7 +26,7 @@ A skill's instructions never grant authority. Policy and tools decide what the a
 
 | # | Step | State | Where |
 |---|---|---|---|
-| 1 | Merge both branches | **Done.** Host PR #2 merged into `main` (`6779f6b`). The Workbench's packaging branch was already merged into its `main` (PR #1, `ce65cb3`). | Host `main`; Workbench `main` |
+| 1 | Merge both branches | **Done.** Host PR #2 merged `standard-skill-files` into `main` (`6779f6b`), up to `6f1a59b`; `4b8a8b7` is not in `main`. The Workbench's packaging branch was already merged into its `main` (PR #1, `ce65cb3`). | Host `main`; Workbench `main` |
 | 1a | Make the Workbench restore on `main` | **Done** on branch `progressive-disclosure`: YamlDotNet pinned to 17.1.0, as the Host needs. Its test suite passes (57 tests, with steps 2 and 4). | Workbench `Directory.Packages.props` |
 | 2 | Progressive disclosure in the Workbench | **Built 2026-11-10; committed (`b762d50`) and pushed.** A `catalog` delivery: names and standard descriptions in the prompt; `activate_skill` loads a skill's instructions, and each call is recorded. `native` stays as the upper bound and the default. | Workbench `AgentRunner.cs`, branch `progressive-disclosure` |
 | 2a | Activation evaluation in the Workbench | **Planned, not started.** Activation expectations for the catalog and tools deliveries, scored and compared like actions (see the step 2a detail). | Workbench `Checks/`, `Runs/Comparison.cs`, the scenario format |
@@ -130,13 +130,14 @@ A second permission system inside skills (policy already controls tools and appr
 - **D1–D6:** the resource decisions in [skill-resources.md](skill-resources.md).
 - **Real-model runs:** which model or models, what budget, and whether an API key is available for the Workbench.
 - **Host work on `standard-skill-files`:** committed (`4b8a8b7`) and pushed. It is not in `main`; merging it needs your go-ahead.
-- **Plan decisions:** each plan lists its own: O-S1 to O-S6, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L7; D1 to D6 in the resources design; and the activation question in step 2a.
+- **`metadata.version` on new standard submissions:** the design says it is optional, "if present, must equal the version" (`standard-skill-files.md:156`). A review asks for it to be required, with a test for its absence. Owner decides; the code and tests follow the decision.
+- **Plan decisions:** each plan lists its own: O-S1 to O-S6, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L8; D1 to D6 in the resources design; and the activation question in step 2a.
 - **Default delivery:** when it switches to `Catalog` (see step 2).
 - **Workbench work on `progressive-disclosure`:** steps 1a, 2 and 4 are committed (`b762d50`) and pushed. Merging into `main` needs your go-ahead.
 
 ## Verification
 
-Repository state: Host `skills-plan` at `14b8f0c` (pushed); Host `standard-skill-files` at `4b8a8b7` (pushed, not in `main`); Host `main` at `6779f6b`; Workbench `progressive-disclosure` at `b762d50` (pushed); Workbench `main` at `ce65cb3`. The plans are on `skills-plan`, not `main`.
+Repository state: Host `skills-plan` at `6b1a9f8` (pushed; eight commits ahead of `main`); Host `standard-skill-files` at `4b8a8b7` (pushed, not in `main`); Host `main` at `6779f6b`; Workbench `progressive-disclosure` at `b762d50` (pushed); Workbench `main` at `ce65cb3`. The plans are on `skills-plan`, not `main`.
 
 - Host: `OpenTail.Host.Tests` passes at `4b8a8b7` (1072 tests, none failed or skipped), run on 2026-11-10 before that commit. `main` is at `6779f6b`.
 - Workbench: `OpenTail.Workbench.Tests` passes on `progressive-disclosure`: 57 tests (51 before steps 2 and 4; six added). The whole solution builds with no warnings or errors.
