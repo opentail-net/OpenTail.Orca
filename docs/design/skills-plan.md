@@ -93,8 +93,8 @@ From the second review. A gate says what must be decided or written before a pie
 | Work | Gate | Status |
 |---|---|---|
 | v1 golden tests (hashing) | none | can start; needs no decision |
-| Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; O-S2, O-S4 and O-S5 to be confirmed |
-| v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written; decisions open |
+| Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; O-S2, O-S4, O-S5 and O-S6 (how damage is repaired once publishes refuse it) to be confirmed |
+| v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written (count and tag terminators added in review); decisions open, and the v2 field list must be final before the first v2 identity is written (design item 4) |
 | Outcome attribution, option A | O-A2 (window by review time, and the flag name) and O-A3 (whose decisions count) | recommendations written; decisions open |
 | Library scaffold | O-L1 (licence, repository, name), O-L6 (target framework, checked against Stingray's actual target) and O-L4 (the Host keeps the store) | recommendations written; decisions open |
 | Resource storage and serving | D4 (show the content) and the exact-bytes digest (`skill-resources.md`) | D4 changed to show the content; owner to confirm |
@@ -102,7 +102,7 @@ From the second review. A gate says what must be decided or written before a pie
 
 ## Deferred
 
-- Preserving the standard frontmatter's `license` and `compatibility` in the store. Needs a stored-format decision, and it is additive, so it can follow step 3.
+- Preserving the standard frontmatter's `license`, `compatibility`, `metadata` and `allowed-tools` in the store (O-L3 and O-H2 in the plans). Needs the stored-format decision; it is additive, so it can follow step 3.
 - `skills.find` returning the standard description, and near-miss tests for it.
 - Attributing outcomes to a task instead of to a session. Until then, `SkillOutcomes` is an indication to investigate, never a reason to roll back automatically.
 - Switching the default delivery to `Catalog` (see step 2).
@@ -116,7 +116,7 @@ A second permission system inside skills (policy already controls tools and appr
 - **D1–D6:** the resource decisions in [skill-resources.md](skill-resources.md).
 - **Real-model runs:** which model or models, what budget, and whether an API key is available for the Workbench.
 - **Host work on `standard-skill-files`:** committed (`4b8a8b7`) and pushed. It is not in `main`; merging it needs your go-ahead.
-- **Plan decisions:** each plan lists its own: O-S1 to O-S5, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L7; D1 to D6 in the resources design; and the activation question in step 2a.
+- **Plan decisions:** each plan lists its own: O-S1 to O-S6, O-H1 to O-H6, O-A1 to O-A3, O-L1 to O-L7; D1 to D6 in the resources design; and the activation question in step 2a.
 - **Default delivery:** when it switches to `Catalog` (see step 2).
 - **Workbench work on `progressive-disclosure`:** steps 1a, 2 and 4 are committed (`b762d50`) and pushed. Merging into `main` needs your go-ahead.
 

@@ -156,7 +156,7 @@ Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds tha
 
 ## Risks
 
-- A resource is a second place where an instruction can hide. Mitigation: resources are declared and hashed, reviewed by their hash in the change request, and never executed.
+- A resource is a second place where an instruction can hide. Mitigation: resources are declared and hashed, reviewed by their content in the change request (D4), and never executed.
 - The arguments of a publish get large. Mitigation: the 256 KiB cap now; a later upload path if needed (D5).
 - Reviewers may not read resources. Mitigation: the change request shows the content of each new or changed resource (D4); a test checks that the bytes shown are the bytes published.
 - Existing reports bind the old hash. Mitigation: no change to the hash of a version without resources.

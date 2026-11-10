@@ -3,8 +3,8 @@
 **Status:** planned 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
 **System:** a new library, `OpenTail.AgentSkills` (name and repository for the owner, O-L1). It reads, validates and packages skill directories, and preserves every file in them. It does not hold a store or govern anything: the Host keeps its version store, labels, lock and approvals (O-L4).
 **Not in this plan:** approval, audit, labels moving through approval, and the MCP tools (these stay in the Host); the workbench's evaluation (stays in the workbench); script execution (excluded); a permissions model (excluded).
-**Code basis:** `opentail-host` working tree: `OpenTail.Modules.Skills/Standard/StandardSkill.cs`, `StandardPublish.cs` (both as committed, unchanged since 6f1a59b and in `main` 6779f6b), `SkillStore.cs` (uncommitted `Parse` changes), `SkillText.cs`; `opentail-workbench`: `Formats/NativePackage.cs`, `Formats/Skill.cs`, `Agent/AgentRunner.cs`.
-**Scope note (rule 4):** the library is one system. Two of its steps change other systems: step 3 changes the Host's stored format and the identity (store and hashing plans), and O-L5 moves identity code those plans change. O-L4 (the Host keeps its store) moves no store code. **Order:** the store plan and the hashing plan's decisions land first, in the Host; step 1 here moves the code as it is then, with its tests. O-L4 (recommended: the Host keeps its store) means the store code does not move at all; O-L5 moves the identity code afterwards, unchanged in behaviour. Step 3 needs O-L3 and O-H2 together.
+**Code basis:** `opentail-host` on `standard-skill-files` at 4b8a8b7 (committed; not in `main`): `OpenTail.Modules.Skills/Standard/StandardSkill.cs`, `StandardPublish.cs` (both unchanged since 6f1a59b and the same in `main` 6779f6b), `SkillStore.cs` (its strict-type changes are in 4b8a8b7), `SkillText.cs`; `opentail-workbench`: `Formats/NativePackage.cs`, `Formats/Skill.cs`, `Agent/AgentRunner.cs`.
+**Scope note (rule 4):** the library is one system. Three of its steps change other systems: step 3 changes the Host's stored format and the identity (store and hashing plans), step 5 changes `Format`, which stays Host code, and O-L5 moves identity code those plans change. O-L4 (the Host keeps its store) moves no store code. **Order:** the store plan and the hashing plan's decisions land first, in the Host; step 1 here moves the code as it is then, with its tests. O-L4 (recommended: the Host keeps its store) means the store code does not move at all; O-L5 moves the identity code afterwards, unchanged in behaviour. Step 3 needs O-L3 and O-H2 together.
 
 ## Purpose
 
@@ -53,9 +53,11 @@ Checked on 2026-11-10 against the specification at agentskills.io/specification,
 
 **`SkillStore.Parse`** reads format 1 and ignores keys it does not read. So an additive optional key is safe for the current Host reader.
 
-**`SkillText`** (identity): see [skill-content-hashing.md](skill-content-hashing.md). This library takes it over.
+**`SkillText`** (identity): see [skill-content-hashing.md](skill-content-hashing.md). This library takes it over only if O-L5 is decided that way, and only after the hashing plan's decisions; until then it stays in the Host.
 
 ## Branch-by-branch: standard frontmatter fields
+
+The columns "Read", "Stored by the Host", "Served" and "Exported" describe the code as built today. "Library requirement" is planned.
 
 | Field | Read | Stored by the Host | Served | Exported | Library requirement |
 |---|---|---|---|---|---|
@@ -66,9 +68,9 @@ Checked on 2026-11-10 against the specification at agentskills.io/specification,
 | `metadata` | yes; only `version` is checked, against the version | no (the store keeps no frontmatter) | no | `version` only (written by `Format`) | **preserve** as an ordered string map, arbitrary keys |
 | `allowed-tools` | yes | no (warning) | no | no | **preserve** as a descriptive string; never authority |
 | body (`SKILL.md`) | yes | yes, body only | yes, as `instructions` | yes | read and write exactly |
-| `references/` | read as opaque bytes | no (the Host's serving rule, per the resources design) | no | preserved as bytes | **preserved as opaque bytes** |
-| `assets/` | read as opaque bytes | no (binary assets refused by the Host, D1) | no | preserved as bytes | **preserved as opaque bytes** |
-| `scripts/` | read as opaque bytes | no (the Host refuses it, D3) | no | preserved as bytes | **preserved as opaque bytes; never executed** |
+| `references/` | no (today the Host reads no folder of a skill) | no (planned: text resources, per the resources design) | no | no (`NativePackage.Write` writes `SKILL.md` only) | **read and preserved as opaque bytes** |
+| `assets/` | no | no (planned: text only; binary assets refused by the Host, D1) | no | no | **read and preserved as opaque bytes** |
+| `scripts/` | no | no (planned: the Host refuses it, D3) | no | no | **read and preserved as opaque bytes; never executed** |
 | other top-level keys | error or ignored, by caller | no | no | no | as the caller decides |
 
 ## Design
@@ -134,7 +136,7 @@ public sealed record SkillPackage(SkillMetadata Metadata, string Body, IReadOnly
 
 ## Gate before any code
 
-The scaffold waits for O-L1 (licence, repository, package name) and O-L6 (target framework, checked against Stingray's actual target, which this repository does not contain). The boundaries are the ones above: the library reads and preserves packages; the Host keeps the store and the governance. Step 0 below records that gate.
+The scaffold waits for O-L1 (licence, repository, package name) and O-L6 (target framework, checked against Stingray's actual target, which this repository does not contain). It also waits for O-L4 to be confirmed, as the gates table in `skills-plan.md` says: the library reads and preserves packages; the Host keeps the store and the governance. Step 0 below records that gate.
 
 ## Decisions for the owner
 
@@ -154,11 +156,11 @@ The scaffold waits for O-L1 (licence, repository, package name) and O-L6 (target
 
 ## Migration (each step ships with its tests)
 
-0. **Gate.** O-L1, O-L6 and the boundary above are decided, and the gates table in `skills-plan.md` records them. No code before this.
-1. **Extract with no behaviour change.** Move the standard parts of `Standard/` (`Parse` without `ignoreKeys`, which the Host's `StandardPublish.Prepare` applies; `ReadFrontmatter`; `SplitFrontmatter`; `Check` without the save-time rule; the diagnostics types) and their tests into the library. `Describe`, `Format`, the save-time ASCII rule (`SKILL-NAME-ASCII`, `SuggestSaveName`) and `StandardPublish` stay in the Host, calling the library (`StandardPublish.Prepare` calls `SkillStore.Parse`, a Host type). The Host and the workbench reference the library. Every existing test passes unchanged. Add the architecture test.
+0. **Gate.** O-L1, O-L6 and O-L4 (the boundary above) are decided, and the gates table in `skills-plan.md` records them. No code before this.
+1. **Extract with no behaviour change.** Move the standard parts of `Standard/` (`Parse` without `ignoreKeys`, which the Host's `StandardPublish.Prepare` applies; `ReadFrontmatter`; `SplitFrontmatter`; `Check` without the save-time rule; the diagnostics types) and their tests into the library. `Describe`, `Format`, the save-time ASCII rule (`SKILL-NAME-ASCII`, `SuggestSaveName`) and `StandardPublish` stay in the Host, calling the library (`StandardPublish.Prepare` calls `SkillStore.Parse`, a Host type). The Host and the workbench reference the library. What the Host and the workbench do does not change: values are still trimmed as today (exact values come in step 3), and the Host's tools return what they returned. The API does change in one place, so "unchanged" is not literally true of the tests: tests that call `StandardSkill.Parse` with `ignoreKeys` are retargeted at the Host's publish layer with the same assertions, and every other existing test passes as written. The count of retargeted tests is recorded in the step. Add the architecture test.
 2. **Align the name rules with the reference.** NFKC on the name before the checks, and on both sides of the directory comparison. Add the corpus and its expected outcomes. Record each remaining divergence, with its reason, in the library's README. The save-time ASCII rule stays a Host rule.
-3. **Preserve the fields.** The Host's store and the identity gain the optional keys (O-L3, O-H2); the library reads and writes them. The "not stored, so not served" warnings are removed. A round-trip test reads a file, writes it, and reads it again, and every field is equal.
-4. **Package file reads.** `ListFiles`, `ReadFile` and the safe-path rules, with their tests. The Host's `skills.read_resource` tool, its audit and its serving rules (`scripts/` and binary assets refused) come later, from the resources design, and are Host code.
+3. **Preserve the fields.** The Host's store and the identity gain the optional keys (O-L3, O-H2); the library reads and writes them. The "not stored, so not served" warnings are removed. The "Exact values" rule starts here: until this step the reader trims every value, as today. A round-trip test reads a file, writes it, and reads it again, and every field is equal.
+4. **Package file reads.** The file listing (`SkillPackage.Resources` in the sketch above; no separate `ListFiles` member is sketched, and step 1 fixes which it is), `ReadFile` and the safe-path rules, with their tests. The Host's `skills.read_resource` tool, its audit and its serving rules (`scripts/` and binary assets refused) come later, from the resources design, and are Host code.
 5. **Packaging.** `Format` writes the preserved fields, so a published skill can be exported as a standard directory without losing its metadata.
 6. **Publish as a package.** After O-L1 is decided.
 

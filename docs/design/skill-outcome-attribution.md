@@ -3,7 +3,7 @@
 **Status:** planned 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
 **System:** the Host's measurement of how people decided the actions that followed a served skill version: `OpenTail.Host/Runtime/SkillOutcomes.cs`, and its admin command in `OpenTail.Host.Admin/PolicyCli.cs` (`--skill-outcomes`).
 **Not in this plan:** the store, the hashes, the library. Also not here: `ReviewOutcomeExport` (`ReviewOutcomeExport.cs:120`) and `ShadowCases` (`:184`), which read the same `skill_served` records and list every skill served earlier in the session as context for each decision. They do not count or suggest, so the misattribution does not drive a rollback there; whether they should use the same rule is a later question.
-**Code basis:** `opentail-host` working tree on `standard-skill-files`. `SkillOutcomes.cs` is as committed; `PolicyCli.cs` has a three-line uncommitted change, and the line numbers below are the working tree's. Checked by grep on 2026-11-10: only `SkillsModule.cs:46` declares the `skill_served` audit event in the Host repositories under `C:\Git\split` (the workbench's `NativePackage.cs` names it in text only).
+**Code basis:** `opentail-host` on `standard-skill-files` at 4b8a8b7 (committed). The line numbers below are that commit's. Checked by grep on 2026-11-10: only `SkillsModule.cs:46` declares the `skill_served` audit event in the Host repositories under `C:\Git\split` (the workbench's `NativePackage.cs` names it in text only).
 
 ## Purpose
 
@@ -27,6 +27,8 @@ The measurement should say how a skill version went, and nothing it cannot suppo
 - `SkillOutcomes.Suggest(outcomes, minCases = 20, worseBy = 0.15)` returns `RollbackSuggestion(Skill, Current, Previous, Why)`. Per skill it takes the two outcomes with the latest `LastServed`. Caller: `PolicyCli.cs:486`.
 - `LastServed` today is the latest serve of that version that preceded a counted decision (`SkillOutcomes.cs:65`), not the latest serve. It decides which two versions `Suggest` compares.
 - Data read: serve tools are `host.Catalog.All` where `Descriptor.AuditResult.Event == "skill_served"`, read from the field named in `AuditResult.Field` (`served` for `skills.get`, `SkillsModule.cs:46`). Serves are queried with `Status = Succeeded` and `UpdatedSince = since` (`:45`); that window is what O-A2 replaces. Actions come from `host.Store.QueryAsync` with `SessionId` and no window (`:50`), and each record gives `CreatedAt`, `ToolName`, `ResultJson` and `Reviews`.
+- The store query (`ActionQuery`, `OpenTail.Host.Abstractions/Actions/Interfaces.cs`) filters by time only through `UpdatedSince` (`:15`); it has no filter on a review's time. So the window of O-A2 cannot be a store filter today. Proposed: query with `UpdatedSince` at the window's start and select by `ActionReview.At` in memory. That is complete only if adding a review always moves the action's update time; to verify in the store's code before step 3. If it does not, the window needs a new `ActionQuery` member, which is a contract change in `OpenTail.Host.Abstractions` and must be added to this plan first.
+- The admin command reads `--since` once, for every subcommand (`PolicyCli.cs:149`); the usage text for `--skill-outcomes` is at `:20`. The other subcommands (`--export-review-outcomes`, `--export-shadow-cases`, `--review-report`, `--usage` and others) keep `--since`. The refusal in O-A2 applies only when `--since` is given with `--skill-outcomes`.
 - A decision is the last of `Approve`, `Reject` and `RequestChanges` in an action's reviews (`SkillOutcomes.cs:54`); `Retry` is not a decision. The action's status is not read.
 - Serve tools are excluded from the decided actions (`SkillOutcomes.cs:53`).
 
@@ -49,6 +51,8 @@ The measurement should say how a skill version went, and nothing it cannot suppo
 | operator cancellation (`Cancelled`, with a `Reject` review, `PolicyCli.cs:183`) | counted as rejected | not a decision (O-A3) |
 | undo window elapsed (`system` approval, `ActionQueue.cs:597`) | counted as approved | not a decision (O-A3) |
 | decision by an AI reviewer (AI subject) | counted like a person's | counted separately (O-A3) |
+| a person's decision followed by a `system` review or an operator cancellation (for example sent back by a person, then cancelled) | the last review counts, so the cancellation counts as rejected | the last review by a person counts; the excluded review is skipped, not the whole action (O-A3) |
+| a person's decision and an AI reviewer's decision on one action | the last of them counts | the person's last decision counts in the rate; the AI decision is counted in the separate AI figure (O-A3) |
 | the serve itself | skipped | unchanged |
 | action created before a serve and decided after it | not counted | unchanged: the serve came after the action |
 | session id null | excluded | unattributed (counted in the report) |
@@ -80,7 +84,7 @@ No protocol change. The sample for each version shrinks in sessions that use sev
 
 **Option C (rejected): keep the session-level figure and label it.** A figure labelled "session-level" still drives the suggestion. The suggestion is what needs the attribution to be right.
 
-**Presentation (both options).** `SkillVersionOutcome` gains `Ambiguous` (decisions in which this version was one of several candidates), at the end of the record with a default so existing callers compile. Unattributed decisions belong to no version, so they are a report-level total, not a per-version count; `CollectAsync` gains a companion (for example a result that carries the list and the totals, or a second method), shape fixed in step 3. The admin command prints the per-version clean counts with their interval, the ambiguous count, and the totals.
+**Presentation (both options).** `SkillVersionOutcome` gains `Ambiguous` (decisions in which this version was one of several candidates), at the end of the record with a default so existing callers compile. Unattributed decisions belong to no version, so they are a report-level total, not a per-version count; `CollectAsync` gains a companion (for example a result that carries the list and the totals, or a second method), shape fixed in step 3. If O-A3 is confirmed, the record also gains a count of AI reviewer decisions (at the end, with a default), and the report-level totals include the excluded `system` reviews and operator cancellations, and the unreadable serves. The admin command prints the per-version clean counts with their interval, the ambiguous count, and the totals.
 
 **Suggestions.** `Suggest` uses clean counts only. Both versions must have at least `minCases` clean decisions. The suggestion text states the ambiguous and unattributed counts beside the clean ones.
 
@@ -88,7 +92,7 @@ No protocol change. The sample for each version shrinks in sessions that use sev
 
 - **O-A1 Option B.** Whether to ask clients for the skill context, and when. Recommended: decide after option A has run and shown how many decisions it leaves ambiguous. If most are ambiguous, option B is needed for the measurement to be useful at all.
 - **O-A2 Window.** A report about recent judgements should select decisions by when they were made, not when the action was submitted: an action submitted last month and decided today is a decision made today. Recommended: the window selects decisions by `ActionReview.At` (the review's own timestamp), serves are read without a time bound for the sessions involved, and the flag is renamed to `--decided-since`, so its meaning shows in the command line. `--since` is refused with a message naming the new flag, rather than silently changing meaning. Confirm.
-- **O-A3 Whose decisions count.** Today an operator's cancellation counts as a rejection and an elapsed undo window as an approval (A7). Recommended: count only reviews by people; leave out `system` reviews and operator cancellations (both reported as excluded, with counts); count AI reviewer decisions separately, not in the rate a rollback suggestion uses.
+- **O-A3 Whose decisions count.** Today an operator's cancellation counts as a rejection and an elapsed undo window as an approval (A7). Recommended: count only reviews by people; leave out `system` reviews and operator cancellations (both reported as excluded, with counts); count AI reviewer decisions separately, not in the rate a rollback suggestion uses. When an excluded review follows a person's decision on the same action, recommended: the person's last decision counts and the excluded review is skipped (the alternative, leaving the whole action out, loses a real judgement).
 
 ## Tests
 
@@ -102,6 +106,10 @@ No protocol change. The sample for each version shrinks in sessions that use sev
 - `Suggest_does_not_fire_on_ambiguous_decisions` (A4)
 - `The_window_selects_decisions_by_review_time_and_keeps_the_earlier_serve` (O-A2): an action created before the window and decided inside it is counted, with the serve that came before the window; `--since` is refused with a message naming `--decided-since`.
 - `An_operator_cancellation_and_an_elapsed_undo_window_are_not_counted_as_decisions` (O-A3)
+- `An_ai_reviewer_decision_is_counted_separately_and_not_in_the_suggestion_rate` (O-A3)
+- `A_persons_decision_before_an_operator_cancellation_still_counts` (O-A3)
+- `A_decided_action_in_a_session_with_no_serve_is_unattributed_and_reported`
+- `Since_is_refused_only_with_skill_outcomes_and_still_works_for_the_other_commands` (O-A2)
 - `Last_served_is_the_latest_serve_even_when_no_clean_decision_followed_it`
 - `A_failed_serve_or_an_unreadable_served_field_is_ignored`
 
@@ -126,7 +134,7 @@ Rows with no test today: everything else in both tables.
 
 - The review's example session counts neither version for `calendar.create` or `mail.send`.
 - No version receives a decision from a session in which another version or skill was served before it.
-- Every row of the branch table has a test or a stated reason it needs none.
+- Every row of both branch tables (attribution and `Suggest`) has a test or a stated reason it needs none.
 - The suggestion never fires from ambiguous decisions.
 
 ## Not built
