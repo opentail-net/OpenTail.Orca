@@ -93,8 +93,7 @@ expect:
 
 - `A_successful_catalog_load_is_an_activation_with_its_version`
 - `A_successful_tools_load_is_an_activation_with_its_version`: the same result shape through `skills.get`
-- `A_refused_catalog_load_is_an_attempt_and_not_an_activation`
-- `A_refused_tools_load_is_an_attempt_and_not_an_activation`
+- `A_refused_load_is_an_attempt_and_not_an_activation_for_catalog_and_tools` (one test, both deliveries)
 - `A_repeated_load_is_one_activation_for_the_expectation_and_both_are_recorded`
 - `A_load_at_two_versions_is_one_activation_of_the_id_with_both_versions_recorded`
 - `Mustnotactivate_fails_on_a_successful_load_of_the_forbidden_skill`
