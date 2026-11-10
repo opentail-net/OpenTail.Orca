@@ -114,7 +114,7 @@ Resources are part of a version's identity only under the v2 algorithm of the ha
 
 ### Publish
 
-The publish arguments gain an optional `resources` object: `{ "references/rates.md": "<text>" }`. The preview puts into the change request, for each new or changed resource, its path, its size and its content: the full text of a new file, and a readable diff against the stored version of a changed one. The report check is unchanged. The preview and the execution build the resource list from the same arguments, and a test checks that the bytes shown are the bytes published. Approval writes the files with the version. A republish of an existing version with different resources is refused, like different instructions.
+The publish arguments gain an optional `resources` object: `{ "references/rates.md": "<text>" }`. The preview puts into the change request, for each new or changed resource, its path, its size and its content: the full text of a new file, and a readable diff against the stored version of a changed one. The report check is unchanged. The preview and the execution build the resource list from the same arguments, and a test checks that the bytes shown are the bytes published. Removed resources are listed too, as `references/old-payment-rules.md — REMOVED`, with the removed content shown as removed lines, so a reference that disappears from a version cannot do so unnoticed. Approval writes the files with the version. A republish of an existing version with different resources is refused, like different instructions.
 
 Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds that. A larger resource is a later design (D5).
 

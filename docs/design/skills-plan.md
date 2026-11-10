@@ -48,6 +48,8 @@ The second review's point: an agent that activates an irrelevant skill, reads it
 
 Planned: `activates: [ids]` (the listed skills must be activated during the run) and `mustNotActivate: [ids]` in a scenario's `expect`, checked the way actions are, given their own rate, and included in batch comparisons per scenario and delivery. Near-miss scenarios gain `mustNotActivate` for their skill. Catalog activation is an `activate_skill` call; tools activation is a `skills.get` call. Native and none have no activation step, so their result is not applicable, not a pass.
 
+**Success.** An activation counts only when the load succeeded and returned the intended skill. A catalog activation is an `activate_skill` call whose result names the skill's id and version (`served`). A tools activation is a `skills.get` call that returned the intended id and version without an error. A failed or refused call is an attempt, not an activation. The record keeps the skill and version loaded. Activation results are reported separately from action pass rates, as recommended.
+
 Open question, for the owner: whether activation expectations count toward a scenario's pass, or are reported beside it. Recommended: beside it at first, so existing pass rates do not move.
 
 ### Step 3 detail
@@ -94,9 +96,9 @@ From the second review. A gate says what must be decided or written before a pie
 |---|---|---|
 | v1 golden tests (hashing) | none | can start; needs no decision |
 | Store corruption and failure tests | the publish guarantee (`skill-store-integrity.md`, "The publish guarantee") | the guarantee is written; O-S2, O-S4, O-S5 and O-S6 (how damage is repaired once publishes refuse it) to be confirmed |
-| v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written (count and tag terminators added in review); decisions open, and the v2 field list must be final before the first v2 identity is written (design item 4) |
+| v2 hashing | the byte-level algorithm (`skill-content-hashing.md`, design item 3) and O-H1 to O-H6 | the algorithm is written (terminators, presence markers and sorted metadata added in review); decisions open, and the store must keep an absent owner apart from an empty one first, and the v2 field list must be final before the first v2 identity is written (design item 4) |
 | Outcome attribution, option A | O-A2 (window by review time, and the flag name) and O-A3 (whose decisions count) | recommendations written; decisions open |
-| Library scaffold | O-L1 (licence, repository, name), O-L6 (target framework, checked against Stingray's actual target) and O-L4 (the Host keeps the store) | recommendations written; decisions open |
+| Library scaffold | O-L1 (licence: a release gate, since the copyright holder must be able to relicense any copied Host code), O-L6 (net10.0 recommended; the owner confirms it against Stingray), O-L4 (the Host keeps the store) and O-L8 (concurrent modification) | recommendations written; decisions open |
 | Resource storage and serving | D4 (show the content) and the exact-bytes digest (`skill-resources.md`) | D4 changed to show the content; owner to confirm |
 | Activation evaluation (step 2a) | the question of whether activation counts toward a pass | open; recommendation written |
 
@@ -121,6 +123,8 @@ A second permission system inside skills (policy already controls tools and appr
 - **Workbench work on `progressive-disclosure`:** steps 1a, 2 and 4 are committed (`b762d50`) and pushed. Merging into `main` needs your go-ahead.
 
 ## Verification
+
+Repository state: Host `skills-plan` at `14b8f0c` (pushed); Host `standard-skill-files` at `4b8a8b7` (pushed, not in `main`); Host `main` at `6779f6b`; Workbench `progressive-disclosure` at `b762d50` (pushed); Workbench `main` at `ce65cb3`. The plans are on `skills-plan`, not `main`.
 
 - Host: `OpenTail.Host.Tests` passes at `4b8a8b7` (1072 tests, none failed or skipped), run on 2026-11-10 before that commit. `main` is at `6779f6b`.
 - Workbench: `OpenTail.Workbench.Tests` passes on `progressive-disclosure`: 57 tests (51 before steps 2 and 4; six added). The whole solution builds with no warnings or errors.

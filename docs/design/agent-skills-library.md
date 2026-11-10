@@ -81,7 +81,7 @@ The columns "Read", "Stored by the Host", "Served" and "Exported" describe the c
 OpenTail.AgentSkills/                  net10.0 (O-L6); no reference to Host or Microsoft.Extensions.AI
   Frontmatter/                         SKILL.md reader and writer; diagnostics
   Directory/                           SkillDirectory: open, list, safe reads
-  Model/                               SkillPackage, SkillMetadata, SkillResource, SkillDiagnostic
+  Model/                               SkillPackage, SkillMetadata, PackageEntry, SkillDiagnostic
   Validation/                          the standard's rules (reference-compatible)
   Identity/                            content identity (see the hashing plan), if O-L5 moves it here
 OpenTail.AgentSkills.Tests/
@@ -94,20 +94,25 @@ OpenTail.AgentSkills.Tests/
 public static class SkillFile
 {
     public static SkillFrontmatter Parse(string text);   // diagnostics, never throws for content; unknown keys are errors, returned as data (ignoreKeys is a Host option)
-    public static string Write(SkillMetadata metadata, string body);                                    // round-trips every preserved field
+    public static string Write(SkillMetadata metadata, string body);                                    // round-trips every preserved field, including ExtensionFields
 }
 
 public sealed class SkillDirectory
 {
     public static SkillDirectory Open(string path, SkillOpenOptions? options = null);   // refuses reparse points on any component
-    public SkillPackage Load();                                                       // metadata, body, resource listing, diagnostics
-    public ReadOnlyMemory<byte> ReadFile(string relativePath, long maxBytes = long.MaxValue);   // any file or folder in the package, as opaque bytes; see below
+    public SkillPackage Load();                                                       // metadata, body, diagnostics
+    public ReadOnlyMemory<byte> ReadFile(string relativePath, long maxBytes);   // a file of any name in the package, as opaque bytes; maxBytes is required; see below
+    public IReadOnlyList<PackageEntry> ListFiles();   // every entry of any name, including scripts/ and other folders; never filtered by folder
+    public Stream OpenFile(string relativePath, long maxBytes);   // streaming, with the same path and reparse rules; never reads past maxBytes
+    public IReadOnlyList<PackageEntry> ExportTo(string destination, bool overwrite);   // copies every entry as opaque bytes; refuses to overwrite unless overwrite is true; executes nothing
 }
 
 public sealed record SkillMetadata(string Name, string Description, string? License, string? Compatibility,
-    IReadOnlyDictionary<string, string> Metadata, string? AllowedTools);
-public sealed record SkillPackage(SkillMetadata Metadata, string Body, IReadOnlyList<SkillResource> Resources,
-    IReadOnlyList<SkillDiagnostic> Diagnostics);
+    IReadOnlyDictionary<string, string> Metadata, string? AllowedTools,
+    IReadOnlyDictionary<string, string> ExtensionFields);   // unknown top-level keys and their scalar values, as read; empty for a standard file
+public sealed record SkillPackage(SkillMetadata Metadata, string Body, IReadOnlyList<SkillDiagnostic> Diagnostics);   // no resource list: ListFiles is the one listing
+public sealed record PackageEntry(string RelativePath, PackageEntryKind Kind, long Bytes);   // every file and folder under the root, sorted by RelativePath
+public enum PackageEntryKind { File, Directory }
 ```
 
 `Metadata` is a dictionary the caller can read in full. `AllowedTools` is a string the caller may show, never a permission.
@@ -124,6 +129,8 @@ public sealed record SkillPackage(SkillMetadata Metadata, string Body, IReadOnly
 - Names that differ only in case must not both resolve to the same file on a case-insensitive file system. To test on Windows.
 - The library does not audit. The Host audits its own tool that calls it (`skill_resource_served`, per the resources design).
 
+**Concurrent modification.** The path rules check a path before it is opened, so another process could replace a component between the check and the open (a time-of-check to time-of-use race). Two options, decided as O-L8. The default is (a): the package directory is treated as unchanged while it is read. `Open` states that precondition, and `ListFiles`, `ReadFile`, `OpenFile` and `ExportTo` give a diagnostic when they detect a change (a size or write time that differs from the listing). Detection is not prevention, so this is a stated precondition, not a guarantee. Option (b) is a safe open: after opening, confirm that the opened file is the one the path check examined, on Windows by the volume serial number and file index of the handle, on Unix by device and inode. It is platform-specific and adds code, and its .NET mechanisms are to verify before it is chosen.
+
 **Store (O-L4).** Recommended, changed after the external review: the Host keeps its store. Labels, immutable version folders, `.publish.lock` and the label rules are governance, not part of the standard, so they stay in the Host. The library reads and preserves standard directories and packages, and does not hold a store. The workbench uses the library to read and write packages. It keeps using the Host's store when it tests the Host's serving behaviour; its `ScenarioRunner` publishes to a temporary Host store today (`ScenarioRunner.cs:144`), and that stays.
 
 **Preserved fields (O-L3).** `skill.json` gains optional keys: `license`, `compatibility`, `metadata` (a string map) and `allowedTools` (a string). The Host reader ignores unknown keys today (`SkillStore.Parse` reads named keys only), so an old reader reads a new file, but the new keys are dropped. Recommended: remain on format 1, documenting the additive keys. The format number changes only for incompatible changes. Two effects to state with the change: the new keys are outside `ContentHash` until O-H2 adds them, so a report binding does not cover them; and they are inside the republish comparison (today the normalised `skill.json` text; see O-H6), so changing one at the same version is refused.
@@ -136,17 +143,18 @@ public sealed record SkillPackage(SkillMetadata Metadata, string Body, IReadOnly
 
 ## Gate before any code
 
-The scaffold waits for O-L1 (licence, repository, package name) and O-L6 (target framework, checked against Stingray's actual target, which this repository does not contain). It also waits for O-L4 to be confirmed, as the gates table in `skills-plan.md` says: the library reads and preserves packages; the Host keeps the store and the governance. Step 0 below records that gate.
+The scaffold waits for O-L1 (licence, repository, package name), which is a release gate and not only a configuration choice (see O-L1), and for O-L6, which has a recommendation now (net10.0; see O-L6, to be confirmed by the owner against Stingray's `Directory.Build.props`). It also waits for O-L4 to be confirmed, as the gates table in `skills-plan.md` says: the library reads and preserves packages; the Host keeps the store and the governance. Step 0 below records that gate.
 
 ## Decisions for the owner
 
-- **O-L1 Licence, repository and package name.** Host and workbench are PolyForm Strict, which permits noncommercial use only. A library other .NET developers, or Stingray, would use commercially generally needs a permissive licence. This is a business decision; this plan does not make it. Until it is made, the library cannot be published.
+- **O-L1 Licence, repository and package name.** The Host and the workbench are PolyForm Strict, which permits noncommercial use only. The external review reports that Stingray declares MIT. A new repository does not change the licence of code copied from the Host. Before any Host implementation is extracted into a permissively licensed package, its copyright holder must be able to relicense it; otherwise the library needs an independently written implementation, which this plan does not describe. This is a release gate. Until it is decided, the library cannot be published, and the extraction must not copy Host code into it.
 - **O-L2 Unicode names.** Recommended: the library accepts them; Host identifiers stay ASCII for now.
 - **O-L3 Additive fields.** Recommended: keep format 1 and document the keys.
 - **O-L4 Store owner.** Recommended, changed after the external review: the Host. The store is governance (labels, immutable version folders, the lock, the label rules), not part of the standard; the library reads and preserves packages and holds no store.
 - **O-L5 Identity owner.** Recommended: the library, after the hashing plan's decisions (O-H1 to O-H6).
-- **O-L6 Target framework.** net10.0 is assumed because the Host (`OpenTail.Modules.Skills.csproj:3`) and the workbench (`Directory.Build.props:3`) use it. Stingray's target is not known from this repository; it decides whether an older target is needed.
+- **O-L6 Target framework.** Recommended: net10.0. The Host (`OpenTail.Modules.Skills.csproj:3`) and the workbench (`Directory.Build.props:3`) use it, and the external review reports that Stingray's `Directory.Build.props` targets net10.0 too. That report is not checked from this repository; the owner confirms it before the gate closes. Choose an older target only if a consumer needs one.
 - **O-L7 `SKILL.md` name.** The reference accepts exactly `SKILL.md` and `skill.md`, and tries `SKILL.md` first. Accept both in the library (recommended, as the reference does), with `SKILL.md` preferred? The Host keeps writing `SKILL.md` and reads only that name (`SkillStore.cs:53`).
+- **O-L8 Concurrent modification.** Require the package directory to be unchanged while it is read (recommended, as the default), or add a safe-open check that confirms the opened file is the one the path check examined (platform-specific; its .NET mechanisms are to verify).
 
 ## Verification still to do
 
@@ -156,11 +164,11 @@ The scaffold waits for O-L1 (licence, repository, package name) and O-L6 (target
 
 ## Migration (each step ships with its tests)
 
-0. **Gate.** O-L1, O-L6 and O-L4 (the boundary above) are decided, and the gates table in `skills-plan.md` records them. No code before this.
+0. **Gate.** O-L1 (a release gate) and O-L4 (the boundary above) are decided, O-L6 is confirmed, and O-L8 is chosen, and the gates table in `skills-plan.md` records them. No code before this.
 1. **Extract with no behaviour change.** Move the standard parts of `Standard/` (`Parse` without `ignoreKeys`, which the Host's `StandardPublish.Prepare` applies; `ReadFrontmatter`; `SplitFrontmatter`; `Check` without the save-time rule; the diagnostics types) and their tests into the library. `Describe`, `Format`, the save-time ASCII rule (`SKILL-NAME-ASCII`, `SuggestSaveName`) and `StandardPublish` stay in the Host, calling the library (`StandardPublish.Prepare` calls `SkillStore.Parse`, a Host type). The Host and the workbench reference the library. What the Host and the workbench do does not change: values are still trimmed as today (exact values come in step 3), and the Host's tools return what they returned. The API does change in one place, so "unchanged" is not literally true of the tests: tests that call `StandardSkill.Parse` with `ignoreKeys` are retargeted at the Host's publish layer with the same assertions, and every other existing test passes as written. The count of retargeted tests is recorded in the step. Add the architecture test.
 2. **Align the name rules with the reference.** NFKC on the name before the checks, and on both sides of the directory comparison. Add the corpus and its expected outcomes. Record each remaining divergence, with its reason, in the library's README. The save-time ASCII rule stays a Host rule.
 3. **Preserve the fields.** The Host's store and the identity gain the optional keys (O-L3, O-H2); the library reads and writes them. The "not stored, so not served" warnings are removed. The "Exact values" rule starts here: until this step the reader trims every value, as today. A round-trip test reads a file, writes it, and reads it again, and every field is equal.
-4. **Package file reads.** The file listing (`SkillPackage.Resources` in the sketch above; no separate `ListFiles` member is sketched, and step 1 fixes which it is), `ReadFile` and the safe-path rules, with their tests. The Host's `skills.read_resource` tool, its audit and its serving rules (`scripts/` and binary assets refused) come later, from the resources design, and are Host code.
+4. **Package file reads.** `ListFiles`, `ReadFile`, `OpenFile`, `ExportTo`, the safe-path rules and the concurrent-modification rule, with their tests. The Host's `skills.read_resource` tool, its audit and its serving rules (`scripts/` and binary assets refused) come later, from the resources design, and are Host code.
 5. **Packaging.** `Format` writes the preserved fields, so a published skill can be exported as a standard directory without losing its metadata.
 6. **Publish as a package.** After O-L1 is decided.
 
@@ -171,6 +179,10 @@ The scaffold waits for O-L1 (licence, repository, package name) and O-L6 (target
 - **Package file reads.** `../x`, an absolute path, `C:\x`, `references/../../x`, a junction or symlink on any path component, `scripts/x` (read as opaque bytes, and unchanged on a round trip; the Host's refusal to serve it is tested in the Host), a file over a caller's cap, invalid UTF-8 (returned as bytes), and names that differ only in case.
 - **`SKILL.md` names.** `SKILL.md` is preferred; `skill.md` is read when it is the only file (O-L7). The Host's store reads only `SKILL.md`.
 - **Unknown keys.** Each unknown top-level key is an error, with its key and value returned. `ignoreKeys` is not part of the library's API.
+- **Extension fields.** An unknown key's name and value are in `ExtensionFields`, and `Write` puts them back unchanged.
+- **Listing and export.** `ListFiles` returns every file and folder, of any name, including `scripts/` and folders no other rule names. `ExportTo` copies every entry byte for byte and refuses to overwrite unless asked. A package with a file in an unnamed folder keeps that file through a round trip.
+- **Bounded reads.** `ReadFile` and `OpenFile` refuse a file over `maxBytes`, and `OpenFile` never reads past it.
+- **Concurrent change.** A file changed between listing and reading gives a diagnostic (option a), tested by changing a file during a read.
 - **Trimming divergence.** Storage keeps the parsed value, and the reference's checks on a trimmed name or description run on a copy. Both behaviours are tested.
 - **Diagnostics, not exceptions.** `Parse`, `Check` and `Load` return diagnostics for every bad input in the corpus. One test per diagnostic code.
 - **Architecture.** The library references only YamlDotNet and the framework.
