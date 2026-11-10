@@ -410,6 +410,122 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.Null(store.LabelledVersion("invoice-check", "production"));
     }
 
+    private static string MetaFor(string id, string version) => $$"""
+        { "format": 1, "id": "{{id}}", "version": "{{version}}",
+          "summary": "Reply to a routine customer enquiry, following the customer-service policies.",
+          "appliesTo": [ "a customer asks about an order's status" ],
+          "tools": [ "mail.send" ], "policies": [], "owner": "customer-service" }
+        """;
+
+    /// <summary>Publishes a version straight into the store, without approval, for a test that needs a second skill in the store.</summary>
+    private void PublishDirect(string id, string version) =>
+        new SkillStore(Path.Combine(_root, "store")).Publish(id, version, "production", MetaFor(id, version), "Reply briefly and politely.", "none");
+
+    private void WriteLabels(string json)
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "store"));
+        File.WriteAllText(Path.Combine(_root, "store", "labels.json"), json);
+    }
+
+    [Fact]
+    public async Task A_malformed_labels_file_is_named_by_find_and_nothing_is_served_from_it()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("this is not json");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("labels.json", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+
+        // skills.get refuses by name rather than guessing.
+        var ex = Assert.Throws<ArgumentException>(() => new SkillStore(Path.Combine(_root, "store")).LabelledVersion("reply-draft", "production"));
+        Assert.Contains("labels.json", ex.Message);
+    }
+
+    [Fact]
+    public async Task A_null_label_names_that_skill_and_serves_the_others()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": null }, "reply-draft": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        var skills = found["result"]!["skills"]!.AsArray();
+        Assert.Single(skills);
+        Assert.Equal("reply-draft", skills[0]!["id"]!.ToString());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check", warning);
+        Assert.Contains("production", warning);
+    }
+
+    [Fact]
+    public async Task A_skill_entry_that_is_not_an_object_is_named()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": 5, "reply-draft": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        var skills = found["result"]!["skills"]!.AsArray();
+        Assert.Single(skills);
+        Assert.Equal("reply-draft", skills[0]!["id"]!.ToString());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check", warning);
+        Assert.Contains("not an object", warning);
+    }
+
+    [Fact]
+    public async Task A_numeric_label_value_is_refused_and_named()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "reply-draft": { "production": 1 } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("reply-draft", warning);
+        Assert.Contains("not a version text", warning);
+    }
+
+    [Fact]
+    public async Task A_label_that_is_not_a_version_number_is_named_as_such_by_find_and_get()
+    {
+        PublishDirect("reply-draft", "1");
+        WriteLabels("""{ "format": 1, "skills": { "reply-draft": { "production": "latest" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find");
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        Assert.Contains("not a version number", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+
+        var ex = Assert.Throws<ArgumentException>(() => new SkillStore(Path.Combine(_root, "store")).LabelledVersion("reply-draft", "production"));
+        Assert.Contains("not a version number", ex.Message);
+    }
+
+    [Fact]
+    public async Task A_version_whose_files_cannot_be_read_does_not_hide_the_others()
+    {
+        PublishDirect("invoice-check", "1");
+        PublishDirect("reply-draft", "1");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        // Another process holds one version's skill.json open exclusively: its files cannot be read, and the other skill must still be listed.
+        using var locked = new FileStream(Path.Combine(_root, "store", "invoice-check", "1", "skill.json"), FileMode.Open, FileAccess.Read, FileShare.None);
+
+        var found = await pair.CallAsync("skills.find");
+        var skills = found["result"]!["skills"]!.AsArray();
+        Assert.Single(skills);
+        Assert.Equal("reply-draft", skills[0]!["id"]!.ToString());
+        Assert.Contains("invoice-check@1", Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString());
+    }
+
     [Theory]
     [InlineData("not json at all")]
     [InlineData("""["an", "array"]""")]

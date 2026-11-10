@@ -31,19 +31,74 @@ public sealed partial class SkillStore(string root)
     public static bool IsId(string id) => IdPattern().IsMatch(id);
     public static bool IsVersion(string v) => VersionPattern().IsMatch(v);
 
-    /// <summary>label → version, per skill id.</summary>
-    public IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> ReadLabels()
+    /// <summary>A problem found while reading labels.json: the skill and label it concerns (both null for the whole file), and a message naming them.</summary>
+    public sealed record LabelProblem(string? Skill, string? Label, string Message);
+
+    /// <summary>What a read of labels.json found: the valid labels by skill id, and a problem for each damaged part.</summary>
+    public sealed record LabelsRead(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string>> Labels, IReadOnlyList<LabelProblem> Problems);
+
+    /// <summary>Reads labels.json without throwing for its content. Each damage becomes a problem that names the file, the skill or the label, and
+    /// the valid labels are kept. A file that is not JSON, whose root or <c>skills</c> is not an object, or that cannot be read, gives no labels.</summary>
+    public LabelsRead ReadLabelsChecked()
     {
+        var empty = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        LabelsRead WholeFile(string message) => new(empty, [new LabelProblem(null, null, message)]);
         var path = Path.Combine(Root, "labels.json");
-        if (!File.Exists(path)) return new Dictionary<string, IReadOnlyDictionary<string, string>>();
-        var node = JsonNode.Parse(File.ReadAllText(path))?["skills"] as JsonObject ?? [];
-        return node.ToDictionary(kv => kv.Key,
-            kv => (IReadOnlyDictionary<string, string>)(kv.Value as JsonObject ?? []).ToDictionary(l => l.Key, l => l.Value!.ToString()),
-            StringComparer.Ordinal);
+        if (!File.Exists(path)) return new LabelsRead(empty, []);
+        JsonNode? node;
+        try { node = JsonNode.Parse(File.ReadAllText(path)); }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        {
+            return WholeFile($"labels.json cannot be read, so no label is served from it: {ex.Message}");
+        }
+        if (node is not JsonObject root) return WholeFile("labels.json is not a JSON object, so no label is served from it.");
+        if (!root.TryGetPropertyValue("skills", out var skills)) return new LabelsRead(empty, []);
+        if (skills is not JsonObject skillsObject) return WholeFile("labels.json's 'skills' is not an object, so no label is served from it.");
+
+        var labels = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal);
+        var problems = new List<LabelProblem>();
+        foreach (var (id, entry) in skillsObject)
+        {
+            if (!IsId(id))
+            {
+                problems.Add(new LabelProblem(id, null, $"labels.json names '{id}', which is not a skill id; it is not served."));
+                continue;
+            }
+            if (entry is not JsonObject forSkill)
+            {
+                problems.Add(new LabelProblem(id, null, $"labels.json's entry for {id} is not an object; {id} is not served."));
+                continue;
+            }
+            var valid = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var (label, value) in forSkill)
+            {
+                if (value is not JsonValue v || v.GetValueKind() != JsonValueKind.String)
+                {
+                    problems.Add(new LabelProblem(id, label, $"labels.json's '{label}' label for {id} is {(value is null ? "null" : "not a version text")}; it is not served."));
+                    continue;
+                }
+                var version = v.GetValue<string>();
+                if (!IsVersion(version))
+                {
+                    problems.Add(new LabelProblem(id, label, $"labels.json's '{label}' label for {id} is '{version}', not a version number; it is not served."));
+                    continue;
+                }
+                valid[label] = version;
+            }
+            if (valid.Count > 0) labels[id] = valid;
+        }
+        return new LabelsRead(labels, problems);
     }
 
-    public string? LabelledVersion(string id, string label) =>
-        ReadLabels().TryGetValue(id, out var l) && l.TryGetValue(label, out var v) ? v : null;
+    /// <summary>The version a label points at, or null. Refused with an <see cref="ArgumentException"/> that names the damage when labels.json,
+    /// or this skill's entry, is damaged: a read tool names the problem rather than guessing. Other skills' damage does not block it.</summary>
+    public string? LabelledVersion(string id, string label)
+    {
+        var read = ReadLabelsChecked();
+        if (read.Problems.FirstOrDefault(p => p.Skill is null || p.Skill == id) is { } problem)
+            throw new ArgumentException(problem.Message);
+        return read.Labels.TryGetValue(id, out var l) && l.TryGetValue(label, out var v) ? v : null;
+    }
 
     public SkillVersion? Get(string id, string version)
     {
@@ -51,7 +106,10 @@ public sealed partial class SkillStore(string root)
         var dir = Path.Combine(Root, id, version);
         var meta = Path.Combine(dir, "skill.json");
         var md = Path.Combine(dir, "SKILL.md");
-        return File.Exists(meta) && File.Exists(md) ? Parse(File.ReadAllText(meta), File.ReadAllText(md), id, version) : null;
+        if (!File.Exists(meta) || !File.Exists(md)) return null;
+        // A file that is locked or cannot be read is refused by name, as an ArgumentException, like a damaged file.
+        try { return Parse(File.ReadAllText(meta), File.ReadAllText(md), id, version); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException(ex.Message, ex); }
     }
 
     /// <summary>Checks a version's files: the metadata must parse and name this id and version. Throws ArgumentException.</summary>

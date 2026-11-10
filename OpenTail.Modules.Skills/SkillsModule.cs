@@ -59,7 +59,10 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
             .Where(w => w.Length > 2).ToList();
         var found = new List<(SkillVersion Skill, int Score)>();
         var warnings = new List<string>();
-        foreach (var (id, labels) in _store.ReadLabels())
+        // Each damaged part of labels.json is a warning; the valid labels are still listed.
+        var read = _store.ReadLabelsChecked();
+        warnings.AddRange(read.Problems.Select(p => p.Message));
+        foreach (var (id, labels) in read.Labels)
         {
             if (!labels.TryGetValue(options.Label, out var version)) continue;
             SkillVersion? s;
