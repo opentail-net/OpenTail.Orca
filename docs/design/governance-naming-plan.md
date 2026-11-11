@@ -204,6 +204,20 @@ Step 1, done locally on 2026-11-11 (uncommitted, branch `naming-public-names`): 
 - Audit routes on webhooks (`audit_entry`) and the admin audit API show the new names.
 - No reason codes exist yet on the approval path, so there was nothing to rename there. They arrive with the re-check (phase 2).
 
+## Phase 2: the re-check at claim (done locally, uncommitted, branch `recheck-at-claim`)
+
+- Before anything is claimed, an approved action is checked for three things: expiry (`approval_expired`), the policy hash it was
+  decided under (`policy_version_mismatch`), and the digest of the arguments that would run (`action_digest_mismatch`). A reviewer's
+  edit is checked against a digest recorded with its review (`ActionReview.EditedArgumentsHash`).
+- A refused approval moves the action to `Failed` with that reason, not retryable. It writes `execution_denied` with the reason as the
+  detail, and runs nothing.
+- A passing claim writes `approval_consumed` in the claim's own transaction. `execution_started` follows when the run starts.
+- Fail-closed: a record with no policy hash, or an edit with no recorded digest, is refused.
+- Tests: `RecheckAtClaimTests` (6). Each check was switched off in turn, and only its own test failed.
+- Behaviour to know about: an approval given after a policy change is refused. The same check refuses a reviewer's retry, and a delayed
+  action that runs after a policy change; those two paths are not tested directly. The test fixture for interrupted actions now
+  stores a real digest and the real policy hash.
+
 ## Sources
 
 - ADR-0030, action-bound approval protocol: <https://microsoft.github.io/agent-governance-toolkit/adr/0030-action-bound-approval-protocol/>
