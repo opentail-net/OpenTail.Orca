@@ -948,21 +948,17 @@ public sealed class SkillsModuleTests : IDisposable
     [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {
-        // The lock is held by another process, not by this test: a PowerShell child opens the lock file exclusively and reports that it has.
-        var shell = FindPowerShell();
-        if (shell is null)
-        {
-            Assert.Skip("PowerShell is not installed, so no second process can be started to hold the store.");
-            return;
-        }
+        // The lock is held by another process, not by this test: a second program, built with this test project, opens the lock file
+        // exclusively and reports that it has. It needs no PowerShell, so the test cannot be skipped (store plan, design item 9).
+        var holderDll = LockHolderDll();
+        Assert.True(File.Exists(holderDll), $"The lock holder is not built: {holderDll}");
         var root = Path.Combine(_root, "store");
         Directory.CreateDirectory(root);
         var lockPath = Path.Combine(root, ".publish.lock");
-        var holder = new ProcessStartInfo(shell) { RedirectStandardOutput = true, UseShellExecute = false };
-        holder.ArgumentList.Add("-NoProfile");
-        holder.ArgumentList.Add("-Command");
-        holder.ArgumentList.Add($"$lock = [System.IO.File]::Open('{lockPath}', 'OpenOrCreate', 'ReadWrite', 'None'); " +
-                                "[Console]::WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Seconds 120");
+        var holder = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+            { RedirectStandardOutput = true, RedirectStandardInput = true, UseShellExecute = false };
+        holder.ArgumentList.Add(holderDll);
+        holder.ArgumentList.Add(lockPath);
         using var child = Process.Start(holder)!;
         try
         {
@@ -976,31 +972,19 @@ public sealed class SkillsModuleTests : IDisposable
         }
         finally
         {
-            child.Kill(entireProcessTree: true);
-            await child.WaitForExitAsync();
+            // Closing standard input ends the hold. The process is killed only if it does not end by itself.
+            child.StandardInput.Close();
+            if (!child.WaitForExit(10_000)) child.Kill(entireProcessTree: true);
         }
     }
 
-    /// <summary>The first PowerShell on the path that starts, or null.</summary>
-    private static string? FindPowerShell()
+    /// <summary>The lock holder program. It is built because this test project references it; found by the same walk as the isolation tests use for their worker.</summary>
+    private static string LockHolderDll()
     {
-        foreach (var name in new[] { "pwsh", "powershell" })
-        {
-            try
-            {
-                using var probe = Process.Start(new ProcessStartInfo(name, "-NoProfile -Command exit 0") { UseShellExecute = false, CreateNoWindow = true });
-                if (probe is not null)
-                {
-                    probe.WaitForExit();
-                    return name;
-                }
-            }
-            catch (System.ComponentModel.Win32Exception)
-            {
-                // Not installed under this name.
-            }
-        }
-        return null;
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        var config = dir.FullName.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "OpenTail.Host.slnx"))) dir = dir.Parent;
+        return Path.Combine(dir!.FullName, "OpenTail.Host.Tests.LockHolder", "bin", config, "net10.0", "OpenTail.Host.Tests.LockHolder.dll");
     }
 
     /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>
