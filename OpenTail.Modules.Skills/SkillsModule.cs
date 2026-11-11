@@ -171,6 +171,9 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
             var (json, md) = (S("skillJson"), S("instructions"));
             var ignoreKeys = Strings("ignoreFrontmatterKeys");
             var existing = store.Get(id, version);
+            // A folder that is in place but is not a complete version is refused, never previewed as a new version (store plan, preview table).
+            if (existing is null && store.HasFolder(id, version))
+                throw new ArgumentException($"{id}@{version} has a folder that is not a complete version, so nothing can be published. Remove or repair it by hand first.");
             SkillVersion target;
             IReadOnlyList<string> frontmatterWarnings = [];
             if (json is not null || md is not null)
@@ -192,6 +195,10 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
                 throw new ArgumentException($"The '{label}' label of {id} is at {fromVersion ?? SkillStore.NoVersion}, not {expectedFrom}: someone published since. " +
                                             "Check what changed and propose again.");
             var from = fromVersion is null ? null : store.Get(id, fromVersion);
+            // A label at a version whose files are missing or incomplete is not a first publication: the preview would describe the change wrongly, so it is refused and named.
+            if (fromVersion is not null && from is null)
+                throw new ArgumentException($"The '{label}' label of {id} points at version {fromVersion}, whose files are " +
+                    (store.HasFolder(id, fromVersion) ? "incomplete" : "missing") + ", so nothing can be previewed. Repair the store first; skills.find and the store check name the problem.");
             var (reportText, reportCheck) = CheckReport(S("report"), target);
             var kind = fromVersion == version ? "no change" : from is null ? "first publication"
                 : int.Parse(version, System.Globalization.CultureInfo.InvariantCulture) < int.Parse(fromVersion!, System.Globalization.CultureInfo.InvariantCulture) ? "rollback" : "update";

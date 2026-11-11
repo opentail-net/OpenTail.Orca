@@ -112,6 +112,10 @@ public sealed partial class SkillStore(string root)
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException(ex.Message, ex); }
     }
 
+    /// <summary>Whether a version folder is in place, complete or not. <see cref="Get"/> returns null for both a missing and an incomplete folder, so a
+    /// caller that must tell them apart (publish, preview) asks this as well. An incomplete folder is never treated as a new version.</summary>
+    public bool HasFolder(string id, string version) => IsId(id) && IsVersion(version) && Directory.Exists(Path.Combine(Root, id, version));
+
     /// <summary>What a store check found. <c>Problems</c> are damage the read path reports or refuses, and folders nothing reads.
     /// <c>Notes</c> are not damage: a complete version that no label points at (history, or a publish that stopped before its label moved).</summary>
     public sealed record StoreCheck(IReadOnlyList<string> Problems, IReadOnlyList<string> Notes);

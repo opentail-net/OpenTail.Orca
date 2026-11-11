@@ -824,6 +824,127 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.Null(SkillStoreCli.TryRun(["--policy", "policy.json", "--db", "queue.db"], new StringWriter()));
     }
 
+    // The preview is what skills.publish returns before approval: a refused preview is an invalid_arguments error, a shown one is pending_approval.
+    private static Task<JsonObject> Propose(McpPair pair, string version, string expectedFrom) =>
+        pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", version), ("reason", "Check it."), ("expectedFrom", expectedFrom),
+            ("skillJson", Meta(version)), ("instructions", "Never pay from an email."));
+
+    [Fact]
+    public async Task A_preview_with_malformed_labels_is_refused_and_names_the_file()
+    {
+        WriteLabels("this is not json");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("labels.json", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(_root, "store", "invoice-check", "2")));
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_damaged_label_entry_is_refused()
+    {
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": null } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        var message = refused["error"]!["message"]!.ToString();
+        Assert.Contains("'production' label for invoice-check", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_label_pointing_at_a_missing_version_is_refused_and_names_it()
+    {
+        PublishDirect("invoice-check", "1");
+        Directory.Delete(Path.Combine(_root, "store", "invoice-check", "1"), recursive: true);
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("points at version 1, whose files are missing", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_an_incomplete_target_folder_is_refused_not_shown_as_new()
+    {
+        PublishDirect("invoice-check", "1");
+        var folder = Path.Combine(_root, "store", "invoice-check", "2");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "skill.json"), Meta("2"));
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("not a complete version", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(folder, "SKILL.md")), "the preview must not complete the folder");
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_stale_expectedFrom_is_refused()
+    {
+        PublishDirect("invoice-check", "1");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "none");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("is at 1, not none", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_corrupt_target_version_is_refused_with_the_reason()
+    {
+        PublishDirect("invoice-check", "1");
+        File.WriteAllText(Path.Combine(_root, "store", "invoice-check", "1", "skill.json"), "{ not json");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("not valid JSON", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_an_unreadable_target_version_is_refused_with_the_reason()
+    {
+        PublishDirect("invoice-check", "1");
+        // Held exclusively, as another program would hold it: the version cannot be read, so the preview refuses rather than guessing.
+        using var locked = new FileStream(Path.Combine(_root, "store", "invoice-check", "1", "skill.json"), FileMode.Open, FileAccess.Read, FileShare.None);
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.False(string.IsNullOrWhiteSpace(refused["error"]!["message"]!.ToString()));
+    }
+
+    [Fact]
+    public async Task A_preview_writes_nothing()
+    {
+        PublishDirect("invoice-check", "1");
+        var storeDir = Path.Combine(_root, "store");
+        var before = Snapshot(storeDir);
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var queued = await Propose(pair, "2", "1");
+
+        Assert.Equal("pending_approval", S(queued, "status"));
+        Assert.Equal(before, Snapshot(storeDir));
+    }
+
     [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {
