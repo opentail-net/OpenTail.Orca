@@ -586,6 +586,47 @@ public sealed class SkillsModuleTests : IDisposable
     }
 
     [Fact]
+    public void A_failed_publish_after_the_folder_is_created_leaves_no_folder_and_no_label_change()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        var store = new SkillStore(storeDir);
+        store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none");
+        var labelsBefore = File.ReadAllText(Path.Combine(storeDir, "labels.json"));
+        // The label write cannot complete: its temporary file name is taken by a folder, so the write fails after the version folder was moved into place.
+        Directory.CreateDirectory(Path.Combine(storeDir, "labels.json.tmp"));
+
+        var ex = Record.Exception(() =>
+            store.Publish("invoice-check", "2", "production", Meta("2"), "Never pay from an email, and check the bank details by phone.", expectedFrom: "1"));
+
+        Assert.True(ex is IOException or UnauthorizedAccessException, $"expected a file error, got {ex?.GetType().Name}");
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")), "the version folder this publish created must be removed");
+        Assert.Empty(Directory.GetDirectories(Path.Combine(storeDir, "invoice-check"), "*.tmp-*"));
+        Assert.Equal(labelsBefore, File.ReadAllText(Path.Combine(storeDir, "labels.json")));
+        Assert.Equal("1", store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Fact]
+    public void A_publish_into_an_incomplete_version_folder_is_refused_and_leaves_no_temporary_folder()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        var folder = Path.Combine(storeDir, "invoice-check", "1");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "skill.json"), Meta("1"));
+        var store = new SkillStore(storeDir);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none"));
+
+        Assert.Contains("invoice-check@1", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("not a complete version", ex.Message, StringComparison.Ordinal);
+        // The folder is named and left as it was: nothing is repaired or overwritten by a publish.
+        Assert.True(File.Exists(Path.Combine(folder, "skill.json")));
+        Assert.False(File.Exists(Path.Combine(folder, "SKILL.md")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(storeDir, "invoice-check"), "*.tmp-*"));
+        Assert.False(File.Exists(Path.Combine(storeDir, "labels.json")), "no label may be written");
+    }
+
+    [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {
         // The lock is held by another process, not by this test: a PowerShell child opens the lock file exclusively and reports that it has.

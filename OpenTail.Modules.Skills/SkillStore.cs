@@ -180,6 +180,7 @@ public sealed partial class SkillStore(string root)
             if (expectedFrom is not null && (LabelOf(labels, id, label) ?? NoVersion) != expectedFrom)
                 throw new InvalidOperationException($"The '{label}' label of {id} moved since this was reviewed (it was expected at {expectedFrom}, " +
                                                     $"it is at {LabelOf(labels, id, label) ?? NoVersion}). Nothing was published: resubmit.");
+            string? created = null; // the version folder this publish moved into place: removed again if the label write does not complete
             var existing = Get(id, version);
             if (metadataJson is not null || instructions is not null)
             {
@@ -194,12 +195,24 @@ public sealed partial class SkillStore(string root)
                 else
                 {
                     var dir = Path.Combine(Root, id, version);
+                    // A folder already in place is never overwritten or repaired: it is refused and named (store plan, publish table).
+                    if (Directory.Exists(dir))
+                        throw new ArgumentException($"{id}@{version} has a folder that is not a complete version, so nothing was published. Remove or repair it by hand first.");
                     var tmp = dir + ".tmp-" + Guid.NewGuid().ToString("N");
-                    Directory.CreateDirectory(tmp);
-                    File.WriteAllText(Path.Combine(tmp, "skill.json"), metadataJson);
-                    File.WriteAllText(Path.Combine(tmp, "SKILL.md"), instructions);
-                    Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
-                    Directory.Move(tmp, dir);
+                    try
+                    {
+                        Directory.CreateDirectory(tmp);
+                        File.WriteAllText(Path.Combine(tmp, "skill.json"), metadataJson);
+                        File.WriteAllText(Path.Combine(tmp, "SKILL.md"), instructions);
+                        Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
+                        Directory.Move(tmp, dir);
+                    }
+                    catch
+                    {
+                        DeleteTree(tmp);
+                        throw;
+                    }
+                    created = dir;
                 }
             }
             else if (existing is null) throw new ArgumentException($"{id} has no published version {version}; send skillJson and instructions to add it.");
@@ -209,8 +222,21 @@ public sealed partial class SkillStore(string root)
             var forSkill = skills[id] as JsonObject ?? (JsonObject)(skills[id] = new JsonObject());
             forSkill[label] = version;
             var tmpLabels = labelsPath + ".tmp";
-            File.WriteAllText(tmpLabels, labels.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmpLabels, labelsPath, overwrite: true);
+            try
+            {
+                File.WriteAllText(tmpLabels, labels.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(tmpLabels, labelsPath, overwrite: true);
+            }
+            catch
+            {
+                // The label did not move, so the version this publish created is removed: a new version is never left unlabelled by a handled failure (store plan, guarantee 2).
+                if (created is not null) DeleteTree(created);
+                throw;
+            }
+            finally
+            {
+                if (File.Exists(tmpLabels)) File.Delete(tmpLabels);
+            }
         }
     }
 
@@ -256,6 +282,12 @@ public sealed partial class SkillStore(string root)
             }
         }
         return root;
+    }
+
+    /// <summary>Removes a folder that a publish created, if it still exists. Used only for folders this publish made itself.</summary>
+    private static void DeleteTree(string path)
+    {
+        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
     }
 
     /// <summary>The version a label holds in a labels file read by <see cref="ReadLabelsForWrite"/>, or null when it has none.</summary>
