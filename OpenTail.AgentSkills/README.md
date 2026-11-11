@@ -31,7 +31,12 @@ the rules the reference applies.
    name now matches a directory that its normalised form matches, and a name whose normalised length exceeds 64 is refused even if its raw length
    does not. Both follow the reference.
 
+## Preserved fields
+
+`license`, `compatibility`, `allowed-tools` and `metadata` are kept exactly as written (their values are not trimmed), so a value with trailing
+spaces is the same value when it is read back. `name` and `description` are still trimmed: the description is compared with the one the summary
+gives, and the name with the directory. The Host stores these fields in `skill.json` with the version, and its identity covers them.
+
 ## Not yet in the library
 
-Preserving the optional fields (`license`, `compatibility`, `metadata`, `allowed-tools`) in the Host's store, reading and writing package files,
-and packaging are later steps of the library plan. This README will record their divergences when they are built.
+Reading and writing package files and packaging are later steps of the library plan. This README will record their divergences when they are built.

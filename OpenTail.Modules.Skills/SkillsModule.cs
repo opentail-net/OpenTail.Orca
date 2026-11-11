@@ -140,11 +140,16 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
     {
         // The preview already refused a missing expectedFrom; check again here, at the moment it runs.
         var from = _store.LabelledVersion(skillId, label);
-        // The preparation the preview ran, so the stored instructions are the ones the reviewer saw.
-        var stored = skillJson is not null && instructions is not null
-            ? StandardPublish.Prepare(skillId, version, skillJson, instructions, isNewVersion: _store.Get(skillId, version) is null, ignoreFrontmatterKeys).Target.Instructions
-            : instructions;
-        _store.Publish(skillId, version, label, skillJson, stored, expectedFrom ?? throw new ArgumentException("expectedFrom is required."));
+        // The preparation the preview ran, so the stored instructions and metadata are the ones the reviewer saw.
+        var metadata = skillJson;
+        var stored = instructions;
+        if (skillJson is not null && instructions is not null)
+        {
+            var prepared = StandardPublish.Prepare(skillId, version, skillJson, instructions, isNewVersion: _store.Get(skillId, version) is null, ignoreFrontmatterKeys);
+            metadata = prepared.Target.MetadataJson;
+            stored = prepared.Target.Instructions;
+        }
+        _store.Publish(skillId, version, label, metadata, stored, expectedFrom ?? throw new ArgumentException("expectedFrom is required."));
         return new { published = $"{skillId}@{version}", label, previous = from };
     }
 
