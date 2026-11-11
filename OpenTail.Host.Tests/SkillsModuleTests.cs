@@ -696,6 +696,43 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")));
     }
 
+    private void PublishWithPolicies(string refs)
+    {
+        var metadata = $$"""
+            { "format": 1, "id": "invoice-check", "version": "1",
+              "summary": "Check whether an unpaid invoice is genuine before anyone pays or chases it.",
+              "appliesTo": [ "an invoice or payment demand arrives by email" ],
+              "tools": [ "mail.read" ], "policies": [ {{refs}} ], "owner": "finance-ops" }
+            """;
+        new SkillStore(Path.Combine(_root, "store")).Publish("invoice-check", "1", "production", metadata, "Never pay from an email.", "none");
+    }
+
+    [Fact]
+    public async Task Two_policy_references_with_one_file_name_are_named()
+    {
+        PublishWithPolicies("""{ "ref": "policies/payment-verification.md", "hash": null }, { "ref": "archive/payment-verification.md", "hash": null }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+
+        var warning = Assert.Single(got["result"]!["policyWarnings"]!.AsArray())!.ToString();
+        Assert.Contains("policies/payment-verification.md and archive/payment-verification.md", warning, StringComparison.Ordinal);
+        Assert.Contains("payment-verification.md", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Two_identical_policy_references_are_one_policy_and_are_not_named()
+    {
+        PublishWithPolicies("""{ "ref": "policies/payment-verification.md", "hash": null }, { "ref": "policies/payment-verification.md", "hash": null }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+
+        Assert.Empty(got["result"]!["policyWarnings"]!.AsArray());
+    }
+
     [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {
