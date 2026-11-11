@@ -17,6 +17,7 @@ namespace OpenTail.Host.Admin;
 ///   --adopt-policy &lt;module id&gt; [--allow-execute] [--replace]                         write a module's suggested policy to policy.d/&lt;id&gt;.json
 ///   --test-policy &lt;cases.json&gt;                                                       check expected decisions (exit 1 on any mismatch)
 ///   --export-review-outcomes &lt;out.jsonl&gt; [--since 30d]                               rejected and sent-back actions, redacted, as scenario candidates
+///   --skill-outcomes-measure [--decided-since 30d] [--scheduled-since 30d]           read-only: clean decisions per skill version, the rules, and the stop rate (changes nothing)
 ///   --skill-outcomes [--since 30d] [--min-cases 20] [--worse-by 0.15]                 decisions on actions after each skill version, and rollback suggestions
 ///   --export-shadow-cases &lt;out.jsonl&gt; [--since 7d]                                   real sessions for shadow runs (not redacted: stays in the deployment)
 ///   --usage [--since 7d]                                                              daily use per identity and tool: outcomes, records, bytes
@@ -60,6 +61,7 @@ public static class PolicyCli
         var testPath = ValueOf(args, "--test-policy");
         var exportPath = ValueOf(args, "--export-review-outcomes");
         var skillOutcomes = args.Contains("--skill-outcomes");
+        var skillMeasure = args.Contains("--skill-outcomes-measure");
         var shadowPath = ValueOf(args, "--export-shadow-cases");
         var usage = args.Contains("--usage");
         var verifyAudit = args.Contains("--verify-audit");
@@ -82,7 +84,7 @@ public static class PolicyCli
         var requeue = ValueOf(args, "--requeue");
         var cancelWork = ValueOf(args, "--cancel-work");
         var redrive = ValueOf(args, "--redrive");
-        if (explainAt < 0 && replayPath is null && !listModules && !lint && adoptId is null && testPath is null && exportPath is null && !skillOutcomes
+        if (explainAt < 0 && replayPath is null && !listModules && !lint && adoptId is null && testPath is null && exportPath is null && !skillOutcomes && !skillMeasure
             && shadowPath is null && !usage && !verifyAudit && !auditCheckpoint && !listLevels && clearLevel is null && !reviewReport
             && !listGrants && revokeGrant is null && !policyVersions && diffAt < 0
             && !listWork && workItem is null && requeue is null && cancelWork is null && !accessReport && exportAudit is null && redrive is null
@@ -463,6 +465,31 @@ public static class PolicyCli
                 return 0;
             }
 
+            if (skillMeasure)
+            {
+                if (policyPath is null)
+                {
+                    await Console.Error.WriteLineAsync($"Usage: {name} --policy <file> --db <file> --skill-outcomes-measure [--decided-since 30d] [--scheduled-since 30d]");
+                    return 64;
+                }
+                if (args.Contains("--since"))
+                {
+                    await Console.Error.WriteLineAsync("--since does not apply to --skill-outcomes-measure. Use --decided-since (decisions, by their review time) " +
+                        "and --scheduled-since (undo-window stop cohorts, by their scheduled time).");
+                    return 64;
+                }
+                var reading = new OpenTailHostBuilder().WithName(name).UsePolicy(PolicyConfig.Load(policyPath)).UseSqlite(dbPath);
+                await ModulesCli.ApplyAsync(reading, args, ModuleLoadMode.Describe);
+                addModules(reading);
+                var measured = reading.Build();
+                var now = DateTimeOffset.UtcNow;
+                var decidedFrom = now - (ValueOf(args, "--decided-since") is { } ds ? ParseSince(ds) : TimeSpan.FromDays(30));
+                var scheduledFrom = now - (ValueOf(args, "--scheduled-since") is { } ss ? ParseSince(ss) : TimeSpan.FromDays(30));
+                var measurement = await SkillMeasurement.MeasureAsync(measured, (IAuditReader)measured.Audit, decidedFrom, scheduledFrom, now);
+                await WriteMeasurementAsync(measurement, output);
+                return 0;
+            }
+
             if (skillOutcomes)
             {
                 if (policyPath is null)
@@ -630,6 +657,37 @@ public static class PolicyCli
         if (!m.Success) throw new ArgumentException("--since looks like 12h, 7d or 2w.");
         var n = int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
         return m.Groups[2].Value switch { "h" => TimeSpan.FromHours(n), "d" => TimeSpan.FromDays(n), _ => TimeSpan.FromDays(7 * n) };
+    }
+
+    /// <summary>Writes the step 0 measurement: per version, the clean human decisions and the projection; the totals kept apart; the stop rate
+    /// on its own period. It names the rules and limits it applied, and says it changed nothing.</summary>
+    private static async Task WriteMeasurementAsync(SkillMeasurementReport m, TextWriter output)
+    {
+        await output.WriteLineAsync($"Decisions made {m.DecidedFrom:u} to {m.DecidedTo:u} ({(m.DecidedTo - m.DecidedFrom).TotalDays:0.#} days).");
+        await output.WriteLineAsync("Rules applied:");
+        foreach (var r in m.Rules) await output.WriteLineAsync("  - " + r);
+        await output.WriteLineAsync();
+        if (m.Versions.Count == 0) await output.WriteLineAsync("No skill version has a clean human decision in this window.");
+        foreach (var v in m.Versions)
+        {
+            var perThirty = v.CleanPerThirtyDays is { } p ? p.ToString("0.0", CultureInfo.InvariantCulture) : "n/a";
+            var projection = v.MonthsTo20 is { } months ? $"about {months.ToString("0.0", CultureInfo.InvariantCulture)} months to reach 20 at this rate" : "no projection";
+            await output.WriteLineAsync($"{v.Skill}@{v.Version}: {v.Clean} clean human decision(s) in {v.Days.ToString("0.#", CultureInfo.InvariantCulture)} days; " +
+                $"{perThirty} per 30 days; {projection}.");
+        }
+        await output.WriteLineAsync();
+        await output.WriteLineAsync($"Not counted for any version: ambiguous {m.Ambiguous}, unattributed {m.Unattributed}.");
+        await output.WriteLineAsync($"Counted separately: AI reviewer decisions {m.AiDecisions}; still awaiting more approvals {m.AwaitingApprovals}.");
+        await output.WriteLineAsync($"Excluded: operator cancellations {m.OperatorCancelled}, undo-window stops {m.UndoWindowStopped}, " +
+            $"elapsed undo windows {m.SystemElapsed}, reviews with no subject {m.Unclassed}, other subjects {m.OtherSubject}.");
+        await output.WriteLineAsync($"Serves that could not be read: {m.UnreadableServes}.");
+        var s = m.Stops;
+        var rate = s.Size == 0 ? "no completed windows" : $"{s.UndoWindowStops} of {s.Size} ({(double)s.UndoWindowStops / s.Size:P0})";
+        await output.WriteLineAsync($"Undo-window stop rate, for delayed actions scheduled {m.ScheduledFrom:u} to {m.DecidedTo:u} whose window has ended: {rate}.");
+        await output.WriteLineAsync($"  Late stops (at or after the scheduled time, not in the rate): {s.LateStops}. Held for a person: {s.Held}. Windows that could not be read: {s.UnreadableDetails}.");
+        await output.WriteLineAsync("Limits:");
+        foreach (var l in m.Limitations) await output.WriteLineAsync("  - " + l);
+        await output.WriteLineAsync("Nothing was changed. This report suggests no rollback.");
     }
 
     private static string? ValueOf(string[] args, string flag)
