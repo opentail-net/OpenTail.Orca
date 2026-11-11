@@ -148,4 +148,26 @@ Then the new behaviour:
 
 ## Not built
 
-Nothing in this plan is built. Step 1 (golden vectors) needs no decision. Steps 2 to 6 wait for O-H1 to O-H6.
+**Built on the Host, merged to `main` at `eee5e8e`** (branch `feat/hash-v2`, commit `e1ba996`; the Host suite passes on the merged state, 1153 tests, none skipped):
+
+- Step 1, the v1 golden vectors for the Host (`SkillIdentityGoldenTests`): built earlier (`7dd409d`). The workbench's golden test for the three repository skills is **not built** (other repository).
+- Step 2, `HashV2` and the v2 canonical text (`SkillText.CanonicalV2`, `HashV2`), and the unambiguous encoding (`SkillText.IdentityEncodingV2`, `ContentHashV2`). The absent owner is kept apart from an empty one by reading the stored `skill.json` (the owner key), so `SkillVersion` did not change. v1 is unchanged, and a test shows it still hashes an absent owner as empty.
+- Step 3, the republish comparison (design item 6): the store and the preview compare instructions by their v2 canonical text and the metadata by its parsed JSON value. An indentation-only change at the same version is refused, at publish and at preview (H2).
+- Step 4, Host part: policy drift (`SkillsModule.Get`) and report bindings (`SkillsModule.CheckReport`) check each recorded value under the algorithm it names; `sha256v2:` is accepted by the policy hash syntax (the store plan's design item 4 rule) and by the binding pattern. `SkillText.BindingLineV2` exists for reports written under v2.
+
+**Not switched: what the Host writes.** `ContentHash`, `BindingLine` and the hash `policies --record` writes stay v1. This is the switch of O-H5. It is held back because the workbench's comparison step (step 5) is not built: a v2 identity written now would make every batch compare across the switch with a spurious "skill changed without a new version" warning. The Host release that reads v2 (this one) is deployed before the switch, as step 4 requires.
+
+**Provisional decisions taken during autonomous work** (the owner may reverse each one):
+- O-H1 kept blank-line runs as content (recommended).
+- O-H2: the four preserved fields and the resources are in the fixed `skill-identity/2` list, encoded as absent or empty until stored (recommended: all four included, the list fixed in full now).
+- O-H6: `skill.json` is compared by its parsed JSON value at republish (recommended).
+- O-H5: the write switch is deferred, as above (the recommendation ties it to step 3, which is merged; the switch itself waits for the workbench step 5 and the release order).
+- O-H3 and O-H4 (scenario and grader identities) are workbench decisions and are not made here.
+
+**Not built, and why:**
+- **Step 5, the workbench**: the comparison recomputing identities from snapshots, and the scenario and grader identities. Another repository; not started.
+- **Step 6, documentation**: the Host module README's "Identity" section (which still says these functions are frozen), and the workbench `docs/formats.md` "Hashing" paragraph. Not updated in this pass.
+- **Design item 10, resource digests**: not implemented; the resources list is encoded as empty, which is correct until resources exist.
+- **The metadata map encoder** (sorted keys, the duplicate-key refusal) and the tests for it, and the preserved-field tests (`A_changed_preserved_field_changes_the_v2_identity`): the fields are not stored yet, so they are encoded as absent and not exercised. The encoder for a map is not written, so the map tests have nothing to test yet.
+- **`V2_keeps_blank_line_runs` and the other normalisation rows** are tested; the scenario-hash rows are not (O-H3).
+- **The binding tests for a report written under v2 when the Host writes v2** cannot run until the switch: today the Host verifies v2 bindings, and tests them with `BindingLineV2`.
