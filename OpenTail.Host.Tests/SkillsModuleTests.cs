@@ -734,6 +734,97 @@ public sealed class SkillsModuleTests : IDisposable
     }
 
     [Fact]
+    public async Task An_unlabelled_version_folder_is_never_served_and_the_store_check_reports_it()
+    {
+        PublishDirect("invoice-check", "1");
+        // A complete version 2 that no label points at: what a publish leaves when it stops before its label moves.
+        var folder = Path.Combine(_root, "store", "invoice-check", "2");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "skill.json"), Meta("2"));
+        File.WriteAllText(Path.Combine(folder, "SKILL.md"), "Pay whoever asks.");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("invoice-check@1", got["result"]!["served"]!.ToString());
+        Assert.DoesNotContain("Pay whoever asks.", got.ToJsonString(), StringComparison.Ordinal);
+
+        var check = new SkillStore(Path.Combine(_root, "store")).Check();
+        Assert.Empty(check.Problems);
+        Assert.Single(check.Notes, n => n.StartsWith("invoice-check@2 is complete but no label points at it", StringComparison.Ordinal));
+    }
+
+    private static string SkillJson(string id, string version, string appliesTo = "\"an invoice or payment demand arrives by email\"", string policies = "") =>
+        $$"""{ "format": 1, "id": "{{id}}", "version": "{{version}}", "summary": "Check an invoice.", "appliesTo": [ {{appliesTo}} ], "tools": [ "mail.read" ], "policies": [ {{policies}} ], "owner": "finance-ops" }""";
+
+    [Fact]
+    public void The_store_check_lists_every_problem_and_serves_nothing()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        void Version(string id, string version, string? metadata, string? instructions)
+        {
+            var folder = Path.Combine(storeDir, id, version);
+            Directory.CreateDirectory(folder);
+            if (metadata is not null) File.WriteAllText(Path.Combine(folder, "skill.json"), metadata);
+            if (instructions is not null) File.WriteAllText(Path.Combine(folder, "SKILL.md"), instructions);
+        }
+        // Complete and labelled, but two policy references share a file name: a problem the read path names too.
+        Version("invoice-check", "1", SkillJson("invoice-check", "1", policies: """{ "ref": "policies/payment-verification.md", "hash": null }, { "ref": "archive/payment-verification.md", "hash": null }"""), "Never pay from an email.");
+        // Complete, labelled nowhere: a note, not a problem.
+        Version("invoice-check", "2", SkillJson("invoice-check", "2"), "Pay whoever asks.");
+        // A temporary folder a publish left behind.
+        Version("invoice-check", "3.tmp-abc123", SkillJson("invoice-check", "3"), "Pay whoever asks.");
+        // A blank applies-to entry: damaged, and labelled.
+        Version("email-triage", "1", SkillJson("email-triage", "1", appliesTo: "\"\""), "Triage the inbox.");
+        // Incomplete: no SKILL.md, and labelled.
+        Version("reply-draft", "1", SkillJson("reply-draft", "1"), null);
+        // A folder whose name is not a skill id.
+        Version("Bad Name", "1", SkillJson("bad-name", "1"), "x");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": "1" }, "email-triage": { "staging": "1" }, "reply-draft": { "production": "1" }, "ghost-skill": { "production": "4" }, "bad-entry": 5 } }""");
+        File.WriteAllText(Path.Combine(storeDir, "labels.json.tmp"), "{ partial");
+
+        var before = Snapshot(storeDir);
+        var check = new SkillStore(storeDir).Check();
+
+        // Serves nothing and writes nothing: the store is exactly as it was.
+        Assert.Equal(before, Snapshot(storeDir));
+        Assert.Equal(8, check.Problems.Count);
+        Assert.Contains(check.Problems, p => p.StartsWith("labels.json's entry for bad-entry is not an object", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("production of ghost-skill points at 4, which is not in the store.", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("labels.json.tmp is left over", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("Bad Name: a folder in the store whose name is not a skill id.", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("invoice-check@1: Policies policies/payment-verification.md and archive/payment-verification.md have the same file name", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("invoice-check/3.tmp-abc123: a temporary folder left by a publish", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("email-triage@1: skill.json 'appliesTo' has a blank entry", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("reply-draft@1: an incomplete version folder", StringComparison.Ordinal));
+        Assert.Single(check.Notes, n => n.StartsWith("invoice-check@2 is complete but no label points at it", StringComparison.Ordinal));
+    }
+
+    private static List<string> Snapshot(string dir) =>
+        Directory.GetFileSystemEntries(dir, "*", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(dir, p) + "=" + (File.Exists(p) ? File.ReadAllText(p) : "<folder>"))
+            .Order(StringComparer.Ordinal).ToList();
+
+    [Fact]
+    public void The_store_check_command_exits_1_on_a_problem_and_0_on_a_clean_store_and_ignores_other_commands()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        PublishDirect("invoice-check", "1");
+
+        var clean = new StringWriter();
+        Assert.Equal(0, SkillStoreCli.TryRun(["--check-skill-store", storeDir], clean));
+        Assert.Contains("The skill store has no problems.", clean.ToString(), StringComparison.Ordinal);
+
+        File.WriteAllText(Path.Combine(storeDir, "labels.json.tmp"), "{ partial");
+        var dirty = new StringWriter();
+        Assert.Equal(1, SkillStoreCli.TryRun(["--check-skill-store", storeDir], dirty));
+        Assert.Contains("PROBLEM: labels.json.tmp is left over", dirty.ToString(), StringComparison.Ordinal);
+
+        Assert.Equal(64, SkillStoreCli.TryRun(["--check-skill-store"], new StringWriter()));
+        Assert.Null(SkillStoreCli.TryRun(["--policy", "policy.json", "--db", "queue.db"], new StringWriter()));
+    }
+
+    [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {
         // The lock is held by another process, not by this test: a PowerShell child opens the lock file exclusively and reports that it has.

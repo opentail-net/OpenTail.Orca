@@ -101,12 +101,8 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
         var s = version is null ? null : _store.Get(id, version)
             ?? throw new InvalidOperationException($"The store lists {id}@{version} but its files are missing.");
         if (s is null) throw new ArgumentException($"No published skill '{id}' (label {options.Label}).");
-        var warnings = new List<string>();
-        // Policies are resolved by file name (store plan, S5): two different references with one file name read one file, so they are named.
-        // Compared without case, as Windows compares file names. Identical references are one policy, not a clash.
-        foreach (var clash in s.Policies.Select(p => p.Ref).Distinct(StringComparer.Ordinal)
-                     .GroupBy(r => Path.GetFileName(r), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
-            warnings.Add($"Policies {string.Join(" and ", clash)} have the same file name, {clash.Key}. This deployment resolves a policy by its file name, so they read one file.");
+        // Policies are resolved by file name, so two references with one file name are named first (store plan, S5).
+        var warnings = new List<string>(SkillStore.PolicyNameClashes(s.Policies));
         foreach (var p in s.Policies)
         {
             if (options.PolicyFolder is null || p.Hash is null) continue;

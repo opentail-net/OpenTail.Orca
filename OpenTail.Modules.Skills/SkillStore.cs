@@ -112,6 +112,79 @@ public sealed partial class SkillStore(string root)
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException(ex.Message, ex); }
     }
 
+    /// <summary>What a store check found. <c>Problems</c> are damage the read path reports or refuses, and folders nothing reads.
+    /// <c>Notes</c> are not damage: a complete version that no label points at (history, or a publish that stopped before its label moved).</summary>
+    public sealed record StoreCheck(IReadOnlyList<string> Problems, IReadOnlyList<string> Notes);
+
+    /// <summary>Scans the store and lists what is wrong with it. It serves nothing and writes nothing (store plan, design item 7). It lists every
+    /// problem the read path reports, and what the read path never sees: complete versions no label points at, incomplete version folders, and
+    /// leftover temporary folders and files. It does not compare policy text with a deployment's policy folder: that drift check needs one.</summary>
+    public StoreCheck Check()
+    {
+        var problems = new List<string>();
+        var notes = new List<string>();
+        if (!Directory.Exists(Root)) return new StoreCheck([$"The store folder {Root} does not exist."], notes);
+        var read = ReadLabelsChecked();
+        problems.AddRange(read.Problems.Select(p => p.Message));
+        if (File.Exists(Path.Combine(Root, "labels.json.tmp")))
+            problems.Add("labels.json.tmp is left over from a publish that did not finish. Nothing reads it. Check labels.json, then remove it by hand.");
+
+        var labelled = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (id, labels) in read.Labels)
+            foreach (var (label, version) in labels)
+            {
+                labelled.Add(id + "@" + version);
+                // A label at a missing folder is named here; a damaged folder is named once, below, under its own folder.
+                if (!Directory.Exists(Path.Combine(Root, id, version)))
+                    problems.Add($"{label} of {id} points at {version}, which is not in the store.");
+            }
+
+        foreach (var skillDir in Directory.GetDirectories(Root).OrderBy(d => d, StringComparer.Ordinal))
+        {
+            var id = Path.GetFileName(skillDir);
+            if (!IsId(id))
+            {
+                problems.Add($"{id}: a folder in the store whose name is not a skill id. Nothing reads it.");
+                continue;
+            }
+            foreach (var versionDir in Directory.GetDirectories(skillDir).OrderBy(d => d, StringComparer.Ordinal))
+            {
+                var version = Path.GetFileName(versionDir);
+                if (version.Contains(".tmp-", StringComparison.Ordinal))
+                {
+                    problems.Add($"{id}/{version}: a temporary folder left by a publish that did not finish. Nothing reads it. Remove it by hand.");
+                    continue;
+                }
+                if (!IsVersion(version))
+                {
+                    problems.Add($"{id}/{version}: a folder whose name is not a version number. Nothing reads it.");
+                    continue;
+                }
+                if (!File.Exists(Path.Combine(versionDir, "skill.json")) || !File.Exists(Path.Combine(versionDir, "SKILL.md")))
+                {
+                    problems.Add($"{id}@{version}: an incomplete version folder (skill.json or SKILL.md is missing). Nothing serves it.");
+                    continue;
+                }
+                SkillVersion? s;
+                try { s = Get(id, version); }
+                catch (ArgumentException ex) { problems.Add($"{id}@{version}: {ex.Message}"); continue; }
+                if (s is null) { problems.Add($"{id}@{version}: its files cannot be read as a version. Nothing serves it."); continue; }
+                if (labelled.Contains(id + "@" + version))
+                    problems.AddRange(PolicyNameClashes(s.Policies).Select(c => $"{id}@{version}: {c}"));
+                else
+                    notes.Add($"{id}@{version} is complete but no label points at it, so it is not served. It is history, or a publish that stopped before its label moved; compare it with the audit trail.");
+            }
+        }
+        return new StoreCheck(problems, notes);
+    }
+
+    /// <summary>The policy references of one skill that resolve to one file name, each group named. Two different references with one file name read
+    /// one file (store plan, S5). Compared without case, as Windows compares file names. Identical references are one policy, not a clash.</summary>
+    public static IReadOnlyList<string> PolicyNameClashes(IEnumerable<SkillPolicy> policies) =>
+        [.. policies.Select(p => p.Ref).Distinct(StringComparer.Ordinal)
+            .GroupBy(r => Path.GetFileName(r), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1)
+            .Select(g => $"Policies {string.Join(" and ", g)} have the same file name, {g.Key}. This deployment resolves a policy by its file name, so they read one file.")];
+
     /// <summary>Checks a version's files: the metadata must parse and name this id and version. Throws ArgumentException.</summary>
     public static SkillVersion Parse(string metadataJson, string instructions, string id, string version)
     {
