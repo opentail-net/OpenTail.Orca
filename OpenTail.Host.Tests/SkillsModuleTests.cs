@@ -626,6 +626,76 @@ public sealed class SkillsModuleTests : IDisposable
         Assert.False(File.Exists(Path.Combine(storeDir, "labels.json")), "no label may be written");
     }
 
+    [Theory]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [ "" ], "tools": [], "policies": [] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [ "   " ], "tools": [], "policies": [] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [ "an invoice arrives" ], "tools": [ "" ], "policies": [] }""")]
+    public async Task A_blank_applies_to_or_tools_entry_is_named_when_read(string metadataJson)
+    {
+        // Written by hand, as a damaged file would be: find names it, get refuses it, and publish never creates a version with it.
+        var storeDir = Path.Combine(_root, "store");
+        var dir = Path.Combine(storeDir, "invoice-check", "1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "skill.json"), metadataJson);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"), "Never pay from an email.");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check@1", warning, StringComparison.Ordinal);
+        Assert.Contains("blank entry", warning, StringComparison.Ordinal);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("failed", S(got, "status"));
+        Assert.Contains("blank entry", got["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new SkillStore(storeDir).Publish("invoice-check", "2", "production", metadataJson.Replace("\"1\"", "\"2\"", StringComparison.Ordinal), "Never pay from an email.", expectedFrom: "1"));
+        Assert.Contains("blank entry", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")));
+    }
+
+    public static TheoryData<string> BadPolicyHashes() =>
+    [
+        "sha256:" + new string('A', 64), // upper case is not the form SkillText.Hash writes
+        "sha256:" + new string('a', 63),
+        "sha256:" + new string('a', 65),
+        "sha256:" + new string('g', 64), // not hex
+        "sha1:" + new string('a', 40),   // another algorithm, not known to this Host
+        "",                              // text, but not a hash
+    ];
+
+    [Theory]
+    [MemberData(nameof(BadPolicyHashes))]
+    public async Task A_policy_hash_that_is_not_sha256_syntax_is_named_when_read_and_refused_at_publish(string hash)
+    {
+        var storeDir = Path.Combine(_root, "store");
+        var dir = Path.Combine(storeDir, "invoice-check", "1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "skill.json"), Meta("1", hash));
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"), "Never pay from an email.");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check@1", warning, StringComparison.Ordinal);
+        Assert.Contains("'hash' must be null", warning, StringComparison.Ordinal);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("failed", S(got, "status"));
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new SkillStore(storeDir).Publish("invoice-check", "2", "production", Meta("2", hash), "Never pay from an email.", expectedFrom: "1"));
+        Assert.Contains("'hash' must be null", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")));
+    }
+
     [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {

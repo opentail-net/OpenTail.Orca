@@ -127,11 +127,15 @@ public sealed partial class SkillStore(string root)
             JsonValue v when v.GetValueKind() == JsonValueKind.String => v.GetValue<string>(),
             _ => throw new ArgumentException($"skill.json '{key}', when given, must be a string."),
         };
+        // A list entry is text with something in it: a blank entry matches nothing and is refused, not kept (store plan, design item 4).
+        static string NonBlank(string value, string key) => string.IsNullOrWhiteSpace(value)
+            ? throw new ArgumentException($"skill.json '{key}' has a blank entry; each entry must be a non-empty string.")
+            : value;
         IReadOnlyList<string> List(string key) => o[key] switch
         {
             null => [],
             JsonArray a => [.. a.Select(n => n is JsonValue v && v.GetValueKind() == JsonValueKind.String
-                ? v.GetValue<string>()
+                ? NonBlank(v.GetValue<string>(), key)
                 : throw new ArgumentException($"skill.json '{key}' must be a list of strings."))],
             _ => throw new ArgumentException($"skill.json '{key}' must be a list of strings."),
         };
@@ -143,7 +147,11 @@ public sealed partial class SkillStore(string root)
             var hash = po["hash"];
             if (hash is not null && !(hash is JsonValue h && h.GetValueKind() == JsonValueKind.String))
                 throw new ArgumentException("A skill policy's 'hash' must be a string, or null.");
-            return new SkillPolicy(r.GetValue<string>(), hash?.GetValue<string>());
+            var hashText = hash?.GetValue<string>();
+            // The syntax is checked here, so a hash that cannot be compared with any policy's text is refused at publish and named at read.
+            if (hashText is not null && !PolicyHashPattern().IsMatch(hashText))
+                throw new ArgumentException("A skill policy's 'hash' must be null, or 'sha256:' and 64 lowercase hex digits.");
+            return new SkillPolicy(r.GetValue<string>(), hashText);
         }
         if (Text("id") != id) throw new ArgumentException($"skill.json names '{Text("id")}', not '{id}'.");
         if (Text("version") != version) throw new ArgumentException($"skill.json is version {Text("version")}, not {version}.");
@@ -299,4 +307,8 @@ public sealed partial class SkillStore(string root)
 
     [GeneratedRegex("^[1-9][0-9]{0,8}$")]
     private static partial Regex VersionPattern();
+
+    // The policy hash syntax of the v1 hash (SkillText.Hash). The v2 prefix is added with the hashing plan's step 4, together with this rule (store plan, design item 4).
+    [GeneratedRegex(@"^sha256:[0-9a-f]{64}\z")]
+    private static partial Regex PolicyHashPattern();
 }
