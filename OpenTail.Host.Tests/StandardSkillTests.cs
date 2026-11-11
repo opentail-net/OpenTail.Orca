@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OpenTail.AgentSkills;
 using OpenTail.Modules.Skills.Standard;
 
 namespace OpenTail.Host.Tests;

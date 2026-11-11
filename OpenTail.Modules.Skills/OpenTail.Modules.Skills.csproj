@@ -6,8 +6,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <ProjectReference Include="..\OpenTail.AgentSkills\OpenTail.AgentSkills.csproj" />
     <PackageReference Include="YamlDotNet" />
     <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.AgentSkills" />
     <Using Include="OpenTail.Host.Abstractions" />
     <Using Include="System.ComponentModel" />
   </ItemGroup>
