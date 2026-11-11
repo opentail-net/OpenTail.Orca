@@ -276,7 +276,7 @@ public class ResumableTests
         Assert.Null(await host.Store.GetAsync(a.Id));                     // finished and old: gone (the argument values with it)
         Assert.NotNull(await host.Store.GetAsync(pending.Id));            // recent and still waiting: kept
         var audit = ((IAuditReader)host.Audit).Read(a.Id);
-        Assert.Contains(audit, e => e.Event == "rejected");               // the story survives
+        Assert.Contains(audit, e => e.Event == "approval_denied");               // the story survives
         Assert.DoesNotContain(audit, e => (e.Detail ?? "").Contains("secret-recipient"));
         Assert.Contains(((IAuditReader)host.Audit).Read(), e => e.Event == "retention_purge");
         SqliteConnection.ClearAllPools();

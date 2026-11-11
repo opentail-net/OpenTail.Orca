@@ -71,7 +71,7 @@ public sealed class AuditAtomicityTests
     {
         using var db = new TempDb();
         var host = Build(db, QueueMail);
-        RefuseTrailEvent(db, "queued");
+        RefuseTrailEvent(db, "approval_requested");
 
         await Assert.ThrowsAnyAsync<Exception>(() => host.Queue.SubmitAsync(Mail()));
 
@@ -84,7 +84,7 @@ public sealed class AuditAtomicityTests
         using var db = new TempDb();
         var host = Build(db, QueueMail);
         var queued = await host.Queue.SubmitAsync(Mail());
-        RefuseTrailEvent(db, "approved");
+        RefuseTrailEvent(db, "approval_allowed");
 
         await Assert.ThrowsAnyAsync<Exception>(() => host.Queue.ReviewAsync(queued.Id, Decide(ReviewDecision.Approve)));
 
@@ -97,7 +97,7 @@ public sealed class AuditAtomicityTests
         using var db = new TempDb();
         var host = Build(db, QueueMail);
         var queued = await host.Queue.SubmitAsync(Mail());
-        RefuseTrailEvent(db, "rejected");
+        RefuseTrailEvent(db, "approval_denied");
 
         await Assert.ThrowsAnyAsync<Exception>(() => host.Queue.ReviewAsync(queued.Id, Decide(ReviewDecision.Reject)));
 
@@ -110,7 +110,7 @@ public sealed class AuditAtomicityTests
         using var db = new TempDb();
         var host = Build(db, QueueMail);
         var queued = await host.Queue.SubmitAsync(Mail());
-        RefuseTrailEvent(db, "cancelled");
+        RefuseTrailEvent(db, "approval_cancelled");
 
         await Assert.ThrowsAnyAsync<Exception>(() => host.Queue.CancelAsync(queued.Id, Me));
 
@@ -125,7 +125,7 @@ public sealed class AuditAtomicityTests
         var host = Build(db, """{ "Tools": { "mail.send": { "Mode": "Queue", "ExpireAfter": "00:01:00" } } }""", clock);
         var queued = await host.Queue.SubmitAsync(Mail());
         clock.Advance(TimeSpan.FromMinutes(2));
-        RefuseTrailEvent(db, "expired");
+        RefuseTrailEvent(db, "approval_expired");
 
         await Assert.ThrowsAnyAsync<Exception>(() => host.Queue.ExpireDueAsync());
 
@@ -248,10 +248,10 @@ public sealed class AuditAtomicityTests
         var host = Build(db, QueueMail);
         var queued = await host.Queue.SubmitAsync(Mail());
         var store = new SqliteActionStore(db.Path);
-        RefuseTrailEvent(db, "cancelled");
+        RefuseTrailEvent(db, "approval_cancelled");
 
         await Assert.ThrowsAnyAsync<Exception>(() => store.TransitionAuditedAsync(queued.Id, ActionStatus.Pending, ActionStatus.Cancelled,
-            r => r, d => new AuditEntry(d.UpdatedAt, "cancelled", d.Id, d.ToolName, "operator", null)));
+            r => r, d => new AuditEntry(d.UpdatedAt, "approval_cancelled", d.Id, d.ToolName, "operator", null)));
 
         Assert.Equal(ActionStatus.Pending, (await host.Store.GetAsync(queued.Id))!.Status);
     }

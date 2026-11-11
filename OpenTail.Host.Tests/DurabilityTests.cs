@@ -184,7 +184,7 @@ public class DurabilityTests
         await host.Queue.ReviewAsync(pending.Id, Approve);
 
         var events = audit.Read(pending.Id).Select(e => e.Event).ToList();
-        Assert.Equal(["policy_decision", "queued", "approved", "execution_started", "execution_succeeded"], events);
+        Assert.Equal(["policy_decision", "approval_requested", "approval_allowed", "execution_started", "execution_succeeded"], events);
         Assert.DoesNotContain(audit.Read(), e => (e.Detail ?? "").Contains("a@b.c"));
     }
 

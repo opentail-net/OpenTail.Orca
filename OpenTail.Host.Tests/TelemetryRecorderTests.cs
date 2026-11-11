@@ -103,7 +103,7 @@ public class TelemetryRecorderTests
 
         var (_, audit) = await Get("/api/admin/audit?limit=50", adminToken);
         var events = audit!["entries"]!.AsArray().Where(e => e!["actionId"]?.GetValue<string>() == done.Id).Select(e => e!["event"]!.GetValue<string>()).ToList();
-        Assert.Contains("approved", events);
+        Assert.Contains("approval_allowed", events);
         Assert.Contains("execution_succeeded", events);
         Assert.Equal("execution_succeeded", events[0]); // newest first
     }

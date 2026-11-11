@@ -45,7 +45,7 @@ public class SopGapTests
         Assert.All(new[] { a.Id, b.Id }, id => Assert.Equal(ActionStatus.Cancelled, again.Store.GetAsync(id).Result!.Status));
         var trail = ((IAuditReader)again.Audit).Read();
         Assert.Contains(trail, e => e.Event == "level_suspended" && e.Actor == "rita" && e.Detail!.Contains("decoy touched"));
-        Assert.Equal(2, trail.Count(e => e.Event == "cancelled" && e.Actor == "rita"));
+        Assert.Equal(2, trail.Count(e => e.Event == "approval_cancelled" && e.Actor == "rita"));
     }
 
     [Fact]

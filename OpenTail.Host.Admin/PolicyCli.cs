@@ -183,7 +183,7 @@ public static class PolicyCli
                     var done = await db.TransitionAuditedAsync(r.Id, ActionStatus.Pending, ActionStatus.Cancelled, x => x with
                     {
                         Reviews = [.. x.Reviews, new ActionReview(by, ReviewDecision.Reject, "Cancelled by an operator: " + text, DateTimeOffset.UtcNow) { Subject = "operator:" + by }],
-                    }, d => new AuditEntry(d.UpdatedAt, "cancelled", d.Id, d.ToolName, by, $"by {by}: {text}"));
+                    }, d => new AuditEntry(d.UpdatedAt, AuditEvents.ApprovalCancelled, d.Id, d.ToolName, by, $"by {by}: {text}"));
                     if (done is null) continue;
                     cancelled++;
                 }

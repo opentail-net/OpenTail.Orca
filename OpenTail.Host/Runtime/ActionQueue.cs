@@ -249,14 +249,14 @@ public sealed class ActionQueue(
             RunAt = runAt,
         };
 
-        // The cap is counted in the same transaction that inserts, so it holds across processes. The "queued" entry is written in that
+        // The cap is counted in the same transaction that inserts, so it holds across processes. The "approval_requested" entry is written in that
         // transaction as well.
         var cap = policy.Config.MaxPendingPerRequester;
         IReadOnlyList<Admission> capAdmissions = cap > 0
             ? [new Admission(new ActionQuery { Status = ActionStatus.Pending, RequesterId = request.Requester.Id }, null, cap)]
             : [];
         var pending = await CreateAudited(pendingRecord, capAdmissions,
-            EntryOf(runAt is null ? "queued" : "delayed", runAt is null ? null : $"runs at {runAt:u} unless stopped"), ct);
+            EntryOf(runAt is null ? AuditEvents.ApprovalRequested : "delayed", runAt is null ? null : $"runs at {runAt:u} unless stopped"), ct);
         if (pending is null)
         {
             trace.Add(new("queue cap", "Deny", $"the requester already has {cap} actions waiting", Changed: true));
@@ -435,7 +435,7 @@ public sealed class ActionQueue(
                 }
                 if (due.Status == ActionStatus.Pending && due.ExpiresAt is { } deadline && deadline <= _clock.GetUtcNow())
                 {
-                    var expired = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf("expired", null), ct);
+                    var expired = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf(AuditEvents.ApprovalExpired, null), ct);
                     if (expired is not null)
                     {
                         LeftPending(expired);
@@ -462,7 +462,7 @@ public sealed class ActionQueue(
                 // The entry says which of the two happened, and is written in the same transaction as the decision.
                 Func<ActionRecord, AuditEntry> decisionEntry = d => d.Status == ActionStatus.Pending
                     ? Entry("approval_recorded", d, $"{ReviewAuthority.Tally(d with { Reviews = d.Reviews.Take(d.Reviews.Count - 1).ToList() }, review, policy.People).Count} of {d.RequiredApprovals}")
-                    : Entry("approved", d, review.Reviewer);
+                    : Entry(AuditEvents.ApprovalAllowed, d, review.Reviewer);
                 var approved = await DecideAudited(actionId, ActionStatus.Pending, Decide, decisionEntry, ct);
                 if (approved is null)
                 {
@@ -488,7 +488,7 @@ public sealed class ActionQueue(
             {
                 var next = review.Decision == ReviewDecision.Reject ? ActionStatus.Rejected : ActionStatus.ChangesRequested;
                 var done = await ChangeAudited(actionId, ActionStatus.Pending, next, addReview,
-                    EntryOf(next == ActionStatus.Rejected ? "rejected" : "changes_requested", review.Reviewer), ct);
+                    EntryOf(next == ActionStatus.Rejected ? AuditEvents.ApprovalDenied : "changes_requested", review.Reviewer), ct);
                 if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
                 LeftPending(done);
                 HostTelemetry.Count(done);
@@ -546,7 +546,7 @@ public sealed class ActionQueue(
         var current = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
         if (current.Requester != requester)
             throw new UnauthorizedAccessException("Only the requester can cancel an action.");
-        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, r => r, EntryOf("cancelled", null), ct);
+        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, r => r, EntryOf(AuditEvents.ApprovalCancelled, null), ct);
         if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
         LeftPending(done);
         HostTelemetry.Count(done);
@@ -632,7 +632,7 @@ public sealed class ActionQueue(
         var count = 0;
         foreach (var r in pending.Where(p => p.ExpiresAt is { } at && at <= now))
         {
-            var done = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf("expired", null), ct);
+            var done = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf(AuditEvents.ApprovalExpired, null), ct);
             if (done is null) continue;
             count++;
             LeftPending(done);

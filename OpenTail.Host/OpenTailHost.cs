@@ -462,7 +462,7 @@ public sealed class OpenTailHost
             if (!retired.Contains(r.ModuleId)) continue;
             await AtomicTrail.ChangeAsync(Store, Audit, r.Id, ActionStatus.Pending, ActionStatus.Expired,
                 x => x with { Error = new ActionError("module_removed", $"Module '{x.ModuleId}' was switched off before this was decided.", false) },
-                d => new AuditEntry(d.UpdatedAt, "expired", d.Id, d.ToolName, "system", "module_removed"), ct);
+                d => new AuditEntry(d.UpdatedAt, AuditEvents.ApprovalExpired, d.Id, d.ToolName, "system", "module_removed"), ct);
         }
         if (TrustStore is { } trust)
             foreach (var tool in trust.ListPromoted().Where(t => retired.Any(id => t.StartsWith(id + ".", StringComparison.Ordinal))))

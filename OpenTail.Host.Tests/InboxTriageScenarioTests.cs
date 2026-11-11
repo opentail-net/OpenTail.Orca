@@ -92,7 +92,7 @@ public class InboxTriageScenarioTests
         var mine = await pair.CallAsync("list_my_actions", ("sessionId", session));
         Assert.True(mine["actions"]!.AsArray().Count >= 4); // inbox.read + 3 sends
         Assert.DoesNotContain(audit.Entries, e => (e.Detail ?? "").Contains("evil.example") || (e.Detail ?? "").Contains("invoices"));
-        Assert.Contains(audit.Entries, e => e.Event == "rejected");
+        Assert.Contains(audit.Entries, e => e.Event == "approval_denied");
         Assert.Contains(audit.Entries, e => e.Event == "changes_requested");
         Assert.Contains(audit.Entries, e => e.Event == "execution_succeeded");
     }
