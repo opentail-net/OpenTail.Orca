@@ -6,6 +6,9 @@ Designs for Host work that is planned but not built, newest first. The cross-rep
 
 | Design | Plan section | State |
 |---|---|---|
+| [Plan: align public approval names with Microsoft's vocabulary now, freeze them later](governance-naming-plan.md): binding digest, re-check at claim, export; freeze rule | none | Step 1 (approval audit event names) done locally 2026-11-11, uncommitted; the rest proposed |
+| [Comparison with Microsoft's agent-governance toolkit (.NET)](agt-comparison.md): where the two differ, file hashes and locations, and why adoption and conversion are deferred | none | Findings recorded 2026-11-11; decision: defer |
+| [A2A as a second front door](a2a.md): agent-to-agent tasks in and out, curated skills, replies as reviewed exits; phases 0 to 4 | none yet (owner to place) | Proposed 2026-11-11; nothing built |
 | [Snowflake as a read-only Sql target](snowflake.md): warehouse checks, a daily budget per identity, the real-account suite ([guide](../guides/snowflake.md), [done](../done/snowflake-s1-s2.md)) | 4 | S1, S2 built 2026-10-23; S3 to S5 open |
 | [Audit and evidence](audit-and-evidence.md): decision traces, policy versions, long-lived decision records, an export auditors can verify, tamper protection | 18 | Proposed 2026-10-18 |
 | [Failures, retries and inspection](failures-and-inspection.md): failure kinds, retry limits, paused routes, dead items to inspection, redrive through approval | 17 | Proposed 2026-10-18 |
