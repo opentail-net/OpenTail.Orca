@@ -354,7 +354,9 @@ public sealed class ActionQueue(
         using var activity = HostTelemetry.Source.StartActivity("action.review");
         activity?.SetTag("opentail.action_id", actionId);
         activity?.SetTag("opentail.decision", review.Decision.ToString());
-        Func<ActionRecord, ActionRecord> addReview = r => r with { Reviews = [.. r.Reviews, review] };
+        // The digest of a reviewer's edit is stored with the review, so the claim can check the arguments that will run.
+        var recorded = review with { EditedArgumentsHash = review.EditedArgumentsJson is null ? null : Hash(review.EditedArgumentsJson) };
+        Func<ActionRecord, ActionRecord> addReview = r => r with { Reviews = [.. r.Reviews, recorded] };
 
         // Who may decide this is the queue's rule to enforce (group, no AI on human-only, self-approval, known identity), not the page's.
         var existing = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
@@ -687,8 +689,7 @@ public sealed class ActionQueue(
         catch (System.Text.Json.JsonException) { return null; }
     }
 
-    private static string Hash(string json) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..32].ToLowerInvariant();
+    private static string Hash(string json) => ArgumentDigest.Of(json);
 
     private Task Audit(string evt, ActionRecord r, string? detail, CancellationToken ct) =>
         audit.AppendAsync(Entry(evt, r, detail), ct);

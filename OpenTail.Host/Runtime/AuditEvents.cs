@@ -21,4 +21,11 @@ public static class AuditEvents
 
     /// <summary>A waiting action was cancelled by its requester or by an operator.</summary>
     public const string ApprovalCancelled = "approval_cancelled";
+
+    /// <summary>An approved action was claimed to run: the approval is spent. Written in the claim's own transaction.</summary>
+    public const string ApprovalConsumed = "approval_consumed";
+
+    /// <summary>An approved action was refused at its claim because its approval no longer holds. The detail is the reason code, and
+    /// nothing ran.</summary>
+    public const string ExecutionDenied = "execution_denied";
 }

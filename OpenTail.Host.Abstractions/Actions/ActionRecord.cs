@@ -48,6 +48,10 @@ public sealed record ActionReview(
     /// <summary>Arguments the reviewer set; the originally submitted arguments are never overwritten.</summary>
     public string? EditedArgumentsJson { get; init; }
 
+    /// <summary>The argument digest of <see cref="EditedArgumentsJson"/>, recorded when the review is stored. The claim runs the edited
+    /// arguments only if they still match it. Null for a review without an edit, and for reviews stored before this was recorded.</summary>
+    public string? EditedArgumentsHash { get; init; }
+
     /// <summary>The namespaced subject (see <see cref="Subjects"/>) the server authenticated, never taken from a request body.
     /// <see cref="Reviewer"/> is the display name.</summary>
     public string? Subject { get; init; }

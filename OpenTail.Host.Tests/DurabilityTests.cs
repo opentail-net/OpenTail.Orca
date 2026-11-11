@@ -17,7 +17,8 @@ public class DurabilityTests
         ToolName = tool,
         ModuleId = "fake",
         ArgumentsJson = args,
-        ArgumentsHash = "h" + Guid.NewGuid().ToString("N")[..8],
+        ArgumentsHash = ArgumentDigest.Of(args),
+        PolicyHash = PolicyConfig.Parse(Hosts.SendQueued).Hash(),
         Requester = Me,
         Status = status,
         PolicyMode = ToolMode.Execute,
@@ -184,7 +185,7 @@ public class DurabilityTests
         await host.Queue.ReviewAsync(pending.Id, Approve);
 
         var events = audit.Read(pending.Id).Select(e => e.Event).ToList();
-        Assert.Equal(["policy_decision", "approval_requested", "approval_allowed", "execution_started", "execution_succeeded"], events);
+        Assert.Equal(["policy_decision", "approval_requested", "approval_allowed", "approval_consumed", "execution_started", "execution_succeeded"], events);
         Assert.DoesNotContain(audit.Read(), e => (e.Detail ?? "").Contains("a@b.c"));
     }
 

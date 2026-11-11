@@ -138,7 +138,7 @@ public sealed class OpenTailHostBuilder
         var levels = new IdentityLevels(_levelStore ?? new InMemoryIdentityLevelStore(), _policy.Limits, audit, _clock);
         var labels = new DataLabels(_labelStore ?? new InMemoryLabelStore(), _policy, _clock);
         var executor = new ActionExecutor(catalog, store, audit, sessions, _inputGuards, _outputGuards, _clock, _lease, events, _sandbox,
-            new CapacityLimits(_policy, _clock), levels, _policy.Decoys, labels, _policy.Failures, new Circuits(_policy.Failures, _clock));
+            new CapacityLimits(_policy, _clock), levels, _policy.Decoys, labels, _policy.Failures, new Circuits(_policy.Failures, _clock), currentPolicyHash: () => resolver.PolicyHash);
         if (_shadow) warnings.Add("Shadow mode: Read tools run against the real systems with this instance's credentials; everything above Read is recorded, never run. Use read-only credentials and a database of its own.");
         else if (_sandbox is not null) warnings.Add("Sandbox mode: tool calls are answered by the sandbox and no module code runs.");
         var trust = new TrustAdvisor(resolver, store, audit, _clock);

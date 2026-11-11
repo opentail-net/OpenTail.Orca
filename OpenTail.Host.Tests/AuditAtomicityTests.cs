@@ -215,13 +215,13 @@ public sealed class AuditAtomicityTests
     }
 
     [Fact]
-    public async Task A_claim_is_not_recorded_without_its_started_entry()
+    public async Task A_claim_is_not_recorded_without_its_consumed_entry()
     {
         using var db = new TempDb();
         var host = Build(db, QueueMail);
         var queued = await host.Queue.SubmitAsync(Mail());
         await host.Store.TransitionAsync(queued.Id, ActionStatus.Pending, ActionStatus.Approved, r => r);
-        RefuseTrailEvent(db, "execution_started");
+        RefuseTrailEvent(db, "approval_consumed");
 
         await Assert.ThrowsAnyAsync<Exception>(() => host.Executor.ExecuteAsync(queued.Id));
 

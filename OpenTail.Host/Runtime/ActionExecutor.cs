@@ -1,4 +1,5 @@
 using System.Text.Json;
+using OpenTail.Host.Abstractions;
 
 namespace OpenTail.Host;
 
@@ -19,8 +20,22 @@ public sealed class ActionExecutor(
     IReadOnlyList<string>? decoys = null,
     DataLabels? labels = null,
     FailuresConfig? failures = null,
-    Circuits? circuits = null) : IActionExecutor
+    Circuits? circuits = null,
+    Func<string>? currentPolicyHash = null) : IActionExecutor
 {
+    /// <summary>Why an approval no longer holds at its claim (reason codes of the approval protocol). The detail of an
+    /// <see cref="AuditEvents.ExecutionDenied"/> entry is one of these.</summary>
+    public const string ReasonApprovalExpired = "approval_expired";
+    public const string ReasonPolicyVersionMismatch = "policy_version_mismatch";
+    public const string ReasonActionDigestMismatch = "action_digest_mismatch";
+
+    private static readonly Dictionary<string, string> RefusalMessages = new()
+    {
+        [ReasonApprovalExpired] = "The request had expired by the time it was approved, so nothing was run.",
+        [ReasonPolicyVersionMismatch] = "The policy changed after this was decided, so nothing was run. Submit it again under the current policy.",
+        [ReasonActionDigestMismatch] = "The arguments no longer match what was approved, so nothing was run.",
+    };
+
     private readonly TimeProvider _clock = clock ?? TimeProvider.System;
     private readonly FailuresConfig _failures = failures ?? new FailuresConfig();
 
@@ -379,19 +394,46 @@ public sealed class ActionExecutor(
     internal async Task<ActionRecord?> ClaimAndRunAsync(ActionRecord approved, bool countAttempt, CancellationToken ct)
     {
         var now = _clock.GetUtcNow();
+
+        // The approval was given for one request, under one policy, for these arguments. Check that it still holds before anything is
+        // claimed. A refused approval fails the action, nothing runs, and the refusal is audited with its reason.
+        if (RecheckRefusal(approved, now) is { } reason)
+        {
+            var refused = await AtomicTrail.ChangeAsync(store, audit, approved.Id, ActionStatus.Approved, ActionStatus.Failed,
+                r => r with { Error = new ActionError(reason, RefusalMessages[reason], false) },
+                d => new AuditEntry(d.UpdatedAt, AuditEvents.ExecutionDenied, d.Id, d.ToolName, d.Requester.Id, reason), ct);
+            if (refused is null) return null;
+            return await ReportRefusalAsync(refused, ct, auditWritten: true);
+        }
+
         var gate = RateGate.For(approved.ToolName, approved.PolicySnapshot?.RateLimit);
-        // The claim and its entry are one transaction: "execution_started" when the slot is taken, "execution_failed" when the rate limit
-        // refuses it. Nothing is recorded as started that did not start.
+        // The claim and its entry are one transaction: "approval_consumed" when the approval is spent on this run, "execution_failed" when
+        // the rate limit refuses it. Nothing is recorded as consumed that was not.
         var claimed = await AtomicTrail.ChangeAdmittedAsync(store, audit, approved.Id, ActionStatus.Approved, ActionStatus.Executing,
             r => r with { LeaseUntil = now + LeaseDuration, Attempts = countAttempt ? r.Attempts + 1 : r.Attempts },
             gate.Admissions, (i, current) => gate.Refuse(current, i, now),
             d => d.Status == ActionStatus.Executing
-                ? new AuditEntry(d.UpdatedAt, "execution_started", d.Id, d.ToolName, d.Requester.Id, null)
+                ? new AuditEntry(d.UpdatedAt, AuditEvents.ApprovalConsumed, d.Id, d.ToolName, d.Requester.Id, null)
                 : new AuditEntry(d.UpdatedAt, "execution_failed", d.Id, d.ToolName, d.Requester.Id, d.Error?.Code), ct);
         if (claimed is null) return null;
         return claimed.Status == ActionStatus.Failed
             ? await ReportRefusalAsync(claimed, ct, auditWritten: true)
-            : await RunClaimedAsync(claimed, ct, startedWritten: true);
+            : await RunClaimedAsync(claimed, ct, startedWritten: false);
+    }
+
+    /// <summary>Why an approved action must not run, or null when its approval still holds: the request expired before it was approved,
+    /// the policy it was decided under is no longer the one in force (or the Host cannot say what that is), or the arguments that would
+    /// run are not the ones approved. An edit is checked against the digest recorded with its review; without one, the stored arguments
+    /// are checked against the digest made at submission.</summary>
+    internal string? RecheckRefusal(ActionRecord approved, DateTimeOffset now)
+    {
+        if (approved.ExpiresAt is { } deadline && deadline <= now) return ReasonApprovalExpired;
+        var current = currentPolicyHash?.Invoke();
+        if (current is null || approved.PolicyHash is null || approved.PolicyHash != current) return ReasonPolicyVersionMismatch;
+        var lastEdit = approved.Reviews.LastOrDefault(r => r.EditedArgumentsJson is not null);
+        var expected = lastEdit is null ? approved.ArgumentsHash : lastEdit.EditedArgumentsHash;
+        if (expected is null || ArgumentDigest.Of(approved.EffectiveArgumentsJson) != expected) return ReasonActionDigestMismatch;
+        return null;
     }
 
     /// <summary>A refusal at the claim or at creation: the action never ran. It is reported as any failure is, and counts toward the
