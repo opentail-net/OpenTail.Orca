@@ -48,10 +48,11 @@ public class ArchitectureTests
             var self = Path.GetFileNameWithoutExtension(csproj);
             // Connectivity.* are leaf connector projects (none reference Core), so modules may wrap them. Provider packages
             // (Email.Imap, Calendar.Ics, Microsoft365, Sql.Oracle) may also reference the provider-neutral tool modules, which reference no module.
-            var illegal = projects.Where(p => p != "OpenTail.Host.Abstractions" && !p.StartsWith("OpenTail.Connectivity.", StringComparison.Ordinal)
+            // OpenTail.AgentSkills is a leaf library (no project references; it reads and checks skill directories, see docs/design/agent-skills-library.md).
+            var illegal = projects.Where(p => p != "OpenTail.Host.Abstractions" && p != "OpenTail.AgentSkills" && !p.StartsWith("OpenTail.Connectivity.", StringComparison.Ordinal)
                 && !(ToolModules.Contains(p) && !ToolModules.Contains(self))).ToList();
             Assert.True(illegal.Count == 0,
-                $"{Path.GetFileName(csproj)} references {string.Join(", ", illegal)}; modules may reference only OpenTail.Host.Abstractions, OpenTail.Connectivity.* " +
+                $"{Path.GetFileName(csproj)} references {string.Join(", ", illegal)}; modules may reference only OpenTail.Host.Abstractions, OpenTail.AgentSkills, OpenTail.Connectivity.* " +
                 $"and the provider-neutral modules {string.Join(", ", ToolModules)}.");
         }
     }
