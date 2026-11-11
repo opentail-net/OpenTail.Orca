@@ -45,6 +45,61 @@ public sealed class SkillsModuleTests : IDisposable
         return (new OpenTailHostBuilder().AddModule(module).UsePolicy(PolicyConfig.Parse(Policy)).UseAudit(audit).Build(), audit);
     }
 
+    [Fact]
+    public async Task A_v2_policy_hash_is_checked_by_the_drift_check_like_a_v1_hash()
+    {
+        var policies = Path.Combine(_root, "policies");
+        Directory.CreateDirectory(policies);
+        var file = Path.Combine(policies, "payment-verification.md");
+        File.WriteAllText(file, "Invoices above 10,000.00 need a second approver.\n");
+        var tested = SkillText.HashV2(File.ReadAllText(file));
+        var (host, _) = Build(policies);
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1", tested), "Read the payment verification policy.");
+
+        // Line endings and blank lines at the end are not content under v2: no warning.
+        File.WriteAllText(file, "Invoices above 10,000.00 need a second approver.\r\n\r\n");
+        Assert.Empty((await pair.CallAsync("skills.get", ("id", "invoice-check")))["result"]!["policyWarnings"]!.AsArray());
+
+        // A change of wording is.
+        File.WriteAllText(file, "Invoices above 5,000.00 need a second approver.\n");
+        var warning = (await pair.CallAsync("skills.get", ("id", "invoice-check")))["result"]!["policyWarnings"]!.AsArray();
+        Assert.Contains("older version of policies/payment-verification.md", Assert.Single(warning)!.ToString());
+    }
+
+    [Fact]
+    public async Task A_v2_binding_verifies_the_version_it_was_made_for_and_other_content_is_refused()
+    {
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        var proposed = SkillStore.Parse(Meta("1"), "Never pay from an email.", "invoice-check", "1");
+        var other = SkillStore.Parse(Meta("1"), "Pay whoever asks.", "invoice-check", "1");
+
+        var forged = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "First."), ("expectedFrom", "none"),
+            ("skillJson", Meta("1")), ("instructions", "Never pay from an email."), ("report", SkillText.BindingLineV2(other) + "\n\nAll 31 scenarios pass."));
+        Assert.Equal("invalid_arguments", forged["error"]!["code"]!.ToString());
+        Assert.Contains("describes other content", forged.ToJsonString());
+
+        var bound = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "First."), ("expectedFrom", "none"),
+            ("skillJson", Meta("1")), ("instructions", "Never pay from an email."), ("report", SkillText.BindingLineV2(proposed) + "\n\nAll 31 scenarios pass."));
+        var diff = JsonNode.Parse(JsonNode.Parse((await host.Store.GetAsync(S(bound, "actionId")))!.PreviewJson!)!["DiffJson"]!.ToString())!;
+        Assert.StartsWith("Bound:", diff["reportCheck"]!.ToString());
+    }
+
+    [Fact]
+    public async Task A_republish_differing_only_in_indentation_is_refused_at_preview()
+    {
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+        await Publish(pair, host, "1", Meta("1"), "if (x == 1)\n    return true;");
+
+        var refused = await pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", "1"), ("reason", "Same content."), ("expectedFrom", "1"),
+            ("skillJson", Meta("1")), ("instructions", "if (x == 1)\nreturn true;"));
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("already published with different content", refused.ToJsonString());
+    }
+
     private static async Task<JsonObject> Publish(McpPair pair, OpenTailHost host, string version, string? meta, string? instructions, string reason = "Better checks.",
         string from = "none")
     {

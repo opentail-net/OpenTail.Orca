@@ -273,8 +273,8 @@ public sealed partial class SkillStore(string root)
                 Parse(metadataJson, instructions, id, version);
                 if (existing is not null)
                 {
-                    if (SkillText.Normalise(existing.Instructions) != SkillText.Normalise(instructions) ||
-                        SkillText.Normalise(existing.MetadataJson) != SkillText.Normalise(metadataJson))
+                    // Equal by the v2 canonical text and the parsed metadata: an indentation-only change is different content (content-hashing plan, H2).
+                    if (!SkillText.SameContent(existing.Instructions, existing.MetadataJson, instructions, metadataJson))
                         throw new ArgumentException($"{id} version {version} is already published with different content; use a new version number.");
                 }
                 else
@@ -385,7 +385,7 @@ public sealed partial class SkillStore(string root)
     [GeneratedRegex("^[1-9][0-9]{0,8}$")]
     private static partial Regex VersionPattern();
 
-    // The policy hash syntax of the v1 hash (SkillText.Hash). The v2 prefix is added with the hashing plan's step 4, together with this rule (store plan, design item 4).
-    [GeneratedRegex(@"^sha256:[0-9a-f]{64}\z")]
+    // The policy hash syntax: the v1 hash (SkillText.Hash) and the v2 hash (SkillText.HashV2), both lowercase hex (store plan, design item 4).
+    [GeneratedRegex(@"^sha256(?:v2)?:[0-9a-f]{64}\z")]
     private static partial Regex PolicyHashPattern();
 }
