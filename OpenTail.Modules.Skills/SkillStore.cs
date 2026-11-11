@@ -112,6 +112,83 @@ public sealed partial class SkillStore(string root)
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException(ex.Message, ex); }
     }
 
+    /// <summary>Whether a version folder is in place, complete or not. <see cref="Get"/> returns null for both a missing and an incomplete folder, so a
+    /// caller that must tell them apart (publish, preview) asks this as well. An incomplete folder is never treated as a new version.</summary>
+    public bool HasFolder(string id, string version) => IsId(id) && IsVersion(version) && Directory.Exists(Path.Combine(Root, id, version));
+
+    /// <summary>What a store check found. <c>Problems</c> are damage the read path reports or refuses, and folders nothing reads.
+    /// <c>Notes</c> are not damage: a complete version that no label points at (history, or a publish that stopped before its label moved).</summary>
+    public sealed record StoreCheck(IReadOnlyList<string> Problems, IReadOnlyList<string> Notes);
+
+    /// <summary>Scans the store and lists what is wrong with it. It serves nothing and writes nothing (store plan, design item 7). It lists every
+    /// problem the read path reports, and what the read path never sees: complete versions no label points at, incomplete version folders, and
+    /// leftover temporary folders and files. It does not compare policy text with a deployment's policy folder: that drift check needs one.</summary>
+    public StoreCheck Check()
+    {
+        var problems = new List<string>();
+        var notes = new List<string>();
+        if (!Directory.Exists(Root)) return new StoreCheck([$"The store folder {Root} does not exist."], notes);
+        var read = ReadLabelsChecked();
+        problems.AddRange(read.Problems.Select(p => p.Message));
+        if (File.Exists(Path.Combine(Root, "labels.json.tmp")))
+            problems.Add("labels.json.tmp is left over from a publish that did not finish. Nothing reads it. Check labels.json, then remove it by hand.");
+
+        var labelled = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (id, labels) in read.Labels)
+            foreach (var (label, version) in labels)
+            {
+                labelled.Add(id + "@" + version);
+                // A label at a missing folder is named here; a damaged folder is named once, below, under its own folder.
+                if (!Directory.Exists(Path.Combine(Root, id, version)))
+                    problems.Add($"{label} of {id} points at {version}, which is not in the store.");
+            }
+
+        foreach (var skillDir in Directory.GetDirectories(Root).OrderBy(d => d, StringComparer.Ordinal))
+        {
+            var id = Path.GetFileName(skillDir);
+            if (!IsId(id))
+            {
+                problems.Add($"{id}: a folder in the store whose name is not a skill id. Nothing reads it.");
+                continue;
+            }
+            foreach (var versionDir in Directory.GetDirectories(skillDir).OrderBy(d => d, StringComparer.Ordinal))
+            {
+                var version = Path.GetFileName(versionDir);
+                if (version.Contains(".tmp-", StringComparison.Ordinal))
+                {
+                    problems.Add($"{id}/{version}: a temporary folder left by a publish that did not finish. Nothing reads it. Remove it by hand.");
+                    continue;
+                }
+                if (!IsVersion(version))
+                {
+                    problems.Add($"{id}/{version}: a folder whose name is not a version number. Nothing reads it.");
+                    continue;
+                }
+                if (!File.Exists(Path.Combine(versionDir, "skill.json")) || !File.Exists(Path.Combine(versionDir, "SKILL.md")))
+                {
+                    problems.Add($"{id}@{version}: an incomplete version folder (skill.json or SKILL.md is missing). Nothing serves it.");
+                    continue;
+                }
+                SkillVersion? s;
+                try { s = Get(id, version); }
+                catch (ArgumentException ex) { problems.Add($"{id}@{version}: {ex.Message}"); continue; }
+                if (s is null) { problems.Add($"{id}@{version}: its files cannot be read as a version. Nothing serves it."); continue; }
+                if (labelled.Contains(id + "@" + version))
+                    problems.AddRange(PolicyNameClashes(s.Policies).Select(c => $"{id}@{version}: {c}"));
+                else
+                    notes.Add($"{id}@{version} is complete but no label points at it, so it is not served. It is history, or a publish that stopped before its label moved; compare it with the audit trail.");
+            }
+        }
+        return new StoreCheck(problems, notes);
+    }
+
+    /// <summary>The policy references of one skill that resolve to one file name, each group named. Two different references with one file name read
+    /// one file (store plan, S5). Compared without case, as Windows compares file names. Identical references are one policy, not a clash.</summary>
+    public static IReadOnlyList<string> PolicyNameClashes(IEnumerable<SkillPolicy> policies) =>
+        [.. policies.Select(p => p.Ref).Distinct(StringComparer.Ordinal)
+            .GroupBy(r => Path.GetFileName(r), StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1)
+            .Select(g => $"Policies {string.Join(" and ", g)} have the same file name, {g.Key}. This deployment resolves a policy by its file name, so they read one file.")];
+
     /// <summary>Checks a version's files: the metadata must parse and name this id and version. Throws ArgumentException.</summary>
     public static SkillVersion Parse(string metadataJson, string instructions, string id, string version)
     {
@@ -127,11 +204,15 @@ public sealed partial class SkillStore(string root)
             JsonValue v when v.GetValueKind() == JsonValueKind.String => v.GetValue<string>(),
             _ => throw new ArgumentException($"skill.json '{key}', when given, must be a string."),
         };
+        // A list entry is text with something in it: a blank entry matches nothing and is refused, not kept (store plan, design item 4).
+        static string NonBlank(string value, string key) => string.IsNullOrWhiteSpace(value)
+            ? throw new ArgumentException($"skill.json '{key}' has a blank entry; each entry must be a non-empty string.")
+            : value;
         IReadOnlyList<string> List(string key) => o[key] switch
         {
             null => [],
             JsonArray a => [.. a.Select(n => n is JsonValue v && v.GetValueKind() == JsonValueKind.String
-                ? v.GetValue<string>()
+                ? NonBlank(v.GetValue<string>(), key)
                 : throw new ArgumentException($"skill.json '{key}' must be a list of strings."))],
             _ => throw new ArgumentException($"skill.json '{key}' must be a list of strings."),
         };
@@ -143,7 +224,11 @@ public sealed partial class SkillStore(string root)
             var hash = po["hash"];
             if (hash is not null && !(hash is JsonValue h && h.GetValueKind() == JsonValueKind.String))
                 throw new ArgumentException("A skill policy's 'hash' must be a string, or null.");
-            return new SkillPolicy(r.GetValue<string>(), hash?.GetValue<string>());
+            var hashText = hash?.GetValue<string>();
+            // The syntax is checked here, so a hash that cannot be compared with any policy's text is refused at publish and named at read.
+            if (hashText is not null && !PolicyHashPattern().IsMatch(hashText))
+                throw new ArgumentException("A skill policy's 'hash' must be null, or 'sha256:' and 64 lowercase hex digits.");
+            return new SkillPolicy(r.GetValue<string>(), hashText);
         }
         if (Text("id") != id) throw new ArgumentException($"skill.json names '{Text("id")}', not '{id}'.");
         if (Text("version") != version) throw new ArgumentException($"skill.json is version {Text("version")}, not {version}.");
@@ -180,6 +265,7 @@ public sealed partial class SkillStore(string root)
             if (expectedFrom is not null && (LabelOf(labels, id, label) ?? NoVersion) != expectedFrom)
                 throw new InvalidOperationException($"The '{label}' label of {id} moved since this was reviewed (it was expected at {expectedFrom}, " +
                                                     $"it is at {LabelOf(labels, id, label) ?? NoVersion}). Nothing was published: resubmit.");
+            string? created = null; // the version folder this publish moved into place: removed again if the label write does not complete
             var existing = Get(id, version);
             if (metadataJson is not null || instructions is not null)
             {
@@ -194,12 +280,24 @@ public sealed partial class SkillStore(string root)
                 else
                 {
                     var dir = Path.Combine(Root, id, version);
+                    // A folder already in place is never overwritten or repaired: it is refused and named (store plan, publish table).
+                    if (Directory.Exists(dir))
+                        throw new ArgumentException($"{id}@{version} has a folder that is not a complete version, so nothing was published. Remove or repair it by hand first.");
                     var tmp = dir + ".tmp-" + Guid.NewGuid().ToString("N");
-                    Directory.CreateDirectory(tmp);
-                    File.WriteAllText(Path.Combine(tmp, "skill.json"), metadataJson);
-                    File.WriteAllText(Path.Combine(tmp, "SKILL.md"), instructions);
-                    Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
-                    Directory.Move(tmp, dir);
+                    try
+                    {
+                        Directory.CreateDirectory(tmp);
+                        File.WriteAllText(Path.Combine(tmp, "skill.json"), metadataJson);
+                        File.WriteAllText(Path.Combine(tmp, "SKILL.md"), instructions);
+                        Directory.CreateDirectory(Path.GetDirectoryName(dir)!);
+                        Directory.Move(tmp, dir);
+                    }
+                    catch
+                    {
+                        DeleteTree(tmp);
+                        throw;
+                    }
+                    created = dir;
                 }
             }
             else if (existing is null) throw new ArgumentException($"{id} has no published version {version}; send skillJson and instructions to add it.");
@@ -209,8 +307,21 @@ public sealed partial class SkillStore(string root)
             var forSkill = skills[id] as JsonObject ?? (JsonObject)(skills[id] = new JsonObject());
             forSkill[label] = version;
             var tmpLabels = labelsPath + ".tmp";
-            File.WriteAllText(tmpLabels, labels.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
-            File.Move(tmpLabels, labelsPath, overwrite: true);
+            try
+            {
+                File.WriteAllText(tmpLabels, labels.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                File.Move(tmpLabels, labelsPath, overwrite: true);
+            }
+            catch
+            {
+                // The label did not move, so the version this publish created is removed: a new version is never left unlabelled by a handled failure (store plan, guarantee 2).
+                if (created is not null) DeleteTree(created);
+                throw;
+            }
+            finally
+            {
+                if (File.Exists(tmpLabels)) File.Delete(tmpLabels);
+            }
         }
     }
 
@@ -258,6 +369,12 @@ public sealed partial class SkillStore(string root)
         return root;
     }
 
+    /// <summary>Removes a folder that a publish created, if it still exists. Used only for folders this publish made itself.</summary>
+    private static void DeleteTree(string path)
+    {
+        if (Directory.Exists(path)) Directory.Delete(path, recursive: true);
+    }
+
     /// <summary>The version a label holds in a labels file read by <see cref="ReadLabelsForWrite"/>, or null when it has none.</summary>
     private static string? LabelOf(JsonObject labels, string id, string label) =>
         labels["skills"] is JsonObject skills && skills[id] is JsonObject forSkill && forSkill[label] is JsonValue v ? v.GetValue<string>() : null;
@@ -267,4 +384,8 @@ public sealed partial class SkillStore(string root)
 
     [GeneratedRegex("^[1-9][0-9]{0,8}$")]
     private static partial Regex VersionPattern();
+
+    // The policy hash syntax of the v1 hash (SkillText.Hash). The v2 prefix is added with the hashing plan's step 4, together with this rule (store plan, design item 4).
+    [GeneratedRegex(@"^sha256:[0-9a-f]{64}\z")]
+    private static partial Regex PolicyHashPattern();
 }

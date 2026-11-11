@@ -586,23 +586,379 @@ public sealed class SkillsModuleTests : IDisposable
     }
 
     [Fact]
+    public void A_failed_publish_after_the_folder_is_created_leaves_no_folder_and_no_label_change()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        var store = new SkillStore(storeDir);
+        store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none");
+        var labelsBefore = File.ReadAllText(Path.Combine(storeDir, "labels.json"));
+        // The label write cannot complete: its temporary file name is taken by a folder, so the write fails after the version folder was moved into place.
+        Directory.CreateDirectory(Path.Combine(storeDir, "labels.json.tmp"));
+
+        var ex = Record.Exception(() =>
+            store.Publish("invoice-check", "2", "production", Meta("2"), "Never pay from an email, and check the bank details by phone.", expectedFrom: "1"));
+
+        Assert.True(ex is IOException or UnauthorizedAccessException, $"expected a file error, got {ex?.GetType().Name}");
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")), "the version folder this publish created must be removed");
+        Assert.Empty(Directory.GetDirectories(Path.Combine(storeDir, "invoice-check"), "*.tmp-*"));
+        Assert.Equal(labelsBefore, File.ReadAllText(Path.Combine(storeDir, "labels.json")));
+        Assert.Equal("1", store.LabelledVersion("invoice-check", "production"));
+    }
+
+    [Fact]
+    public void A_publish_into_an_incomplete_version_folder_is_refused_and_leaves_no_temporary_folder()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        var folder = Path.Combine(storeDir, "invoice-check", "1");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "skill.json"), Meta("1"));
+        var store = new SkillStore(storeDir);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            store.Publish("invoice-check", "1", "production", Meta("1"), "Never pay from an email.", expectedFrom: "none"));
+
+        Assert.Contains("invoice-check@1", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("not a complete version", ex.Message, StringComparison.Ordinal);
+        // The folder is named and left as it was: nothing is repaired or overwritten by a publish.
+        Assert.True(File.Exists(Path.Combine(folder, "skill.json")));
+        Assert.False(File.Exists(Path.Combine(folder, "SKILL.md")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(storeDir, "invoice-check"), "*.tmp-*"));
+        Assert.False(File.Exists(Path.Combine(storeDir, "labels.json")), "no label may be written");
+    }
+
+    [Theory]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [ "" ], "tools": [], "policies": [] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [ "   " ], "tools": [], "policies": [] }""")]
+    [InlineData("""{ "format": 1, "id": "invoice-check", "version": "1", "summary": "s", "appliesTo": [ "an invoice arrives" ], "tools": [ "" ], "policies": [] }""")]
+    public async Task A_blank_applies_to_or_tools_entry_is_named_when_read(string metadataJson)
+    {
+        // Written by hand, as a damaged file would be: find names it, get refuses it, and publish never creates a version with it.
+        var storeDir = Path.Combine(_root, "store");
+        var dir = Path.Combine(storeDir, "invoice-check", "1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "skill.json"), metadataJson);
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"), "Never pay from an email.");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check@1", warning, StringComparison.Ordinal);
+        Assert.Contains("blank entry", warning, StringComparison.Ordinal);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("failed", S(got, "status"));
+        Assert.Contains("blank entry", got["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new SkillStore(storeDir).Publish("invoice-check", "2", "production", metadataJson.Replace("\"1\"", "\"2\"", StringComparison.Ordinal), "Never pay from an email.", expectedFrom: "1"));
+        Assert.Contains("blank entry", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")));
+    }
+
+    public static TheoryData<string> BadPolicyHashes() =>
+    [
+        "sha256:" + new string('A', 64), // upper case is not the form SkillText.Hash writes
+        "sha256:" + new string('a', 63),
+        "sha256:" + new string('a', 65),
+        "sha256:" + new string('g', 64), // not hex
+        "sha1:" + new string('a', 40),   // another algorithm, not known to this Host
+        "",                              // text, but not a hash
+    ];
+
+    [Theory]
+    [MemberData(nameof(BadPolicyHashes))]
+    public async Task A_policy_hash_that_is_not_sha256_syntax_is_named_when_read_and_refused_at_publish(string hash)
+    {
+        var storeDir = Path.Combine(_root, "store");
+        var dir = Path.Combine(storeDir, "invoice-check", "1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "skill.json"), Meta("1", hash));
+        File.WriteAllText(Path.Combine(dir, "SKILL.md"), "Never pay from an email.");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": "1" } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var found = await pair.CallAsync("skills.find", ("situation", "invoice by email"));
+        Assert.Empty(found["result"]!["skills"]!.AsArray());
+        var warning = Assert.Single(found["result"]!["warnings"]!.AsArray())!.ToString();
+        Assert.Contains("invoice-check@1", warning, StringComparison.Ordinal);
+        Assert.Contains("'hash' must be null", warning, StringComparison.Ordinal);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("failed", S(got, "status"));
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            new SkillStore(storeDir).Publish("invoice-check", "2", "production", Meta("2", hash), "Never pay from an email.", expectedFrom: "1"));
+        Assert.Contains("'hash' must be null", ex.Message, StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(storeDir, "invoice-check", "2")));
+    }
+
+    private void PublishWithPolicies(string refs)
+    {
+        var metadata = $$"""
+            { "format": 1, "id": "invoice-check", "version": "1",
+              "summary": "Check whether an unpaid invoice is genuine before anyone pays or chases it.",
+              "appliesTo": [ "an invoice or payment demand arrives by email" ],
+              "tools": [ "mail.read" ], "policies": [ {{refs}} ], "owner": "finance-ops" }
+            """;
+        new SkillStore(Path.Combine(_root, "store")).Publish("invoice-check", "1", "production", metadata, "Never pay from an email.", "none");
+    }
+
+    [Fact]
+    public async Task Two_policy_references_with_one_file_name_are_named()
+    {
+        PublishWithPolicies("""{ "ref": "policies/payment-verification.md", "hash": null }, { "ref": "archive/payment-verification.md", "hash": null }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+
+        var warning = Assert.Single(got["result"]!["policyWarnings"]!.AsArray())!.ToString();
+        Assert.Contains("policies/payment-verification.md and archive/payment-verification.md", warning, StringComparison.Ordinal);
+        Assert.Contains("payment-verification.md", warning, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Two_identical_policy_references_are_one_policy_and_are_not_named()
+    {
+        PublishWithPolicies("""{ "ref": "policies/payment-verification.md", "hash": null }, { "ref": "policies/payment-verification.md", "hash": null }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+
+        Assert.Empty(got["result"]!["policyWarnings"]!.AsArray());
+    }
+
+    [Fact]
+    public async Task An_unlabelled_version_folder_is_never_served_and_the_store_check_reports_it()
+    {
+        PublishDirect("invoice-check", "1");
+        // A complete version 2 that no label points at: what a publish leaves when it stops before its label moves.
+        var folder = Path.Combine(_root, "store", "invoice-check", "2");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "skill.json"), Meta("2"));
+        File.WriteAllText(Path.Combine(folder, "SKILL.md"), "Pay whoever asks.");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var got = await pair.CallAsync("skills.get", ("id", "invoice-check"));
+        Assert.Equal("invoice-check@1", got["result"]!["served"]!.ToString());
+        Assert.DoesNotContain("Pay whoever asks.", got.ToJsonString(), StringComparison.Ordinal);
+
+        var check = new SkillStore(Path.Combine(_root, "store")).Check();
+        Assert.Empty(check.Problems);
+        Assert.Single(check.Notes, n => n.StartsWith("invoice-check@2 is complete but no label points at it", StringComparison.Ordinal));
+    }
+
+    private static string SkillJson(string id, string version, string appliesTo = "\"an invoice or payment demand arrives by email\"", string policies = "") =>
+        $$"""{ "format": 1, "id": "{{id}}", "version": "{{version}}", "summary": "Check an invoice.", "appliesTo": [ {{appliesTo}} ], "tools": [ "mail.read" ], "policies": [ {{policies}} ], "owner": "finance-ops" }""";
+
+    [Fact]
+    public void The_store_check_lists_every_problem_and_serves_nothing()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        void Version(string id, string version, string? metadata, string? instructions)
+        {
+            var folder = Path.Combine(storeDir, id, version);
+            Directory.CreateDirectory(folder);
+            if (metadata is not null) File.WriteAllText(Path.Combine(folder, "skill.json"), metadata);
+            if (instructions is not null) File.WriteAllText(Path.Combine(folder, "SKILL.md"), instructions);
+        }
+        // Complete and labelled, but two policy references share a file name: a problem the read path names too.
+        Version("invoice-check", "1", SkillJson("invoice-check", "1", policies: """{ "ref": "policies/payment-verification.md", "hash": null }, { "ref": "archive/payment-verification.md", "hash": null }"""), "Never pay from an email.");
+        // Complete, labelled nowhere: a note, not a problem.
+        Version("invoice-check", "2", SkillJson("invoice-check", "2"), "Pay whoever asks.");
+        // A temporary folder a publish left behind.
+        Version("invoice-check", "3.tmp-abc123", SkillJson("invoice-check", "3"), "Pay whoever asks.");
+        // A blank applies-to entry: damaged, and labelled.
+        Version("email-triage", "1", SkillJson("email-triage", "1", appliesTo: "\"\""), "Triage the inbox.");
+        // Incomplete: no SKILL.md, and labelled.
+        Version("reply-draft", "1", SkillJson("reply-draft", "1"), null);
+        // A folder whose name is not a skill id.
+        Version("Bad Name", "1", SkillJson("bad-name", "1"), "x");
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": "1" }, "email-triage": { "staging": "1" }, "reply-draft": { "production": "1" }, "ghost-skill": { "production": "4" }, "bad-entry": 5 } }""");
+        File.WriteAllText(Path.Combine(storeDir, "labels.json.tmp"), "{ partial");
+
+        var before = Snapshot(storeDir);
+        var check = new SkillStore(storeDir).Check();
+
+        // Serves nothing and writes nothing: the store is exactly as it was.
+        Assert.Equal(before, Snapshot(storeDir));
+        Assert.Equal(8, check.Problems.Count);
+        Assert.Contains(check.Problems, p => p.StartsWith("labels.json's entry for bad-entry is not an object", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("production of ghost-skill points at 4, which is not in the store.", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("labels.json.tmp is left over", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("Bad Name: a folder in the store whose name is not a skill id.", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("invoice-check@1: Policies policies/payment-verification.md and archive/payment-verification.md have the same file name", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("invoice-check/3.tmp-abc123: a temporary folder left by a publish", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("email-triage@1: skill.json 'appliesTo' has a blank entry", StringComparison.Ordinal));
+        Assert.Contains(check.Problems, p => p.StartsWith("reply-draft@1: an incomplete version folder", StringComparison.Ordinal));
+        Assert.Single(check.Notes, n => n.StartsWith("invoice-check@2 is complete but no label points at it", StringComparison.Ordinal));
+    }
+
+    private static List<string> Snapshot(string dir) =>
+        Directory.GetFileSystemEntries(dir, "*", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(dir, p) + "=" + (File.Exists(p) ? File.ReadAllText(p) : "<folder>"))
+            .Order(StringComparer.Ordinal).ToList();
+
+    [Fact]
+    public void The_store_check_command_exits_1_on_a_problem_and_0_on_a_clean_store_and_ignores_other_commands()
+    {
+        var storeDir = Path.Combine(_root, "store");
+        PublishDirect("invoice-check", "1");
+
+        var clean = new StringWriter();
+        Assert.Equal(0, SkillStoreCli.TryRun(["--check-skill-store", storeDir], clean));
+        Assert.Contains("The skill store has no problems.", clean.ToString(), StringComparison.Ordinal);
+
+        File.WriteAllText(Path.Combine(storeDir, "labels.json.tmp"), "{ partial");
+        var dirty = new StringWriter();
+        Assert.Equal(1, SkillStoreCli.TryRun(["--check-skill-store", storeDir], dirty));
+        Assert.Contains("PROBLEM: labels.json.tmp is left over", dirty.ToString(), StringComparison.Ordinal);
+
+        Assert.Equal(64, SkillStoreCli.TryRun(["--check-skill-store"], new StringWriter()));
+        Assert.Null(SkillStoreCli.TryRun(["--policy", "policy.json", "--db", "queue.db"], new StringWriter()));
+    }
+
+    // The preview is what skills.publish returns before approval: a refused preview is an invalid_arguments error, a shown one is pending_approval.
+    private static Task<JsonObject> Propose(McpPair pair, string version, string expectedFrom) =>
+        pair.CallAsync("skills.publish", ("skillId", "invoice-check"), ("version", version), ("reason", "Check it."), ("expectedFrom", expectedFrom),
+            ("skillJson", Meta(version)), ("instructions", "Never pay from an email."));
+
+    [Fact]
+    public async Task A_preview_with_malformed_labels_is_refused_and_names_the_file()
+    {
+        WriteLabels("this is not json");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("labels.json", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+        Assert.False(Directory.Exists(Path.Combine(_root, "store", "invoice-check", "2")));
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_damaged_label_entry_is_refused()
+    {
+        WriteLabels("""{ "format": 1, "skills": { "invoice-check": { "production": null } } }""");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        var message = refused["error"]!["message"]!.ToString();
+        Assert.Contains("'production' label for invoice-check", message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_label_pointing_at_a_missing_version_is_refused_and_names_it()
+    {
+        PublishDirect("invoice-check", "1");
+        Directory.Delete(Path.Combine(_root, "store", "invoice-check", "1"), recursive: true);
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("points at version 1, whose files are missing", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_an_incomplete_target_folder_is_refused_not_shown_as_new()
+    {
+        PublishDirect("invoice-check", "1");
+        var folder = Path.Combine(_root, "store", "invoice-check", "2");
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "skill.json"), Meta("2"));
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("not a complete version", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(folder, "SKILL.md")), "the preview must not complete the folder");
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_stale_expectedFrom_is_refused()
+    {
+        PublishDirect("invoice-check", "1");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "none");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("is at 1, not none", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_a_corrupt_target_version_is_refused_with_the_reason()
+    {
+        PublishDirect("invoice-check", "1");
+        File.WriteAllText(Path.Combine(_root, "store", "invoice-check", "1", "skill.json"), "{ not json");
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.Contains("not valid JSON", refused["error"]!["message"]!.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_preview_with_an_unreadable_target_version_is_refused_with_the_reason()
+    {
+        PublishDirect("invoice-check", "1");
+        // Held exclusively, as another program would hold it: the version cannot be read, so the preview refuses rather than guessing.
+        using var locked = new FileStream(Path.Combine(_root, "store", "invoice-check", "1", "skill.json"), FileMode.Open, FileAccess.Read, FileShare.None);
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var refused = await Propose(pair, "2", "1");
+
+        Assert.Equal("invalid_arguments", refused["error"]!["code"]!.ToString());
+        Assert.False(string.IsNullOrWhiteSpace(refused["error"]!["message"]!.ToString()));
+    }
+
+    [Fact]
+    public async Task A_preview_writes_nothing()
+    {
+        PublishDirect("invoice-check", "1");
+        var storeDir = Path.Combine(_root, "store");
+        var before = Snapshot(storeDir);
+        var (host, _) = Build();
+        await using var pair = await McpPair.StartAsync(host);
+
+        var queued = await Propose(pair, "2", "1");
+
+        Assert.Equal("pending_approval", S(queued, "status"));
+        Assert.Equal(before, Snapshot(storeDir));
+    }
+
+    [Fact]
     public async Task A_publish_is_refused_while_a_separate_process_holds_the_store()
     {
-        // The lock is held by another process, not by this test: a PowerShell child opens the lock file exclusively and reports that it has.
-        var shell = FindPowerShell();
-        if (shell is null)
-        {
-            Assert.Skip("PowerShell is not installed, so no second process can be started to hold the store.");
-            return;
-        }
+        // The lock is held by another process, not by this test: a second program, built with this test project, opens the lock file
+        // exclusively and reports that it has. It needs no PowerShell, so the test cannot be skipped (store plan, design item 9).
+        var holderDll = LockHolderDll();
+        Assert.True(File.Exists(holderDll), $"The lock holder is not built: {holderDll}");
         var root = Path.Combine(_root, "store");
         Directory.CreateDirectory(root);
         var lockPath = Path.Combine(root, ".publish.lock");
-        var holder = new ProcessStartInfo(shell) { RedirectStandardOutput = true, UseShellExecute = false };
-        holder.ArgumentList.Add("-NoProfile");
-        holder.ArgumentList.Add("-Command");
-        holder.ArgumentList.Add($"$lock = [System.IO.File]::Open('{lockPath}', 'OpenOrCreate', 'ReadWrite', 'None'); " +
-                                "[Console]::WriteLine('held'); [Console]::Out.Flush(); Start-Sleep -Seconds 120");
+        var holder = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet")
+            { RedirectStandardOutput = true, RedirectStandardInput = true, UseShellExecute = false };
+        holder.ArgumentList.Add(holderDll);
+        holder.ArgumentList.Add(lockPath);
         using var child = Process.Start(holder)!;
         try
         {
@@ -616,31 +972,19 @@ public sealed class SkillsModuleTests : IDisposable
         }
         finally
         {
-            child.Kill(entireProcessTree: true);
-            await child.WaitForExitAsync();
+            // Closing standard input ends the hold. The process is killed only if it does not end by itself.
+            child.StandardInput.Close();
+            if (!child.WaitForExit(10_000)) child.Kill(entireProcessTree: true);
         }
     }
 
-    /// <summary>The first PowerShell on the path that starts, or null.</summary>
-    private static string? FindPowerShell()
+    /// <summary>The lock holder program. It is built because this test project references it; found by the same walk as the isolation tests use for their worker.</summary>
+    private static string LockHolderDll()
     {
-        foreach (var name in new[] { "pwsh", "powershell" })
-        {
-            try
-            {
-                using var probe = Process.Start(new ProcessStartInfo(name, "-NoProfile -Command exit 0") { UseShellExecute = false, CreateNoWindow = true });
-                if (probe is not null)
-                {
-                    probe.WaitForExit();
-                    return name;
-                }
-            }
-            catch (System.ComponentModel.Win32Exception)
-            {
-                // Not installed under this name.
-            }
-        }
-        return null;
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        var config = dir.FullName.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "OpenTail.Host.slnx"))) dir = dir.Parent;
+        return Path.Combine(dir!.FullName, "OpenTail.Host.Tests.LockHolder", "bin", config, "net10.0", "OpenTail.Host.Tests.LockHolder.dll");
     }
 
     /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>

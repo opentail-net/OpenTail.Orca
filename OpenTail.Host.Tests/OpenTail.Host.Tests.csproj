@@ -40,5 +40,6 @@
     <ProjectReference Include="..\OpenTail.Profiles.Jira\OpenTail.Profiles.Jira.csproj" />
     <ProjectReference Include="..\OpenTail.Profiles.Confluence\OpenTail.Profiles.Confluence.csproj" />
     <ProjectReference Include="..\OpenTail.Host.Tests.Worker\OpenTail.Host.Tests.Worker.csproj" />
+    <ProjectReference Include="..\OpenTail.Host.Tests.LockHolder\OpenTail.Host.Tests.LockHolder.csproj" />
   </ItemGroup>
 </Project>
