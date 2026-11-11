@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.AgentSkills</PackageId>
+    <Description>Agent Skills (SKILL.md) for .NET: read a standard skill file, check its fields against the standard, and report what is wrong. No dependency on the OpenTail Host.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+</Project>

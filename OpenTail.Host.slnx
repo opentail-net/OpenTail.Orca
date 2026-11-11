@@ -18,6 +18,7 @@
     <Project Path="OpenTail.Modules.Calendar.Ics/OpenTail.Modules.Calendar.Ics.csproj" />
     <Project Path="OpenTail.Modules.Csv/OpenTail.Modules.Csv.csproj" />
     <Project Path="OpenTail.Modules.Skills/OpenTail.Modules.Skills.csproj" />
+    <Project Path="OpenTail.AgentSkills/OpenTail.AgentSkills.csproj" />
     <Project Path="OpenTail.Modules.Email/OpenTail.Modules.Email.csproj" />
     <Project Path="OpenTail.Modules.Email.Imap/OpenTail.Modules.Email.Imap.csproj" />
     <Project Path="OpenTail.Modules.Files/OpenTail.Modules.Files.csproj" />
