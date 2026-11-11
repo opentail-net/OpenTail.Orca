@@ -197,4 +197,17 @@ The scaffold waits for O-L1 (licence, repository, package name), which the owner
 
 ## Not built
 
-Nothing in this plan is built. The Host and the workbench still use the current code until step 1. The `StandardSkill` behaviour described under "Contracts" is built (committed in the Host); the library, its API and every migration step are planned. No NativeAOT claim is made until a `PublishAot` consumer builds and runs (the verification list above), and the scaffold waits for the gate above.
+**Built: the gate (step 0, provisionally) and step 1, on the Host, merged to `main` at `b2d7870`** (branch `feat/agentskills-library`, commit `3348c9c`; the Host suite passes on the merged state, 1154 tests, none skipped).
+
+- **Gate, provisional decisions** (for the owner to confirm or reverse): O-L1 as decided (PolyForm Strict, the Host's licence); O-L4 the Host keeps the store (recommended); O-L6 net10.0 (recommended; the owner's confirmation of the consumers is not yet recorded); O-L8 option (b), the safe open, **chosen provisionally, not yet verified**: the mechanisms are checked in step 4, and if they fail the choice falls back to option (a), as the plan says. O-L3 and O-L5 as recommended.
+- **Step 1, extraction with no behaviour change**: `OpenTail.AgentSkills` (net10.0, YamlDotNet only) holds `StandardSkillFile`, `StandardDiagnostic`, `SplitText`, the frontmatter reader, the field rules and the directory rule (`AgentSkill`). An architecture test (`AgentSkillsLibraryTests`) checks that the library references no OpenTail assembly. The Host keeps the save-time name rule, `Describe`, `Format` and `SuggestSaveName` in `StandardSkill`, which delegates to the library and keeps its public surface, so no call site changed.
+- **Deviations from step 1 as written, recorded**: the `ignoreKeys` parameter moved into the library, not left in the Host, because it is generic; nothing was retargeted (the call sites go through the facade); the library's tests were not moved into a library test project (they stay in the Host suite); and the ordering of the save-time name diagnostic changed (it now follows the library's diagnostics).
+
+**Not built, and why:**
+- **The workbench's reference to the library** (step 1 says the workbench references it): another repository, not changed here. Its code still reaches the standard through the Host's facade, which is unchanged, so it is not broken by this pass.
+- **Step 2, name rules aligned with the reference** (NFKC on the name and on both sides of the directory comparison, the corpus and its expected outcomes, and the divergences recorded in the library's README): not built. It changes what names are accepted, so it needs the corpus, which was not fetched.
+- **Step 3, preserving the fields** (the optional keys in the store and the identity, the round-trip test, and removing the "not stored" warnings): not built. It depends on O-L3 and O-H2, and on the store change of the hashing plan.
+- **Step 4, package file reads** (`ListFiles`, `ReadFile`, `OpenFile`, `ExportTo`, the safe-path rules and the concurrent-modification rule), and the verification of option (b): not built.
+- **Steps 5 and 6** (packaging and publishing as a package; step 6 waits for the owner's publication decision, which O-L1 does not give): not built.
+- **Resources** (`skill-resources.md`, work order step g): held. It depends on step 4 and on the owner decisions D1 to D6 in that plan.
+- **No NativeAOT claim** is made until a `PublishAot` consumer builds and runs (the verification list above).
