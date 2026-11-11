@@ -31,7 +31,8 @@ public static class StandardSkill
     {
         var found = AgentSkill.Check(file, directoryName).ToList();
         var name = file.Name;
-        if (saving && !string.IsNullOrEmpty(name) && name.EnumerateRunes().Any(r => !IsSaveable(r)))
+        // The saved name is judged after NFKC, as the library judges a name (a fullwidth name normalises to ASCII letters and digits).
+        if (saving && !string.IsNullOrEmpty(name) && name.Normalize(NormalizationForm.FormKC).EnumerateRunes().Any(r => !IsSaveable(r)))
             found.Add(Error("SKILL-NAME-ASCII", "A name saved to a skill uses only a-z, 0-9 and hyphens.", suggestion: SuggestSaveName(name)));
         return found;
     }

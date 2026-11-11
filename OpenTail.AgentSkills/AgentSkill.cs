@@ -113,18 +113,21 @@ public static class AgentSkill
         }
         else
         {
-            var runes = name.EnumerateRunes().ToList();
+            // As the reference validator does: the name is checked after NFKC normalisation, its length counts the normalised code points,
+            // and the directory name is compared after NFKC too (agent-skills-library plan, step 2).
+            var normal = name.Normalize(NormalizationForm.FormKC);
+            var runes = normal.EnumerateRunes().ToList();
             if (runes.Count > MaxNameLength)
                 found.Add(Error("SKILL-NAME", $"The name is {runes.Count} characters; the standard allows {MaxNameLength}."));
-            if (name != name.ToLowerInvariant())
+            if (normal != normal.ToLowerInvariant())
                 found.Add(Error("SKILL-NAME", "The name must be lowercase."));
-            if (name.StartsWith('-') || name.EndsWith('-'))
+            if (normal.StartsWith('-') || normal.EndsWith('-'))
                 found.Add(Error("SKILL-NAME", "The name must not start or end with a hyphen."));
-            if (name.Contains("--", StringComparison.Ordinal))
+            if (normal.Contains("--", StringComparison.Ordinal))
                 found.Add(Error("SKILL-NAME", "The name must not contain two hyphens in a row."));
             if (runes.Any(r => r.Value != '-' && !Rune.IsLetterOrDigit(r)))
                 found.Add(Error("SKILL-NAME", "The name may contain only letters, digits and hyphens."));
-            if (directoryName is not null && directoryName.Normalize(NormalizationForm.FormKC) != name)
+            if (directoryName is not null && directoryName.Normalize(NormalizationForm.FormKC) != normal)
                 found.Add(Error("SKILL-NAME-DIRECTORY", $"The name '{name}' does not match the directory name '{directoryName}'."));
         }
 
