@@ -167,4 +167,26 @@ Rows with no test today: everything else in both tables.
 
 ## Not built
 
-Nothing in this plan is built: not option A, not option B. Implementing option A waits for two decisions, which the skills-plan gates table lists: O-A2 (the window: review time, and the flag name) and O-A3 (whose decisions count). It also waits for three things that are not decisions: the measurement of work order step 0, the subject on the two `ActionQueue` reviews (Reviewer classes), and the check that a review moves the action's update time (Contracts; otherwise `ActionQuery` needs a new member first). Option B waits for O-A1, and the protocol change it needs is not proposed for now.
+**Built: step 0, the read-only measurement** (`--skill-outcomes-measure [--decided-since 30d] [--scheduled-since 30d]`), merged to Host `main` at `1088ea1` (branch `feat/attribution-measure`, commit `57935b9`; the Host suite passes on the merged state, 1132 tests, none skipped). It is `OpenTail.Host/Runtime/SkillMeasurement.cs` and the command in `PolicyCli`. It applies the rules of this plan: decisions timed by their effective review; clean, ambiguous and unattributed attribution; AI, operator, undo-window, system and unclassed counts kept apart; the stop rate on its own period, by scheduled time. It changes nothing and suggests nothing; `SkillOutcomes.CollectAsync` and `Suggest` are unchanged.
+
+What the built tests establish:
+- The store's `UpdatedSince` returns an action created before the window and reviewed inside it (`An_action_created_before_the_window_and_finally_reviewed_inside_it_is_returned_by_UpdatedSince`). Each decision moves `UpdatedAt`, so the store's filter is a superset, and the review time decides the window. No review-time query is needed.
+- The partial-approval rows hold: a first approval is not a decision while the action is pending; two approvals produce one outcome, at the completing one; a partial approval then a rejection counts only the rejection.
+- The late-stop boundary holds: a stop before the scheduled time is an undo-window stop; at it, or after it, late (`Late_stop_boundary_is_classed_by_scheduled_time`, parameterised). A mutation that counted the boundary as an undo-window stop fails that test.
+- The scheduled time is read from the queue's own `delayed` entry in UTC, to the second.
+
+**Not built, and why:**
+- **Option A (clean attribution in the admin command, and the suggestion on clean counts):** waits for O-A2 and O-A3, which are still recommendations, not decisions. The measurement exists so the owner can decide them on evidence (work order step 5).
+- **The subject on the two `ActionQueue` reviews** (`system` for the elapsed window; the stopper's subject for a stop): not made. The measurement counts the subject-less reviews as unclassed and identifies the elapsed windows and stops from the audit trail instead. This is correct for the measurement; option A needs the change.
+- **`LastServed` over all serves in the window** (option A, the `Last_served_…` row): not built.
+- **Option B** (the client sends its skill context): waits for O-A1 and is not proposed for now.
+- **The stop-rate denominator** is built from the `delayed` detail, which is to the second. A stop in the same second as the scheduled time counts as late; this is stated in the report's limits. A structured field on the `delayed` entry would remove that, and is not made.
+- **AI reviewer decisions** have no integration test (they need the AI verdict path). Their classing is unit-tested only through `ClassOf`.
+- **Operator cancellation after a person's decision** (`A_persons_decision_before_an_operator_cancellation_still_counts`): not tested. The store does not accept a review on a decided action, so the case needs a store-level setup that was not built.
+- **Documentation** (work order step 4, `docs/guides`): not updated in this pass.
+
+**Provisional decisions taken during autonomous work** (for the owner to reverse):
+- The measurement counts a review as a person's when its subject is `local`, `admin:`, `jwt:` or `teams:`. A `key:` subject is counted as "other" and excluded, because an API key is not established as a person.
+- An approval that did not complete the required approvals is "awaiting", not a decision, whatever the review time.
+- `--since` is refused by the measurement command, naming `--decided-since`. The existing `--skill-outcomes` still takes `--since`, pending O-A2.
+- A stop during the undo window (its audit entry `stopped`) excludes the action whatever other reviews it has. An elapsed undo window and an operator cancellation do not override a person's decision on the same action: the person's last decision counts (O-A3, as recommended).
