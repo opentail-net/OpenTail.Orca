@@ -150,7 +150,7 @@ Then the new behaviour:
 
 **Built on the Host, merged to `main` at `eee5e8e`** (branch `feat/hash-v2`, commit `e1ba996`; the Host suite passes on the merged state, 1153 tests, none skipped):
 
-- Step 1, the v1 golden vectors for the Host (`SkillIdentityGoldenTests`): built earlier (`7dd409d`). The workbench's golden test for the three repository skills is **not built** (other repository).
+- Step 1, the v1 golden vectors for the Host (`SkillIdentityGoldenTests`): built earlier (`7dd409d`). The workbench's golden test for the three repository skills and the three policy files is **built**, on the workbench's `main` at `02e04f2` (`SkillGoldenTests`); its values were confirmed identical before and after the hash v2 change.
 - Step 2, `HashV2` and the v2 canonical text (`SkillText.CanonicalV2`, `HashV2`), and the unambiguous encoding (`SkillText.IdentityEncodingV2`, `ContentHashV2`). The absent owner is kept apart from an empty one by reading the stored `skill.json` (the owner key), so `SkillVersion` did not change. v1 is unchanged, and a test shows it still hashes an absent owner as empty.
 - Step 3, the republish comparison (design item 6): the store and the preview compare instructions by their v2 canonical text and the metadata by its parsed JSON value. An indentation-only change at the same version is refused, at publish and at preview (H2).
 - Step 4, Host part: policy drift (`SkillsModule.Get`) and report bindings (`SkillsModule.CheckReport`) check each recorded value under the algorithm it names; `sha256v2:` is accepted by the policy hash syntax (the store plan's design item 4 rule) and by the binding pattern. `SkillText.BindingLineV2` exists for reports written under v2.
