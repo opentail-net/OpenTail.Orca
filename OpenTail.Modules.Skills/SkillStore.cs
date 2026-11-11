@@ -242,8 +242,36 @@ public sealed partial class SkillStore(string root)
             JsonArray p => p.Select(PolicyOf).ToList(),
             _ => throw new ArgumentException("skill.json 'policies' must be a list of objects."),
         };
+        // The fields the Agent Skills standard preserves (agent-skills-library plan, step 3): kept in skill.json, served and identified by their
+        // text, and checked here so a damaged one is refused at publish and named at read. Stored as the standard gives them.
+        string? PreservedText(string key) => o[key] switch
+        {
+            null => null,
+            JsonValue v when v.GetValueKind() == JsonValueKind.String => v.GetValue<string>(),
+            _ => throw new ArgumentException($"skill.json '{key}', when given, must be a string."),
+        };
+        _ = PreservedText("license");
+        _ = PreservedText("compatibility");
+        _ = PreservedText("allowed-tools");
+        if (o["metadata"] is { } metadataNode)
+        {
+            if (metadataNode is not JsonObject mo) throw new ArgumentException("skill.json 'metadata', when given, must be a map of strings to strings.");
+            foreach (var (_, entry) in mo)
+                if (entry is not JsonValue ev || ev.GetValueKind() != JsonValueKind.String)
+                    throw new ArgumentException("skill.json 'metadata', when given, must be a map of strings to strings.");
+        }
         return new SkillVersion(id, version, Text("summary"), List("appliesTo"), List("tools"), policies,
             Optional("owner"), instructions, metadataJson);
+    }
+
+    /// <summary>The preserved fields a stored version carries, read from its skill.json text (absent is null).</summary>
+    public static (string? License, string? Compatibility, string? AllowedTools, IReadOnlyDictionary<string, string>? Metadata) Preserved(SkillVersion s)
+    {
+        var o = JsonNode.Parse(s.MetadataJson) as JsonObject;
+        string? Text(string key) => o?[key] is JsonValue v && v.GetValueKind() == JsonValueKind.String ? v.GetValue<string>() : null;
+        IReadOnlyDictionary<string, string>? map = o?["metadata"] is JsonObject m
+            ? m.ToDictionary(kv => kv.Key, kv => kv.Value!.GetValue<string>(), StringComparer.Ordinal) : null;
+        return (Text("license"), Text("compatibility"), Text("allowed-tools"), map);
     }
 
     /// <summary>The value of <c>expectedFrom</c> when a label points at no version yet.</summary>

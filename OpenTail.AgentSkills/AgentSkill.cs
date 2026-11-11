@@ -33,6 +33,10 @@ public static class AgentSkill
     public const int MaxDescriptionLength = 1024;
     public const int MaxCompatibilityLength = 500;
 
+    /// <summary>The fields whose values are kept exactly as written (agent-skills-library plan, step 3). <c>name</c> and <c>description</c> are still
+    /// trimmed: the description is compared with the one the summary gives, and the name with the directory.</summary>
+    public static readonly IReadOnlySet<string> PreservesExactly = new HashSet<string>(StringComparer.Ordinal) { "license", "compatibility", "allowed-tools" };
+
     /// <summary>The standard's top-level keys. A key outside this set is unknown, and refused unless the caller lists it as ignored.</summary>
     public static readonly IReadOnlySet<string> StandardKeys = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -224,7 +228,7 @@ public static class AgentSkill
             else if (StandardKeys.Contains(key))
             {
                 if (valueEvent is Scalar scalar && !HasAnchorOrTag(scalar))
-                    fields[key] = scalar.Value.Trim();
+                    fields[key] = PreservesExactly.Contains(key) ? scalar.Value : scalar.Value.Trim();
                 else
                 {
                     diagnostics.Add(Error("SKILL-FRONTMATTER", $"'{key}' must be a single string.", key));
@@ -271,7 +275,7 @@ public static class AgentSkill
                 SkipNode(parser, entryValue);
                 continue;
             }
-            if (!metadata.TryAdd(key.Value, value.Value.Trim()))
+            if (!metadata.TryAdd(key.Value, value.Value))
                 diagnostics.Add(Error("SKILL-FRONTMATTER", $"'metadata' repeats the key '{key.Value}'.", "metadata"));
         }
     }

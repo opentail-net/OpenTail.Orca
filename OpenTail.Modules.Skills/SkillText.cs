@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -45,9 +46,9 @@ public static partial class SkillText
     /// The v2 identity encoding of a version (design item 3): the schema tag, then each field in a fixed order. Every value is canonicalised on its own,
     /// then written as its UTF-8 byte length, a colon and its bytes, so no value can run into the next. A list is its item count and a semicolon, then
     /// its items the same way. An optional value has a presence marker: <c>0</c> when absent, <c>1</c> and its encoding when present. The owner is
-    /// absent when <c>skill.json</c> has no <c>owner</c> key, which the store keeps apart from an empty owner. The preserved frontmatter and the
-    /// resources are not stored yet, so they are absent or empty; they are in the list now, so the list does not change when they are stored
-    /// (O-H2 and design item 10, recommended defaults, taken provisionally).
+    /// absent when <c>skill.json</c> has no <c>owner</c> key, which the store keeps apart from an empty owner. The preserved frontmatter (<c>license</c>,
+    /// <c>compatibility</c>, <c>metadata</c>, <c>allowed-tools</c>) is read from <c>skill.json</c> where it is stored (O-H2, recommended, taken
+    /// provisionally). The resources are none yet (design item 10), so the list is empty.
     /// </summary>
     public static string IdentityEncodingV2(SkillVersion s)
     {
@@ -63,11 +64,12 @@ public static partial class SkillText
         if (meta?["owner"] is not null) { sb.Append('1'); Value(sb, s.Owner); }
         else sb.Append('0');
         Value(sb, s.Instructions);
-        sb.Append('0');      // license (preserved frontmatter, not stored yet)
-        sb.Append('0');      // compatibility
-        sb.Append('0');      // metadata map
-        sb.Append('0');      // allowed-tools
-        List(sb, []);        // resources (design item 10): none yet
+        // The preserved frontmatter (O-H2): each present field is encoded, each absent one is a marker. The resources (design item 10) are none yet.
+        OptionalText(sb, meta, "license");
+        OptionalText(sb, meta, "compatibility");
+        OptionalMap(sb, meta, "metadata");
+        OptionalText(sb, meta, "allowed-tools");
+        List(sb, []);
         return sb.ToString();
     }
 
@@ -100,6 +102,32 @@ public static partial class SkillText
         var values = items.ToList();
         sb.Append(values.Count).Append(';');
         foreach (var v in values) Value(sb, v);
+    }
+
+    private static void OptionalText(StringBuilder sb, JsonObject? meta, string key)
+    {
+        if (meta?[key] is JsonValue v && v.GetValueKind() == JsonValueKind.String) { sb.Append('1'); Value(sb, v.GetValue<string>()); }
+        else sb.Append('0');
+    }
+
+    /// <summary>The metadata map: its marker; when present, its entry count and a semicolon, then each entry's key and value. The entries are sorted
+    /// by the UTF-8 bytes of their canonical keys, so the order of the keys in the file is not content (design item 3c).</summary>
+    private static void OptionalMap(StringBuilder sb, JsonObject? meta, string key)
+    {
+        if (meta?[key] is not JsonObject map) { sb.Append('0'); return; }
+        var entries = map.Select(kv => (Key: CanonicalV2(kv.Key), Value: kv.Value is JsonValue v && v.GetValueKind() == JsonValueKind.String
+                ? v.GetValue<string>()
+                : throw new InvalidOperationException($"skill.json '{key}' must map strings to strings.")))
+            .OrderBy(e => e.Key, ByteOrder.Instance).ToList();
+        sb.Append('1').Append(entries.Count).Append(';');
+        foreach (var (k, v) in entries) { Value(sb, k); Value(sb, v); }
+    }
+
+    /// <summary>Orders strings by their UTF-8 bytes, not by culture or by UTF-16 code units.</summary>
+    private sealed class ByteOrder : IComparer<string>
+    {
+        public static readonly ByteOrder Instance = new();
+        public int Compare(string? x, string? y) => Encoding.UTF8.GetBytes(x ?? "").AsSpan().SequenceCompareTo(Encoding.UTF8.GetBytes(y ?? ""));
     }
 
     /// <summary>The bindings a report carries (skill id, version, content hash), from its first 40 lines.</summary>

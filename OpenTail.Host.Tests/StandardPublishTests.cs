@@ -89,17 +89,19 @@ public sealed class StandardPublishTests : IDisposable
     }
 
     [Fact]
-    public void Fields_the_store_has_no_place_for_are_reported_as_warnings_not_stored()
+    public void The_standard_fields_are_stored_in_skill_json_and_are_not_reported_as_unstored()
     {
         var text = FrontmatterOf("license: MIT\nallowed-tools: Read\ncompatibility: Needs nothing.\n").Replace(
             "  version: \"5\"\n", "  version: \"5\"\n  author: ops\n", StringComparison.Ordinal);
 
         var prepared = StandardPublish.Prepare("invoice-check", "5", Meta(), text, isNewVersion: true, ignoreKeys: null);
 
-        Assert.Contains(prepared.Warnings, w => w.Contains("'license' is not stored", StringComparison.Ordinal));
-        Assert.Contains(prepared.Warnings, w => w.Contains("'allowed-tools' is not stored and is never acted on", StringComparison.Ordinal));
-        Assert.Contains(prepared.Warnings, w => w.Contains("'compatibility' is not stored", StringComparison.Ordinal));
-        Assert.Contains(prepared.Warnings, w => w.Contains("metadata 'author' is not stored", StringComparison.Ordinal));
+        Assert.DoesNotContain(prepared.Warnings, w => w.Contains("is not stored", StringComparison.Ordinal));
+        Assert.Contains(prepared.Warnings, w => w.Contains("'allowed-tools' is stored as written and is never acted on", StringComparison.Ordinal));
+        // Stored in skill.json, without the Host's own version key.
+        var stored = SkillStore.Preserved(prepared.Target);
+        Assert.Equal(("MIT", "Needs nothing.", "Read"), (stored.License, stored.Compatibility, stored.AllowedTools));
+        Assert.Equal(new Dictionary<string, string> { ["author"] = "ops" }, stored.Metadata);
     }
 
     [Fact]
@@ -144,7 +146,7 @@ public sealed class StandardPublishTests : IDisposable
         });
         var result = await preview!.PreviewAsync(args);
         using (var diff = JsonDocument.Parse(result.DiffJson!))
-            Assert.Contains(diff.RootElement.GetProperty("frontmatterWarnings").EnumerateArray(), w => w.GetString()!.Contains("'license' is not stored", StringComparison.Ordinal));
+            Assert.DoesNotContain(diff.RootElement.GetProperty("frontmatterWarnings").EnumerateArray(), w => w.GetString()!.Contains("is not stored", StringComparison.Ordinal));
 
         await publish.InvokeAsync(new AIFunctionArguments(new Dictionary<string, object?>
         {
