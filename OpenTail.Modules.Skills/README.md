@@ -166,7 +166,7 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 ## Contracts other code relies on
 
 - **The module contract.** `IHostModule` (`Id`, `Manifest`, `Register`) and `IHostModuleFactory` (`Type` is `skills`, plus `Describe` and `CreateAsync`). The module is built against contract 1 (`HostContract.AssemblyInfo.cs`), so it loads with any Host that supports contract 1.
-- **The workbench compiles against this module.** It uses `SkillText` (`Hash`, `Normalise`, `ContentHash`, `BindingLine`, `Bindings`, `Diff`); `SkillStore` in its scenario runner; `SkillsModule` in its sandboxed Host, so scenarios run the real tools; and the `Standard` namespace in its package writer (`NativePackage.cs`). A change to what `SkillText` computes changes every recorded hash and report binding, and breaks the workbench's checks. Treat those functions as frozen.
+- **The workbench compiles against this module.** It uses `SkillText` (`Hash`, `Normalise`, `ContentHash`, `BindingLine`, `Bindings`, `Diff`); `SkillStore` in its scenario runner; `SkillsModule` in its sandboxed Host, so scenarios run the real tools; the `Standard` namespace in its package writer (`NativePackage.cs`) and its catalog delivery (`AgentRunner.cs`, `StandardSkill.Describe`). A change to what `SkillText` computes changes every recorded hash and report binding, and breaks the workbench's checks. Treat those functions as frozen. A change to `StandardSkill.Describe` also changes the descriptions a catalog run's agent is shown.
 - **`skill_served`.** `SkillOutcomes` depends on the event name, the tool's `AuditResult`, and the `served` field. See `skills.get`.
 
 ## Invariants and their tests

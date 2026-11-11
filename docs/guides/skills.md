@@ -38,7 +38,7 @@ The store has no versions at the start, and only an approved publish writes to i
 ## Publish a new version
 
 1. **Edit the skill** in `opentail-workbench`, under `skills/<id>/`. Give it a new version number. Never reuse a number, because a version never changes once published.
-2. **Run the scenarios** with `workbench run --model <id> --skill <id>`. Then compare the batch with the one for the live version: `workbench compare --base <batch> --candidate <batch> --report <file>`. The comparison report carries the binding line for the candidate's content.
+2. **Run the scenarios** with `workbench run --model <id> --skill <id>`. Use the same `--delivery` for both batches: `native` by default, or `none` for a baseline with no skill. Then compare the batch with the one for the live version: `workbench compare --base <batch> --candidate <batch> --report <file>`. The comparison report carries the binding line for the candidate's content.
 3. **Check the policies.** `workbench policies` shows, for each skill and policy, whether the skill was tested against the current text, was never recorded, was tested against text that has since CHANGED, or is missing. After the scenarios pass, `workbench policies --record` writes the current hashes into `skill.json`. That changes the file, so the result is a new version.
 4. **Find the live version.** `skills.find` shows the version at the Host's label. That is the `expectedFrom` value. For the other label, read `labels.json` in the store.
 5. **Prepare the arguments:**
