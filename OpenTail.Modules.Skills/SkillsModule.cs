@@ -108,7 +108,8 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
             if (options.PolicyFolder is null || p.Hash is null) continue;
             var file = Path.Combine(options.PolicyFolder, Path.GetFileName(p.Ref));
             if (!File.Exists(file)) { warnings.Add($"Policy {p.Ref} was not found where this deployment keeps policies."); continue; }
-            if (SkillText.Hash(File.ReadAllText(file)) != p.Hash)
+            // The recorded hash names its algorithm (v1 or v2): the text is hashed the same way, so both kinds are checked.
+            if (SkillText.HashLike(File.ReadAllText(file), p.Hash) != p.Hash)
                 warnings.Add($"This skill was tested against an older version of {p.Ref}. Follow the policy as it is now, and tell the user the skill may be out of date.");
         }
         return new
@@ -184,8 +185,7 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
                 frontmatterWarnings = prepared.Warnings;
                 // The store compares the same two things at approval. Comparing them here refuses the request when it is made, rather than
                 // after a reviewer has read it and approved it.
-                if (existing is not null && (SkillText.Normalise(existing.Instructions) != SkillText.Normalise(target.Instructions) ||
-                                             SkillText.Normalise(existing.MetadataJson) != SkillText.Normalise(target.MetadataJson)))
+                if (existing is not null && !SkillText.SameContent(existing.Instructions, existing.MetadataJson, target.Instructions, target.MetadataJson))
                     throw new ArgumentException($"{id} version {version} is already published with different content; use a new version number.");
             }
             else target = existing ?? throw new ArgumentException($"{id} has no published version {version}; send skillJson and instructions to add it.");
@@ -232,8 +232,8 @@ public sealed class SkillsModule(SkillsModuleOptions options) : IHostModule
             var mine = SkillText.Bindings(report).Where(b => b.Id == target.Id).ToList();
             if (mine.Count == 0)
                 return (text, "Not bound: the report names no content for this skill. It was supplied by the requester and the Host did not check it.");
-            var expected = SkillText.ContentHash(target);
-            if (mine.Any(b => b.Version != target.Version || b.Hash != expected))
+            // Each binding is checked under the algorithm it names, so a report written under v1 and one under v2 both verify.
+            if (mine.Any(b => b.Version != target.Version || b.Hash != SkillText.ContentHashLike(target, b.Hash)))
                 throw new ArgumentException($"The report describes other content than {target.Id} version {target.Version} as proposed " +
                                             $"(expected {SkillText.BindingLine(target)}). Attach the report of this version's runs.");
             return (text, $"Bound: the report states {target.Id}@{target.Version} with the proposed content's hash. Supplied by the requester; " +
