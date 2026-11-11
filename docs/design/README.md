@@ -6,6 +6,7 @@ Designs for Host work that is planned but not built, newest first. The cross-rep
 
 | Design | Plan section | State |
 |---|---|---|
+| [Checklist: governance naming, re-check, and A2A](governance-checklist.md): what is done, what is open, and what waits for the owner | none | Living list; updated 2026-11-11 |
 | [Plan: align public approval names with Microsoft's vocabulary now, freeze them later](governance-naming-plan.md): binding digest, re-check at claim, export; freeze rule | none | Step 1 (approval audit event names) done locally 2026-11-11, uncommitted; the rest proposed |
 | [Comparison with Microsoft's agent-governance toolkit (.NET)](agt-comparison.md): where the two differ, file hashes and locations, and why adoption and conversion are deferred | none | Findings recorded 2026-11-11; decision: defer |
 | [A2A as a second front door](a2a.md): agent-to-agent tasks in and out, curated skills, replies as reviewed exits; phases 0 to 4 | none yet (owner to place) | Proposed 2026-11-11; nothing built |
