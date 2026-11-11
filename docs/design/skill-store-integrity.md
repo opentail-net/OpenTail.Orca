@@ -209,4 +209,33 @@ Mapping of the preview rows to tests. Malformed labels file: `A_preview_with_mal
 
 ## Not built
 
-The publish part of design item 2 and the discovery part (S1) are built and merged to `main` (`4c2cfcd`). The rest of this plan is not built: the publish cleanup (guarantee 2), the store check, the backup procedure, the lock test without PowerShell, the read-time checks of S3, the policy-name check (S5), and the preview table tests. The repair of damaged labels waits for O-S6. Design item 6 waits for O-S1 (the clash warning alone does not). Item 7 (the store check) needs no decision to build; running it on the production store waits for O-S3. Item 8 waits for O-S4 and O-S5. Nothing in this plan changes the hash or the stored format. Two rows depend on the hashing plan: the republish comparison ("identical content") and the policy-hash syntax in design item 4.
+**Built and merged to Host `main` at `de44a3a`** (branch `feat/store-integrity-rest`; commits `589d940`, `80e57cf`, `4263adf`, `27edba9`, `51358ef`, `2b0059c`; the full Host suite passes on the merged state, 1115 tests, none skipped):
+
+- The publish part of design item 2 and the discovery part (S1): `4c2cfcd`, earlier.
+- Design item 5, publish cleanup (guarantee 2; S4): a version folder that a publish created is removed when the label write fails, and temporary files are always removed. An incomplete version folder already in place is refused by name, not repaired.
+- Design item 4, read-time checks (S3): blank `appliesTo` and `tools` entries are refused when read and at publish; a policy hash must be null or `sha256:` and 64 lowercase hex digits. Both checks live in `SkillStore.Parse`.
+- Design item 6, policy-name clash (S5): `skills.get` names two different policy references that share a file name. Resolution is unchanged (O-S1 is still open).
+- Design item 7, store check: `opentail-host --check-skill-store <folder>` (`SkillStoreCli`, dispatched by the server program). Read-only; exit 1 on a problem. Lists the read path's problems and what nothing reads. Run on a demo store only.
+- The preview table: a label at a missing version, and an incomplete target folder, are refused (they were previewed as "first publication" and as a new version). The other preview rows already held and now have named tests.
+- Design item 9, lock test (S7): the cross-process test starts `OpenTail.Host.Tests.LockHolder` instead of PowerShell, so it cannot skip. It asserts the publish is refused as busy.
+
+**Provisional decisions taken during autonomous work** (the owner may reverse each one):
+- Item 4 accepts `sha256:` only. `sha256v2:` is added with the hashing plan's step 4, together with this rule, as the plan requires.
+- "Blank" means empty or whitespace only.
+- The store check lists a complete version that no label points at as a note, not a problem: history is normal.
+- The store check is a command in the server program, not in `PolicyCli`, so `OpenTail.Host.Admin` stays independent of the modules.
+- Policy names clash without regard to case, as Windows compares file names.
+- The preview refusal for an incomplete target uses the publish's wording ("not a complete version").
+
+**Not built, and why:**
+
+- **O-S3, the store check on the production store** (owner-only): the stricter read checks must not reach an existing store before it has run. Blocked until the owner runs it.
+- **O-S6, repair of a damaged labels file or entry** (owner-only): by hand, with the Host stopped. Blocked.
+- **Design item 8, backup procedure and the restore drill** (owner-only): needs the production store and a dated drill. Not written. Waits for O-S4 and O-S5.
+- **The store check against the repository's three skills**: not run. They are in the workbench layout, not the Host store layout; to be done with the owner.
+- **The policy drift warning** is not part of the store check: it needs a deployment's policy folder.
+- **Workbench tests** were not re-run against this branch. Its Host dependency is not changed by this merge until the Host is packaged.
+- **Work order step 5** (`OpenTail.Modules.Skills/README.md`: known limits and the invariants table): not updated in this pass.
+- **Test names**: the cross-process test keeps its existing name, `A_publish_is_refused_while_a_separate_process_holds_the_store`. The unreadable-or-corrupt preview row is two tests (`…_corrupt_target_version…`, `…_unreadable_target_version…`). The label-moves-after-preview row is covered by the existing `Approving_an_old_proposal_after_the_label_moved_publishes_nothing`.
+
+Open owner decisions still in this plan: O-S1 (policy references), O-S2 (recommended: refuse, as built), O-S4 and O-S5 (backup), O-S6 (repair). Nothing in this plan changes the hash or the stored format, apart from the policy-hash syntax check in item 4. The republish comparison ("identical content") is still the hashing plan's to change.
