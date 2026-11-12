@@ -53,7 +53,11 @@ public static class HttpDeploymentRunner
         try
         {
             options = HttpDeploymentConfig.Load(configPath).ToOptions(Environment.GetEnvironmentVariable(DeploymentRunner.TokensVariable));
-            if (options.Teams is { } teams) options.TeamsBot = new Teams.TeamsBot(teams, dbPath, options.PublicBaseUrl);
+            if (options.Teams is { } teams)
+            {
+                options.TeamsBot = new Teams.TeamsBot(teams, dbPath, options.PublicBaseUrl);
+                await Console.Error.WriteLineAsync(teams.Describe());
+            }
             var builder = new OpenTailHostBuilder().WithName(name).UsePolicy(PolicyConfig.Load(policyPath)).UseSqlite(dbPath).UseHttpSignIn()
                 .StartedBy(OpenTail.Host.Admin.DeploymentRunner.StartedBy(args));
             await ModulesCli.ApplyAsync(builder, args, ModuleLoadMode.Run, Console.Error, ct);

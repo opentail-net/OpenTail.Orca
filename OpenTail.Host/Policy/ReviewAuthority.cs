@@ -14,18 +14,24 @@ public sealed class PeopleMap
         if (people is null) return;
         foreach (var (person, subjects) in people)
         {
-            _subjects[person] = subjects;
-            foreach (var s in subjects) _personOf[s] = person;
+            _subjects[person] = subjects.Select(CanonicalSubject).ToList();
+            foreach (var s in subjects) _personOf[CanonicalSubject(s)] = person;
         }
     }
+
+    /// <summary>The form a subject is compared in. A Teams subject (<c>teams:&lt;object id&gt;</c>) is case-insensitive, because an object id
+    /// is: the bot stores and matches it in lower case, so the policy's copy must be too. Other subjects compare as written.</summary>
+    public static string CanonicalSubject(string subject) =>
+        subject.StartsWith("teams:", StringComparison.Ordinal) ? "teams:" + subject[6..].ToLowerInvariant() : subject;
 
     /// <summary>Every subject of the person <paramref name="subject"/> belongs to (just the subject when the operator did not say): how the
     /// Host finds the Teams chat of the person whose AI asked.</summary>
     public IReadOnlyList<string> SubjectsOfSamePerson(string subject) =>
-        _personOf.TryGetValue(subject, out var p) ? _subjects[p] : [subject];
+        _personOf.TryGetValue(CanonicalSubject(subject), out var p) ? _subjects[p] : [CanonicalSubject(subject)];
 
-    /// <summary>The person a subject belongs to, or the subject itself when the operator did not say.</summary>
-    public string PersonOf(string subject) => _personOf.TryGetValue(subject, out var p) ? "person:" + p : subject;
+    /// <summary>The person a subject belongs to, or the (canonical) subject itself when the operator did not say.</summary>
+    public string PersonOf(string subject) =>
+        _personOf.TryGetValue(CanonicalSubject(subject), out var p) ? "person:" + p : CanonicalSubject(subject);
 
     public bool Same(string a, string b) => PersonOf(a) == PersonOf(b);
 }

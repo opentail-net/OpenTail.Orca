@@ -7,7 +7,7 @@ There are two levels. Start with level 1; it needs no app installation and no in
 
 | | Level 1: notifications | Level 2: the approvals bot |
 |---|---|---|
-| In Teams | A card per waiting action with an **Open** button | Cards with **Approve**, **Approve with changes**, **Reject** and **Open** |
+| In Teams | A card per waiting action with an **Open** button | Cards with **Approve**, **Approve with changes**, **Request changes**, **Reject** and **Open**; typed `waiting` and `help` |
 | Decisions | On the OpenTail review page (company sign-in) | In Teams, or on the review page |
 | Needs | A Teams Workflows webhook URL | An Azure Bot + app registration, the Teams app below, the Host on public HTTPS |
 | Inbound traffic to the Host | None from Microsoft (only reviewers' browsers) | Microsoft's Bot Framework posts to one endpoint |
@@ -76,9 +76,10 @@ In the HTTP config file:
 }
 ```
 
-* `Reviewers`: only these people can decide from Teams. Anyone else sees the card but cannot act on it.
-* `ChatMaxRisk`: the highest risk Teams may decide. `ExternalEffect` lets people send prepared emails from Teams; `Destructive` actions
-  (deleting, closing) then show only **Open**. Use `Write` to allow nothing that reaches other people from Teams.
+* `Reviewers`: only these people can decide from Teams. Anyone else sees the card but cannot act on it. Object ids are case-insensitive.
+* `ChatMaxRisk`: the highest risk Teams may decide. The order is Read, Write, ExternalEffect, Destructive. `ExternalEffect` lets people
+  send prepared emails from Teams; `Destructive` actions (deleting, closing) then show only **Open**. A tool the Host does not have loaded
+  counts as Destructive. Use `Write` to allow nothing that reaches other people from Teams. **Stop** works on delayed actions at any risk.
 
 In the policy file, link each reviewer's Teams identity to their AI agent, so the agent's actions arrive in their chat:
 
@@ -86,17 +87,23 @@ In the policy file, link each reviewer's Teams identity to their AI agent, so th
 "People": { "alice": [ "teams:<entra object id of Alice>", "key:alice-agent" ] }
 ```
 
+The object id may be written in any case.
+
 In `notifications.json`:
 
 ```json
 "Channels": [ { "Name": "bot", "Type": "teams-bot", "Target": "requester" } ],
-"Routes": [ { "On": [ "queued", "reminder", "decided" ], "To": [ "bot" ] } ]
+"Routes": [ { "On": [ "queued", "reminder", "approved", "rejected", "changes_requested", "succeeded", "failed", "expired", "cancelled" ], "To": [ "bot" ] } ]
 ```
+
+List the outcomes as above. The alias `"decided"` does not include `approved` or `cancelled` (it is meant for audit hooks and agents), so a
+stop made on the review page would leave the card in Teams as it was. A card is refreshed for every one of the names in that list.
 
 Use `"Target": "conversation:channel:<conversation id>"` instead to post to one channel where the app is installed (for a central AI
 whose actions a team reviews).
 
-Restart the Host. On start it lists the configuration; a missing secret or a malformed section stops it with the reason.
+Restart the Host. On start it prints one line: the app id, the tenant, `ChatMaxRisk` and the number of reviewers (no secrets). A missing
+secret or a malformed section stops it with the reason.
 
 ## 6. Check it works
 
@@ -104,13 +111,18 @@ Restart the Host. On start it lists the configuration; a missing secret or a mal
    (Installing the app is enough; the message just confirms it.)
 2. Let the AI prepare a test action that needs approval, or submit one with the Host's tools.
 3. The card arrives in the reviewer's chat. Press **Approve**: the card changes to "Approve by …", and the action runs.
-4. Try **Approve with changes** with an edited text, and **Reject** without a reason (it asks for one).
+4. Try **Approve with changes** with an edited text, and **Reject** without a reason (it asks for one). **Request changes** works the same
+   way: it needs a reason, and it sends the action back to the AI.
 5. On the review page (`https://approvals.contoso.com/`), the same action shows the decision and the audit trail shows "teams".
+6. In your own chat with the app, type `waiting` to get the actions you may decide, or `help` for the list of commands. Only those two
+   exact words do anything (any capitals are fine); other text gets the usual reply and a pointer to `help`.
 
 ## 7. Operations
 
-* **Rotating the secret:** create a new client secret, update `TEAMS_BOT_SECRET`, restart, then delete the old secret. Buttons on cards
-  posted before the rotation stop working (their signatures came from the old secret); **Open** still works.
+* **Rotating the secret:** create a new client secret, update `TEAMS_BOT_SECRET`, restart, then delete the old secret. Cards posted before
+  the rotation are signed with the old secret, so their buttons stop working: Approve, Approve with changes, Request changes, Reject,
+  Stop, Run now, the in-chat **Open** and **Back to the list**, and the digest's review buttons. What still works on those cards is the
+  **Open** link to the review page, which needs `PublicBaseUrl`. Decide those actions on the review page, or wait for new cards.
 * **Removing someone:** delete their entry from `Reviewers` and restart. Their cards remain, but their clicks are refused.
 * **Uninstalling:** remove the app in the Teams admin center and the `Teams` section from the config. Nothing else depends on it.
 * **Logs:** a refused click (wrong token, tenant, reviewer or card) answers 401/403 or shows a message on the card; the Host never
@@ -125,11 +137,14 @@ Restart the Host. On start it lists the configuration; a missing secret or a mal
 | "You are not set up to decide from Teams." | The person is not under `Reviewers`. |
 | "… actions are decided on the review page." | The tool's risk is above `ChatMaxRisk`. |
 | The bot does not answer at all | The messaging endpoint is not reachable over HTTPS, or `AppId` / `TenantId` do not match the Azure Bot. |
-| Buttons stopped working after a change | The bot secret was rotated; use **Open**, or wait for new cards. |
+| Buttons stopped working after a change | The bot secret was rotated (see section 7): use the **Open** link to the review page, or wait for new cards. |
 
 ## 9. What has been tested
 
-The bot is tested end to end against a fake Bot Framework service with real token signing: card delivery, approve, approve with changes,
-reject, digest, refusals of forged, replayed, foreign and unlisted clicks, the risk limit, and cards updating after a decision on the page.
+The bot is tested against a fake Bot Framework service. The tokens are signed with a **test key** (HS256), not with the keys Bot Framework
+publishes, so the code that fetches and checks those keys is not exercised by the tests. Covered: card delivery, approve, approve with
+changes, request changes, reject, digest, typed `waiting` and `help`, a conversation target, Run now, edits checked by a preview,
+refusals of forged, replayed, foreign and unlisted clicks, the risk limit, a missing secret at start, cards updating after a decision on
+the page, and a failed card update recorded in the audit trail.
 It has **not yet been run in a live Teams tenant**; expect the first live setup to surface details (card rendering on desktop and mobile,
 token specifics). Report them, and they will be fixed.

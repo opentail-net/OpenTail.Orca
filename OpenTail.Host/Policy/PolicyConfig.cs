@@ -263,9 +263,9 @@ public sealed class PolicyConfig
             {
                 if (string.IsNullOrWhiteSpace(s) || !s.Contains(':', StringComparison.Ordinal) && s != Subjects.Local)
                     errors.Add($"People '{person}': '{s}' is not a namespaced subject (like admin:alice, key:name, jwt:issuer|sub).");
-                else if (seenSubjects.TryGetValue(s, out var other) && other != person)
+                else if (seenSubjects.TryGetValue(PeopleMap.CanonicalSubject(s), out var other) && other != person)
                     errors.Add($"People: '{s}' is listed under both '{other}' and '{person}'.");
-                else seenSubjects[s] = person;
+                else seenSubjects[PeopleMap.CanonicalSubject(s)] = person;
             }
         foreach (var (name, p) in Tools)
         {

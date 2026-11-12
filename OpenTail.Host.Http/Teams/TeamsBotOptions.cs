@@ -45,6 +45,9 @@ public sealed class TeamsBotOptions
     [JsonIgnore] public Func<string, string?> Env { get; init; } = Environment.GetEnvironmentVariable;
 
     public static string SubjectOf(string objectId) => "teams:" + objectId.ToLowerInvariant();
+
+    /// <summary>One line for the startup output: how the bot is set up. It names no secret (the secret is only ever read from the environment).</summary>
+    public string Describe() => $"Teams bot: app {AppId}, tenant {TenantId}, ChatMaxRisk {ChatMaxRisk}, {Reviewers.Count} reviewer(s).";
 }
 
 public sealed class TeamsReviewer
