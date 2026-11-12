@@ -30,7 +30,12 @@ public sealed class ActionQueue(
         activity?.SetTag("opentail.action_id", id);
         // The decision trace: every check, in order, written as it runs (audit D1). Records copy it when they are created.
         var trace = new List<DecisionStep>();
-        ActionRecord Rec() => Base(request, id, hash, now) with { DecisionTrace = [.. trace], PolicyHash = policy.PolicyHash };
+        ActionRecord Rec() => Base(request, id, hash, now) with
+        {
+            DecisionTrace = [.. trace],
+            PolicyHash = policy.PolicyHash,
+            BindingDigest = BindingDigestOf(request, policy.PolicyHash),
+        };
 
         // A session is owned by whoever started it. An AI caller naming someone else's session is told it is unknown
         // (no existence oracle). Trusted in-process callers (admin, scripts) are not bound to a session owner.
@@ -354,12 +359,20 @@ public sealed class ActionQueue(
         using var activity = HostTelemetry.Source.StartActivity("action.review");
         activity?.SetTag("opentail.action_id", actionId);
         activity?.SetTag("opentail.decision", review.Decision.ToString());
-        // The digest of a reviewer's edit is stored with the review, so the claim can check the arguments that will run.
-        var recorded = review with { EditedArgumentsHash = review.EditedArgumentsJson is null ? null : Hash(review.EditedArgumentsJson) };
-        Func<ActionRecord, ActionRecord> addReview = r => r with { Reviews = [.. r.Reviews, recorded] };
-
         // Who may decide this is the queue's rule to enforce (group, no AI on human-only, self-approval, known identity), not the page's.
         var existing = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
+
+        // The digests of a reviewer's edit are stored with the review, so the claim can check the arguments that will run: the argument
+        // digest, and the binding of the whole action as it would then stand (same requester, tool, current schema, policy it was decided under).
+        var recorded = review with
+        {
+            EditedArgumentsHash = review.EditedArgumentsJson is null ? null : Hash(review.EditedArgumentsJson),
+            EditedBindingDigest = review.EditedArgumentsJson is null ? null
+                : ActionBindings.Digest(existing.Requester.Id, existing.ToolName, catalog.SchemaVersionOf(existing.ToolName),
+                    review.EditedArgumentsJson, existing.PolicyHash),
+        };
+        Func<ActionRecord, ActionRecord> addReview = r => r with { Reviews = [.. r.Reviews, recorded] };
+
         var verdict = ReviewAuthority.Check(existing, review.Decision, review.Subject, review.Groups, policy.People);
         if (!verdict.Allowed)
         {
@@ -437,7 +450,9 @@ public sealed class ActionQueue(
                 }
                 if (due.Status == ActionStatus.Pending && due.ExpiresAt is { } deadline && deadline <= _clock.GetUtcNow())
                 {
-                    var expired = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf(AuditEvents.ApprovalExpired, null), ct);
+                    var expired = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Expired,
+                        x => x.WithResolution(ResolutionOutcomes.Expired, "system", ActionExecutor.ReasonApprovalExpired, _clock.GetUtcNow()),
+                        EntryOf(AuditEvents.ApprovalExpired, null), ct);
                     if (expired is not null)
                     {
                         LeftPending(expired);
@@ -457,7 +472,8 @@ public sealed class ActionQueue(
                     // The stored preview is of the edited arguments (none when the tool could not make one: never the old one).
                     if (edits) updated = updated with { PreviewJson = editedPreview, PreviewUnavailable = editedPreviewUnavailable };
                     return count >= r.RequiredApprovals
-                        ? new ActionTransition(ActionStatus.Approved, updated with { Attempts = r.Attempts + 1 })
+                        ? new ActionTransition(ActionStatus.Approved, (updated with { Attempts = r.Attempts + 1 })
+                            .WithResolution(ResolutionOutcomes.Allowed, ResolverOf(review), null, _clock.GetUtcNow()))
                         : new ActionTransition(ActionStatus.Pending, updated);
                 }
 
@@ -489,7 +505,10 @@ public sealed class ActionQueue(
             case ReviewDecision.RequestChanges:
             {
                 var next = review.Decision == ReviewDecision.Reject ? ActionStatus.Rejected : ActionStatus.ChangesRequested;
-                var done = await ChangeAudited(actionId, ActionStatus.Pending, next, addReview,
+                var done = await ChangeAudited(actionId, ActionStatus.Pending, next,
+                    r => next == ActionStatus.Rejected
+                        ? addReview(r).WithResolution(ResolutionOutcomes.Denied, ResolverOf(review), null, _clock.GetUtcNow())
+                        : addReview(r),
                     EntryOf(next == ActionStatus.Rejected ? AuditEvents.ApprovalDenied : "changes_requested", review.Reviewer), ct);
                 if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
                 LeftPending(done);
@@ -548,7 +567,9 @@ public sealed class ActionQueue(
         var current = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
         if (current.Requester != requester)
             throw new UnauthorizedAccessException("Only the requester can cancel an action.");
-        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, r => r, EntryOf(AuditEvents.ApprovalCancelled, null), ct);
+        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled,
+            r => r.WithResolution(ResolutionOutcomes.Cancelled, r.Requester.Id, null, _clock.GetUtcNow()),
+            EntryOf(AuditEvents.ApprovalCancelled, null), ct);
         if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
         LeftPending(done);
         HostTelemetry.Count(done);
@@ -594,10 +615,10 @@ public sealed class ActionQueue(
                     EntryOf("delay_held", $"{(now - at).TotalMinutes:0} min past its time: a person decides"), ct);
                 continue;
             }
-            var approved = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Approved, x => x with
+            var approved = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Approved, x => (x with
             {
                 Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Approve, "Undo window elapsed; nobody stopped it.", now)],
-            }, EntryOf("delay_elapsed", null), ct);
+            }).WithResolution(ResolutionOutcomes.Allowed, "system", null, now), EntryOf("delay_elapsed", null), ct);
             if (approved is null) continue;
             LeftPending(approved);
             if (await executor.ClaimAndRunAsync(approved, countAttempt: true, ct) is null) continue;
@@ -616,10 +637,11 @@ public sealed class ActionQueue(
         if (r.Status != ActionStatus.Pending || r.RunAt is null) throw new InvalidOperationException("Only a delayed action that has not run yet can be stopped.");
         var mayStop = stoppedBy == r.Requester.Id || r.ReviewerGroup is null || groups.Contains(r.ReviewerGroup, StringComparer.Ordinal);
         if (!mayStop) throw new UnauthorizedAccessException($"Only the requester or the '{r.ReviewerGroup}' group can stop this action.");
-        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, x => x with
+        var done = await ChangeAudited(actionId, ActionStatus.Pending, ActionStatus.Cancelled, x => (x with
         {
             Reviews = [.. x.Reviews, new ActionReview(stoppedBy, ReviewDecision.Reject, "Stopped during the undo window.", _clock.GetUtcNow())],
-        }, EntryOf("stopped", stoppedBy), ct) ?? throw new InvalidOperationException("The action has already run or been decided.");
+        }).WithResolution(ResolutionOutcomes.Cancelled, stoppedBy, "stopped", _clock.GetUtcNow()),
+            EntryOf("stopped", stoppedBy), ct) ?? throw new InvalidOperationException("The action has already run or been decided.");
         LeftPending(done);
         HostTelemetry.Count(done);
         await Publish(ActionEventKind.Cancelled, done, "stopped", ct);
@@ -634,7 +656,9 @@ public sealed class ActionQueue(
         var count = 0;
         foreach (var r in pending.Where(p => p.ExpiresAt is { } at && at <= now))
         {
-            var done = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Expired, x => x, EntryOf(AuditEvents.ApprovalExpired, null), ct);
+            var done = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Expired,
+                x => x.WithResolution(ResolutionOutcomes.Expired, "system", ActionExecutor.ReasonApprovalExpired, now),
+                EntryOf(AuditEvents.ApprovalExpired, null), ct);
             if (done is null) continue;
             count++;
             LeftPending(done);
@@ -690,6 +714,14 @@ public sealed class ActionQueue(
     }
 
     private static string Hash(string json) => ArgumentDigest.Of(json);
+
+    /// <summary>Who a resolution names for a reviewer's decision: the authenticated subject, or the display name when there is none.</summary>
+    private static string ResolverOf(ActionReview review) => review.Subject ?? review.Reviewer;
+
+    /// <summary>The binding digest of a new action (<see cref="ActionBinding"/>). Null when the tool is unknown (it has no schema to bind
+    /// to) or the arguments are not JSON (they could not run anyway).</summary>
+    private string? BindingDigestOf(ActionRequest r, string policyVersion) =>
+        ActionBindings.Digest(r.Requester.Id, r.ToolName, catalog.SchemaVersionOf(r.ToolName), r.ArgumentsJson, policyVersion);
 
     private Task Audit(string evt, ActionRecord r, string? detail, CancellationToken ct) =>
         audit.AppendAsync(Entry(evt, r, detail), ct);

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OpenTail.Host.Abstractions;
 
 public enum RequesterKind
@@ -52,6 +54,12 @@ public sealed record ActionReview(
     /// arguments only if they still match it. Null for a review without an edit, and for reviews stored before this was recorded.</summary>
     public string? EditedArgumentsHash { get; init; }
 
+    /// <summary>The binding digest (<see cref="ActionBinding"/>) of the action with <see cref="EditedArgumentsJson"/> in place of the
+    /// submitted arguments, recorded with the review as <see cref="EditedArgumentsHash"/> is. The claim recomputes the binding and runs the
+    /// edit only if it still matches. Null for a review without an edit, for a tool that is not loaded or arguments that are not JSON, and
+    /// for reviews stored before this was recorded (such an edit is refused at the claim).</summary>
+    public string? EditedBindingDigest { get; init; }
+
     /// <summary>The namespaced subject (see <see cref="Subjects"/>) the server authenticated, never taken from a request body.
     /// <see cref="Reviewer"/> is the display name.</summary>
     public string? Subject { get; init; }
@@ -80,6 +88,40 @@ public sealed record ActionReview(
 /// <summary>One check in the decision on a call, in the order the checks ran: what it concluded, on what evidence (never argument
 /// values), and whether it changed the outcome so far.</summary>
 public sealed record DecisionStep(string Check, string Result, string? Evidence = null, bool Changed = false);
+
+/// <summary>The outcomes an <see cref="ActionResolution"/> can have.</summary>
+public static class ResolutionOutcomes
+{
+    /// <summary>Approved (or its undo window elapsed with nobody stopping it), and claimed to run.</summary>
+    public const string Allowed = "allowed";
+
+    /// <summary>Rejected by a reviewer.</summary>
+    public const string Denied = "denied";
+
+    /// <summary>Not decided in time, or its module was switched off before it was decided.</summary>
+    public const string Expired = "expired";
+
+    /// <summary>Stopped before it was decided or ran: by its requester, by a person allowed to review it, or by an operator.</summary>
+    public const string Cancelled = "cancelled";
+
+    /// <summary>Approved, but the approval no longer held at its claim, so nothing ran.</summary>
+    public const string ExecutionDenied = "execution_denied";
+}
+
+/// <summary>
+/// How an action was finally resolved: what was approved or refused, under which policy, with which binding digest, why, when and by
+/// whom. Written in the same write as the status change it describes, so the two cannot disagree. It holds no arguments and no results.
+/// </summary>
+/// <param name="Outcome">One of <see cref="ResolutionOutcomes"/>.</param>
+/// <param name="Resolver">The reviewer's subject (their display name when there is no subject), the requester or operator who stopped it,
+/// or <c>system</c>.</param>
+/// <param name="At">When the resolution was made.</param>
+/// <param name="PolicyVersion">The policy hash the action was decided under.</param>
+/// <param name="BindingDigest">The binding the approval held for: the last reviewer edit's, else the submitted action's. Null when none was
+/// recorded (a tool that is not loaded, or arguments that are not JSON).</param>
+/// <param name="ReasonCode">Why, as a short code such as <c>approval_expired</c>; null when there is no code.</param>
+public sealed record ActionResolution(string Outcome, string Resolver, DateTimeOffset At, string? PolicyVersion, string? BindingDigest,
+    string? ReasonCode);
 
 /// <summary>The primary record of the queue. One per tool call that reached the Host. Session is optional.</summary>
 public sealed record ActionRecord
@@ -126,6 +168,15 @@ public sealed record ActionRecord
     /// <summary>SHA-256 of the whole effective policy the action was decided under (<c>sha256:</c> and 64 hex digits).</summary>
     public string? PolicyHash { get; init; }
 
+    /// <summary>SHA-256 binding over the whole action (<c>sha256:</c>): operation, requester, tool and its schema version, arguments
+    /// (RFC 8785) and policy version. Set when the action is created. Null when the tool is unknown or the arguments are not JSON.
+    /// <see cref="ArgumentsHash"/> is unchanged and still covers the raw argument text.</summary>
+    public string? BindingDigest { get; init; }
+
+    /// <summary>How the action was finally resolved (see <see cref="ActionResolution"/>). Null while it is open, for an action decided by policy
+    /// alone (a denial at submission, or one that ran without a reviewer), and for records stored before this was recorded.</summary>
+    public ActionResolution? Resolution { get; init; }
+
     /// <summary>Only reviewers carrying this group may decide the action. Null: any reviewer.</summary>
     public string? ReviewerGroup { get; init; }
 
@@ -169,4 +220,15 @@ public sealed record ActionRecord
     /// <summary>Arguments to run: the last reviewer-edited arguments if any, else as submitted.</summary>
     public string EffectiveArgumentsJson =>
         Reviews.LastOrDefault(r => r.EditedArgumentsJson is not null)?.EditedArgumentsJson ?? ArgumentsJson;
+
+    /// <summary>The binding the approval holds for: the last reviewer edit's binding if there is an edit, else <see cref="BindingDigest"/>.
+    /// The claim checks it against the binding it recomputes. Derived, so it is not stored.</summary>
+    [JsonIgnore]
+    public string? EffectiveBindingDigest =>
+        Reviews.LastOrDefault(r => r.EditedArgumentsJson is not null) is { } edit ? edit.EditedBindingDigest : BindingDigest;
+
+    /// <summary>This record with its resolution set: the outcome, who resolved it, the reason code and the time, under the policy and binding
+    /// the action holds. Call it inside the write of the change it describes, so the status and its resolution are written together.</summary>
+    public ActionRecord WithResolution(string outcome, string resolver, string? reasonCode, DateTimeOffset at) =>
+        this with { Resolution = new ActionResolution(outcome, resolver, at, PolicyHash, EffectiveBindingDigest, reasonCode) };
 }

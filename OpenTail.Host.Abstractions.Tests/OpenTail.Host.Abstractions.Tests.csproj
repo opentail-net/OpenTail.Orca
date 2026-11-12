@@ -15,4 +15,10 @@
     </PackageReference>
     <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- RFC 8785 reference vectors (Apache-2.0, see Rfc8785/README.md). -->
+    <None Update="Rfc8785\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

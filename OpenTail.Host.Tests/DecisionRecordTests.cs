@@ -42,6 +42,9 @@ public class DecisionRecordTests
         Assert.Equal((id, "mail.send", "Rejected", "key:bot"), (record.ActionId, record.Tool, record.Status, record.Requester));
         Assert.Equal("Not now.", record.Reviews.Single().Reason);
         Assert.Equal("admin:rita", record.Reviews.Single().Subject);
+        // The resolution is kept too: the answer to "how was it decided" outlives the arguments.
+        Assert.Equal((ResolutionOutcomes.Denied, "admin:rita"), (record.Resolution!.Outcome, record.Resolution.Resolver));
+        Assert.Equal(host.Policy.PolicyHash, record.Resolution.PolicyVersion);
         Assert.Equal(host.Policy.PolicyHash, record.PolicyHash);
         Assert.Contains(record.DecisionTrace, t => t.Check == "queue");
         Assert.DoesNotContain("secret plan", json);

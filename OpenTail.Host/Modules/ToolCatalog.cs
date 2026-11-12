@@ -42,12 +42,16 @@ public sealed class ToolCatalog : IToolRegistry
     private readonly SortedDictionary<string, ToolRegistration> _tools = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, LoadedModule> _modules = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LoadedModule> _moduleOfTool = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _schemaVersions = new(StringComparer.Ordinal);
 
     public IReadOnlyCollection<ToolRegistration> All => _tools.Values;
 
     public IReadOnlyCollection<LoadedModule> Modules => _modules.Values;
 
     public bool TryGet(string name, out ToolRegistration registration) => _tools.TryGetValue(name, out registration!);
+
+    /// <summary>The tool's schema version (<see cref="ActionBinding.SchemaVersionOf"/> over its parameter schema), or null when no such tool.</summary>
+    public string? SchemaVersionOf(string name) => _schemaVersions.GetValueOrDefault(name);
 
     /// <summary>The module that registered a tool (null for tools added directly, as tests do).</summary>
     public LoadedModule? ModuleOf(string toolName) => _moduleOfTool.GetValueOrDefault(toolName);
@@ -60,6 +64,7 @@ public sealed class ToolCatalog : IToolRegistry
             throw new InvalidOperationException($"Tool name '{descriptor.Name}' is reserved by the Host.");
         if (!_tools.TryAdd(descriptor.Name, new ToolRegistration(descriptor, function, preview)))
             throw new InvalidOperationException($"Duplicate tool name '{descriptor.Name}'.");
+        _schemaVersions[descriptor.Name] = ActionBinding.SchemaVersionOf(function.JsonSchema.GetRawText());
     }
 
     internal void AddModule(IHostModule module, ModuleLoadOptions? options = null)

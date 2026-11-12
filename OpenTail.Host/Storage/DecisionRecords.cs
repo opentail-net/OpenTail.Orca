@@ -39,6 +39,10 @@ public sealed record DecisionRecord
     public IReadOnlyList<string> SessionLabels { get; init; } = [];
     public DateTimeOffset? RunAt { get; init; }
 
+    /// <summary>How it was finally resolved (approved, rejected, expired, cancelled, or refused at its claim), with the policy and binding it
+    /// held. Kept with the record so the answer survives the purge of the action (see <see cref="ActionRecord.Resolution"/>).</summary>
+    public ActionResolution? Resolution { get; init; }
+
     /// <summary>The purge that kept it: the audit entry with this batch's digest.</summary>
     public string? Batch { get; init; }
 
@@ -73,6 +77,7 @@ public sealed record DecisionRecord
         Tainted = r.Tainted,
         SessionLabels = r.SessionLabels,
         RunAt = r.RunAt,
+        Resolution = r.Resolution,
         Batch = batch,
     };
 

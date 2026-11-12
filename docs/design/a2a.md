@@ -14,8 +14,9 @@ concrete.
 
 - **A2A is a protocol edge, not a second decision model.** Every A2A act reaches `ActionQueue.SubmitAsync` as a call with a profile,
   as an MCP call does. Taint, labels, limits, levels, reviewers and the audit trail are the existing ones.
-- **Partners are callers.** A partner is an API key with a profile and the new scope `a2a:call`. Its permissions are the profile's
-  tool list, exactly as for an agent over MCP. Nothing else grants a partner anything.
+- **Partners are callers.** A partner is a server-generated `partnerId` with one or more API keys. Each key has a profile and the new
+  scope `a2a:call`. The profile's tool list is the partner's permission, exactly as for an agent over MCP. Nothing else grants a
+  partner anything.
 - **Two internal tools carry the A2A-specific risk.** `a2a.submit` takes an inbound task: it reads outside content, so it taints the
   session, and it queues for a person by default. `a2a.reply` sends an answer out: it is an exit, checked against the data-flow rules,
   and it queues by default.
@@ -26,35 +27,19 @@ concrete.
 
 ## Corrections from external review (2026-11-11)
 
-An external review of this plan was checked against the A2A v1.0 specification (`https://a2a-protocol.org/latest/specification/`) and the
-SDK's documentation. Each correction below is adopted unless it is marked for the owner. Where a correction supersedes earlier text, that
-text is named.
+An external review was checked against the A2A v1.0 specification (`https://a2a-protocol.org/latest/specification/`) and the SDK's
+documentation. Each correction is now reflected in the body above. This is the change log.
 
-1. **Task ids (supersedes section 4, step 5).** The server generates the task id for a new task, and a client may not supply one to create
-   a task (spec §3.4.2, §4.1.1). A task id must exist before the work item does, so it cannot be the work item id. Use a separate,
-   persistent task id in `a2a_tasks`, linked to the initial `a2a.submit` action, to the work item once it exists, and to the `a2a.reply`
-   action. First-message handling must be crash-safe and idempotent: a crash between creating the action and storing the mapping must not
-   create a second task when the partner retries the same `messageId`.
-2. **`returnImmediately` (supersedes section 4, "returns immediately with SUBMITTED").** The default is blocking. `false` or an omitted value
-   waits until the task reaches a terminal state or an interrupted state (input-required or auth-required). `true` returns once the task is
-   created (spec §3.2.2; `SendMessageConfiguration.ReturnImmediately` in the SDK). The adapter must honour the flag, with tests for `true`,
-   `false` and omitted. **Decided (second review, 2026-11-12):** honour the spec exactly. `returnImmediately=true` is the documented
-   recommendation for OpenTail integrations, because approval is asynchronous. A blocking request is never answered with SUBMITTED because
-   a server timeout expired. If the client disconnects or times out, the task is not discarded or cancelled, and the first-message mapping
-   stays, so a retry with the same `messageId` from the same partner finds the existing task. **Open:** how many blocking waits one partner
-   may hold open at once. That is an operational limit, and it must not change what a blocked request returns.
-3. **The Agent Card (decided, second review, 2026-11-12).** The card requires authentication, as the owner's default already said. The first
-   review's public card is not adopted for now, because the skill catalogue must not be exposed anonymously. Partners receive the card
-   location and their credentials out of band. The spec allows direct configuration as a discovery mechanism, so this is compliant. The
-   authenticated `/extendedAgentCard`, generated from the caller's profile, stays. Internal tools, reviewer groups and policy stay out of
-   every card.
-4. **Skill selection (supersedes the `metadata.skill` proposal in section 4).** Declare a skill-selection extension in the card's
-   capabilities, send its URI in the message's extensions, and carry the skill id under the matching metadata key. The spec's mechanism is
-   the `A2A-Extensions` header (§14.2.2). The URI is `https://opentail.net/a2a/extensions/skill-selection/v1` (second review, 2026-11-12).
-   The extension is versioned, and its specification is published at that URI before any partner is onboarded.
-5. **ListTasks (adds to section 4, step 3).** Cursor pagination with `pageToken` and `nextPageToken`; the last page returns an empty string.
-   Results are sorted newest first by status update time (spec §3.1.4).
-6. **A2A-Version (supersedes "1.0 only" in section 1; checked 2026-11-12).** The two sources disagree on an empty value:
+1. **Task ids.** Reflected in section 4 (step 5) and section 10 (`a2a_tasks`). The task id is server-generated and is not the work item
+   id. First-message handling is crash-safe and idempotent.
+2. **`returnImmediately`.** Reflected in "Who decides" and in section 4. `true` returns once the task is created. `false` and an omitted
+   value block until a terminal or interrupted state. **Open:** how many blocking waits one partner may hold open at once. That is an
+   operational limit, and it must not change what a blocked request returns.
+3. **The Agent Card.** Reflected in section 8. The card requires authentication. There is no public card.
+4. **Skill selection.** Reflected in section 4 and the contracts. The extension URI is `https://opentail.net/a2a/extensions/skill-selection/v1`.
+5. **ListTasks.** Reflected in section 4. Cursor pagination, newest first.
+6. **A2A-Version. Still open, for the owner to confirm.** Reflected in sections 1 and 11: 1.0 is the only version served. The two sources
+   disagree on an empty value:
    - **The spec** says an empty value is interpreted as 0.3 (§3.6.2). The server then answers `VersionNotSupportedError`, because it
      supports only 1.0.
    - **The SDK's migration guide** (`docs/migration-guide-v1.md` in a2a-dotnet) says empty or missing is accepted and defaults to the
@@ -63,13 +48,9 @@ text is named.
    - **Recommended, for the owner to confirm:** follow the spec for empty (reject as 0.3), and follow the SDK for missing (treat as 1.0).
      Reject `0.3` as this Host does not serve it. Interoperability tests run against the SDK-mapped endpoint for empty, missing, `0.3` and
      `1.0`, and record the SDK's actual result for each.
-7. **Partner identity (adds to section 2; second review, 2026-11-12).** The `partnerId` is a server-generated UUID, immutable, and stored
-   separately from the API key name. `displayName` is for people and can change. One or more credentials link to the same `partnerId`, so
-   rotation does not change the partner's identity. Use the Host's existing credential configuration, with an optional partner reference on
-   each API key entry, rather than a second credential subsystem. The subject becomes a partner subject, and taint, labels and task ownership
-   follow it.
-8. **Order (adds to section 4).** Whole-action binding (naming plan, phase 1) lands before the A2A inbox is exposed to external partners. An
-   action that comes from outside is where binding the whole action matters most.
+7. **Partner identity.** Reflected in section 2 and the summary. The `partnerId` is a server-generated, immutable UUID, stored separately
+   from the API key name.
+8. **Order.** Reflected in the build order. Whole-action binding lands before the inbox is exposed to external partners.
 
 ## Who decides, and who is asked
 
@@ -79,8 +60,9 @@ inside the Host's review queue.
 - **Reviewers** are the people the Host already uses: holders of the `review` role (the review page, the API or a reviewer token),
   narrowed by reviewer group where the policy names one. They are told through the existing channels: the review page and the Teams
   card. Both `a2a.submit` and `a2a.reply` name `Reviewer: Human`, so no AI reviewer may decide them.
-- **Step by step.** An inbound message becomes an `a2a.submit` action. The Host returns at once with SUBMITTED, because the queue never
-  waits for a reviewer, and a reviewer decides the action. When the work is done, the reply becomes an `a2a.reply` action, and a
+- **Step by step.** An inbound message becomes an `a2a.submit` action. With `returnImmediately=true`, the Host returns once the task is
+  created, in SUBMITTED, because the queue never waits for a reviewer, and a reviewer decides the action. A blocking request waits
+  instead (section 4). When the work is done, the reply becomes an `a2a.reply` action, and a
   reviewer sees the exact text the partner would receive. Only an approved reply can appear in `GetTask`.
 - **Governance never asks the partner.** The one exception is INPUT_REQUIRED (phase 3). There an internal agent asks the partner
   through `work.ask_partner`, and the partner answers with a new message on the same task. No human is involved in that exchange.
@@ -93,7 +75,7 @@ What the specification requires of a server, and where this design answers it:
 
 | Requirement | Section | Answer here |
 |---|---|---|
-| Authenticate every incoming request | §7.4 | All A2A routes use the Host's existing sign-in. There is no anonymous route except the card (see [the card](#8-the-agent-card)). |
+| Authenticate every incoming request | §7.4 | All A2A routes use the Host's existing sign-in. There is no anonymous route, the card included (see [the card](#8-the-agent-card)). |
 | Authorisation is the server's to define; may use skills, actions, data and scopes | §7.5 | Profiles and policy, as today. |
 | A task waiting for credentials is `AUTH_REQUIRED`; that state is not authorisation | §7.6.1, §7.6.4 | Not used. The Host never asks a partner for in-band credentials. |
 | Serve the card at `/.well-known/agent-card.json` | §8.1, §8.2 | Yes; see the card section. |
@@ -134,7 +116,8 @@ Read from the package's XML documentation (2026-11-11), which changes the plan:
 - **Message model.** `Message` has `Role`, `Parts`, `MessageId`, `ContextId`, `TaskId`, `ReferenceTaskIds`, `Extensions` and
   `Metadata`, and no skill field. `Part` has `Text`, `Raw`, `Url`, `Data`, `Filename` and `MediaType`. `AgentTask` has `Id`,
   `ContextId`, `Status`, `History`, `Artifacts` and `Metadata`. `TaskStatus` has `State`, `Message` and `Timestamp`. `TaskState` has
-  the eight states used above. The plan selects the skill with `metadata.skill` on the message (*verify* against the specification).
+  the eight states used above. The plan selects the skill through the skill-selection extension (section 4): the extension's URI is sent
+  with the message, and the skill id is carried in the extension's metadata key (correction 4).
 - **No reply trigger exists yet.** `WorkService.CompleteAsync` raises no event. Phase 1 needs an additive `Completed` event, and
   `GetTask` must also create the reply when the item is done, in case the event handler fails.
 - **Schema.** `SqliteActionStore` is at schema 12. The A2A tables take 13, with the migration pattern used for `work_items`.
@@ -202,8 +185,10 @@ Each branch of `ActionQueue.SubmitAsync` (`Runtime/ActionQueue.cs`), and what an
   headers and the body-size limit all apply.
 - **Access.** `A2aPolicy` requires the role `a2a:call`. An API key carries it through its `Scopes`. Keys without the scope cannot call
   A2A, so existing agents are unaffected. The SDK does no authentication, so this is the only sign-in there is.
-- **Versions.** Accept `A2A-Version: 1.0` only. Anything else is `VersionNotSupported`. Support for 0.3 comes through the SDK's
-  compatibility package if a partner needs it (decision 5).
+- **Versions.** 1.0 is the only version served. An empty `A2A-Version` is read as 0.3, per the spec, and refused (recommended; the owner
+  confirms). A missing header is an open owner decision (recommended: 1.0, as the SDK does). `0.3` and any other value are refused with
+  `VersionNotSupported`. Support for 0.3 comes through the SDK's compatibility package if a partner needs it (decision 5). See
+  correction 6.
 - **Transport.** JSON-RPC first. HTTP+JSON when a partner asks. No gRPC.
 - **Streaming and push.** Not in v1. `capabilities.streaming` and `pushNotifications` are false. Partners poll `GetTask`, which is the
   same baseline as MCP tasks ([mcp-tasks.md](mcp-tasks.md)).
@@ -213,7 +198,7 @@ Each branch of `ActionQueue.SubmitAsync` (`Runtime/ActionQueue.cs`), and what an
 
 ### 2. Partners and profiles
 
-A partner is a credential. Its profile lists the tools it may use:
+A partner is a `partnerId` with its API keys. The profile of a key lists the tools that key may use:
 
 ```json
 "Agents": {
@@ -225,12 +210,14 @@ A partner is a credential. Its profile lists the tools it may use:
   any of the others by accident. A startup warning names every partner profile with a wildcard.
 - **Partner keys set `Scopes` explicitly, to `a2a:call` alone.** A key with no `Scopes` gets `mcp:tools` (`StaticTokenAuthentication.cs:66`),
   so a partner key left at the default could also call the MCP endpoint.
-- **Partner name.** The API key's name. The subject is `key:<name>`. Rotating a key keeps its name and so its subject, its taint, its
-  labels and its tasks.
+- **Partner identity.** The `partnerId` is a server-generated UUID, immutable, and stored separately from the API key name. A display name
+  is for people and can change. One or more API keys link to the same `partnerId`, through an optional partner reference on each key
+  entry in the Host's existing credential configuration (no second credential system). Rotating a key does not change the partner's
+  identity. The subject is the partner's, so taint, labels and task ownership follow the partner.
 - **No administration.** A partner profile never lists an `Administers` tool. The existing grant rule already blocks wildcards from
   reaching them.
-- **The adapter sets the partner's name.** Every `a2a.submit` and `a2a.reply` call carries a `partner` argument, which the adapter
-  takes from the credential and overwrites from any request body. Rules and data-flow destinations match on it.
+- **The adapter sets the partner.** Every `a2a.submit` and `a2a.reply` call carries a `partner` argument: the `partnerId`. The adapter
+  takes it from the credential and overwrites any value from the request body. Rules and data-flow destinations match on it.
 
 ### 3. Skills
 
@@ -253,21 +240,38 @@ A skill is declared by the operator in configuration. It is never generated from
 
 ### 4. Inbound tasks (the inbox)
 
-`SendMessage` with an inbox skill:
+`SendMessage` with an inbox skill. The skill is selected through the skill-selection extension,
+`https://opentail.net/a2a/extensions/skill-selection/v1`: the message names the extension in its extensions (the `A2A-Extensions`
+header, spec §14.2.2) and carries the skill id under the extension's metadata key (correction 4). The extension is versioned, and its
+specification is published at that URI before any partner is onboarded.
 
-1. The adapter checks `(owner, messageId)` in its own table. A repeat with the same content returns the existing task. A repeat with
-   different content is refused, so `messageId` cannot be reused for a second request. This check comes first, because the action
-   store's own dedupe includes the arguments hash.
+1. The adapter checks `(owner, messageId)` in its own tables (section 10). A repeat with the same content returns the existing task. A
+   repeat with different content is refused, so `messageId` cannot be reused for a second request. This check comes first, because
+   the action store's own dedupe includes the arguments hash.
 2. The adapter gets or starts the context's session (`SessionRegistry.Start(owner)`) and submits `a2a.submit` as the partner, with
    `partner` set, the goal and the data parts as arguments, and an idempotency key derived from `messageId`.
 3. `a2a.submit` is `ReadsUntrusted` and `Write`. The policy queues it by default. The reviewer sees the goal in the preview, as
    quoted outside content.
 4. On approval, the tool body calls `WorkService.CreateAsync(goal, "profile:<target>", from: partner subject, inputs, thread: context)`.
    The work item carries the taint and labels of the submission, through `Carry`, as delegation does.
-5. The task id is the work item id (`wi_` plus 128 random bits). Foreign and unknown ids give the same answer.
+5. **The task id is not the work item id.** The server generates a persistent task id for each new task (spec §3.4.2): a client
+   cannot supply one. A task id must exist before its work item does, so it cannot be the work item's id. The task id is stored in
+   `a2a_tasks` (section 10), linked to the `a2a.submit` action, to the work item once it exists, and to the `a2a.reply` action.
+   First-message handling is crash-safe and idempotent: a crash between creating the action and storing the mapping must not create a
+   second task when the partner retries the same `messageId` (correction 1). Foreign and unknown ids give the same answer.
 
 Message parts: `text` becomes the goal (capped by `WorkConfig.GoalMaxBytes`); `data` becomes the inputs JSON (capped by
 `InputsMaxBytes`); `file` is refused in v1 (decision 11 covers attachments later).
+
+**Blocking and `returnImmediately` (correction 2).** `returnImmediately=true` returns once the task is created, in SUBMITTED. `false`,
+or an omitted value, waits until the task reaches a terminal state or an interrupted state (input-required or auth-required). The flag
+is in spec §3.2.2. A blocked request is never answered with SUBMITTED because a server timeout expired. If the client disconnects or times out,
+the task is not discarded or cancelled, and a retry with the same `messageId` from the same partner finds the existing task. The
+recommended integration mode is `returnImmediately=true`, because approval is asynchronous. The SDK reads the flag from
+`SendMessageConfiguration.ReturnImmediately`. Tests must cover `true`, `false` and omitted.
+
+**ListTasks (correction 5).** Returns only the caller's tasks. Cursor pagination: `pageToken` in, `nextPageToken` out, and the last
+page returns an empty string. Results are sorted newest first by status update time (spec §3.1.4).
 
 **Why an action first.** A new partner's requests go to a person until the operator trusts them. `TrustRamp` is per tool, though, not
 per partner. To trust one partner and not another, use a conditional rule on the `partner` argument, which the partner cannot set.
@@ -297,10 +301,10 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 - **The labels reach the check.** Before submitting `a2a.reply`, the adapter applies the work item's labels and taint to the
   partner's session (`GainCarried`, as `WorkService.Apply` does). The standard exit check then sees them. The item's labels are
   not on the partner's session otherwise.
-- **The destination is named.** A label rule names the partner:
+- **The destination is named.** A label rule names the partner by its `partnerId`:
 
 ```json
-"DataFlow": { "finance": { "Allow": [ "a2a.reply:partner=acme" ], "Otherwise": "Deny" } }
+"DataFlow": { "finance": { "Allow": [ "a2a.reply:partner=<partnerId>" ], "Otherwise": "Deny" } }
 ```
 
 - **Enforcement is required.** `DataFlowMode` defaults to `ReportOnly`. With that default, a labelled reply would be recorded as
@@ -325,15 +329,17 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 
 ### 8. The agent card
 
-- **Public card (not served; see correction 3).** The name, a generic description, the version, the JSON-RPC interface with `protocolVersion: "1.0"`, the capabilities
-  (no streaming, no push), the input and output modes, and the security schemes the Host really accepts: `apiKey` in the `X-API-Key`
-  header and `http` bearer. With Entra, an `openIdConnect` scheme.
+- **The card requires authentication (correction 3).** `/.well-known/agent-card.json` is served only to an authenticated caller. It
+  has the name, a generic description, the version, the JSON-RPC interface with `protocolVersion: "1.0"`, the capabilities (no
+  streaming, no push), the input and output modes, and the security schemes the Host really accepts: `apiKey` in the `X-API-Key`
+  header and `http` bearer. With Entra, an `openIdConnect` scheme. It lists no skills. Partners receive the card's location and their
+  credentials out of band. The specification allows direct configuration as a discovery mechanism.
 - **Extended card.** `GET /extendedAgentCard` returns, for an authenticated caller, the skills its profile may use, built by the same
   code that builds `tools/list`. Its capabilities say `extendedAgentCard: true`.
 - **What the card never shows.** Tool names outside the caller's profile, internal names, module versions, policy and reviewer groups.
-- **Decided (see correction 3): the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A. The SDK's
-  security guide also says protected agents should guard the discovery endpoint. The alternative is a minimal public card with the
-  same content as above and no skills (decision 1).
+- **Decided (correction 3): the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A.
+  The SDK's security guide also says protected agents should guard the discovery endpoint. A public card with no skills, the
+  alternative, is not adopted (decision 1 is the default).
 - **Signing (phase 2).** A JWS over the canonical JSON, with `alg` and `kid`, using a key from configuration. *Verify* that the SDK's
   serialisation can be canonicalised to RFC 8785 before relying on it.
 
@@ -348,8 +354,10 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 
 ### 10. Persistence and durability
 
-- **A context table.** `a2a_contexts`: owner, context id, session id, thread id, and the taint and labels the context has gathered.
-  `a2a_messages`: owner, `messageId` hash, task id, content hash. Both in the same SQLite file, with a schema bump.
+- **Tables.** `a2a_contexts`: owner, context id, session id, thread id, and the taint and labels the context has gathered.
+  `a2a_messages`: owner, `messageId` hash, task id, content hash. `a2a_tasks`: task id, owner, the `a2a.submit` action id, the work
+  item id (empty until the item exists) and the `a2a.reply` action id (empty until there is one). The task id is the one the partner
+  is given. It is not the work item id (section 4, step 5). All three are in the same SQLite file, with a schema bump.
 - **Contexts outlive sessions.** A session idles out after 14 days and takes its labels with it. Subject taint lasts 30 minutes. So
   each inbound message re-applies the context's stored taint and labels to its new session. This is the work design's rule 1: waiting
   does not clean a session.
@@ -359,10 +367,12 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 
 ### 11. Versions, gaps and the SDK
 
-- **Versions.** Strict 1.0 (see the contracts). The specification's 0.3 examples must be checked against the SDK's behaviour.
+- **Versions.** 1.0 is the only version served (section 1). The specification's examples send `0.3` while its text describes 1.0, and
+  the SDK's migration guide differs from the spec on an empty header. Interoperability tests against the SDK-mapped endpoint record the
+  SDK's actual answer for empty, missing, `0.3` and `1.0` (correction 6).
 - **Gaps in the specification** the design fills itself: which error a caller gets for a skill it may not use (this design: a generic
   "not available"); what an expired token gets (not stated; this design returns `401`); whether a skills array may be empty (*verify*;
-  the public card uses one generic inbox skill to avoid the question).
+  it matters for a profile that may use no skill).
 - **The SDK is a preview.** Pin an exact version. Keep the SDK behind one adapter class, so an API change touches one file.
 
 ## Outbound (the Host calls other agents): phase 4
@@ -392,7 +402,7 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 |---|---|
 | Prompt injection through a partner message | `a2a.submit` taints the session and subject; the claimant's session takes the work's taint (`Apply`); the goal is quoted outside text; text never becomes a tool argument; no A2A route lets a partner choose a profile or a tool outside its skills. |
 | A partner's reply leaks labelled data | `a2a.reply` is an exit; the labels reach the check; a rule names the destination; `DataFlowMode` must be `Enforce`; the reviewer sees the text. |
-| A partner impersonates another | One key per partner, bound to the credential; the subject is the key's name. |
+| A partner impersonates another | Each credential is linked to one server-generated `partnerId`; the subject is the partner's. |
 | A partner reads another's tasks | Owner checks on every operation; unguessable ids (128 bits); foreign and unknown ids give the same answer; `ListTasks` is scoped. |
 | A duplicate or replayed request | `messageId` checked against content before anything is created; idempotency key on the action. |
 | Escalation through the card or skills | Curated skills; no administration tools for partners; the card is built from the profile; no operation changes configuration. |
@@ -405,9 +415,15 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 
 ## Build order
 
+**Revised 2026-11-12 (owner agreed).** Phase 0 first, then a thin slice of phase 1: one inbox skill end to end, driven by the SDK's own
+client, with `returnImmediately=true`, the task id table, `a2a.submit` and `a2a.reply`. The slice also records the SDK's real answer for
+each `A2A-Version` case. A per-partner trust rule and a cap on blocking waits are part of the first cut. The rest of phase 1 (pagination,
+the card, the skill-selection extension) follows the slice. The checklist ([governance-checklist.md](governance-checklist.md)) has the items.
+
 - **Phase 0, prerequisites (no A2A yet):** the `a2a:call` role and scope; a startup check that `DataFlowMode` is `Enforce` when A2A is on;
-  the durability setting documented and warned; a conditional rule on the `partner` argument, proven in a test.
-- **Phase 1, inbound inbox:** `SendMessage`, `GetTask`, `CancelTask` over JSON-RPC; the public-or-authenticated card; `a2a.submit`
+  the durability setting documented and warned; a conditional rule on the `partner` argument, proven in a test; the whole-action
+  binding in place, before the inbox is exposed to any external partner (correction 8).
+- **Phase 1, inbound inbox:** `SendMessage`, `GetTask`, `CancelTask` over JSON-RPC; the authenticated card; `a2a.submit`
   and `a2a.reply` with previews; the context and message tables; the work-item mapping; the projection of work items. Tests: the
   authorisation matrix; `messageId` reuse; taint; the exit check for labelled replies; foreign and unknown ids; rate limits; out-of-profile
   trips; a context surviving a session expiry with its labels.

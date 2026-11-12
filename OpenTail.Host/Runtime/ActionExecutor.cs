@@ -400,7 +400,8 @@ public sealed class ActionExecutor(
         if (RecheckRefusal(approved, now) is { } reason)
         {
             var refused = await AtomicTrail.ChangeAsync(store, audit, approved.Id, ActionStatus.Approved, ActionStatus.Failed,
-                r => r with { Error = new ActionError(reason, RefusalMessages[reason], false) },
+                r => (r with { Error = new ActionError(reason, RefusalMessages[reason], false) })
+                    .WithResolution(ResolutionOutcomes.ExecutionDenied, "system", reason, now),
                 d => new AuditEntry(d.UpdatedAt, AuditEvents.ExecutionDenied, d.Id, d.ToolName, d.Requester.Id, reason), ct);
             if (refused is null) return null;
             return await ReportRefusalAsync(refused, ct, auditWritten: true);
@@ -422,9 +423,10 @@ public sealed class ActionExecutor(
     }
 
     /// <summary>Why an approved action must not run, or null when its approval still holds: the request expired before it was approved,
-    /// the policy it was decided under is no longer the one in force (or the Host cannot say what that is), or the arguments that would
-    /// run are not the ones approved. An edit is checked against the digest recorded with its review; without one, the stored arguments
-    /// are checked against the digest made at submission.</summary>
+    /// the policy it was decided under is no longer the one in force (or the Host cannot say what that is), the arguments that would
+    /// run are not the ones approved, or the action's binding (requester, tool and its current schema, arguments, policy) no longer
+    /// recomputes to the binding the approval holds for. An edit is checked against the digests recorded with its review; without one,
+    /// the stored arguments are checked against the digest made at submission. A missing or unrecomputable binding fails closed.</summary>
     internal string? RecheckRefusal(ActionRecord approved, DateTimeOffset now)
     {
         if (approved.ExpiresAt is { } deadline && deadline <= now) return ReasonApprovalExpired;
@@ -433,6 +435,13 @@ public sealed class ActionExecutor(
         var lastEdit = approved.Reviews.LastOrDefault(r => r.EditedArgumentsJson is not null);
         var expected = lastEdit is null ? approved.ArgumentsHash : lastEdit.EditedArgumentsHash;
         if (expected is null || ArgumentDigest.Of(approved.EffectiveArgumentsJson) != expected) return ReasonActionDigestMismatch;
+
+        // The whole action, recomputed from the stored record and the tool as it is loaded now: a module upgrade that changes the tool's
+        // parameter schema changes the current schema version, and so refuses the approvals given before it.
+        var bound = approved.EffectiveBindingDigest;
+        var recomputed = ActionBindings.Digest(approved.Requester.Id, approved.ToolName, catalog.SchemaVersionOf(approved.ToolName),
+            approved.EffectiveArgumentsJson, approved.PolicyHash);
+        if (bound is null || recomputed is null || recomputed != bound) return ReasonActionDigestMismatch;
         return null;
     }
 

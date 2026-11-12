@@ -218,6 +218,20 @@ Step 1, done 2026-11-11 (commits `d6b10f3` and `89caf47`, on main): the audit ev
   action that runs after a policy change; those two paths are not tested directly. The test fixture for interrupted actions now
   stores a real digest and the real policy hash.
 
+## Phase 1: the binding and its digest (done 2026-11-12, in the working tree, not committed)
+
+- `ActionBinding` in `OpenTail.Host.Abstractions`, with the canonical keys above plus `policy_version`. `Digest()` is `sha256:` over the
+  RFC 8785 form. `Jcs` is the canonicaliser; it passes the six reference vectors (`OpenTail.Host.Abstractions.Tests/Rfc8785/`).
+- Verified: `ArgumentsHash` is over the raw argument text, not canonical JSON. It is unchanged.
+- `tool_schema_version` comes from `ToolCatalog.SchemaVersionOf`. `ActionRecord.BindingDigest` is set when an action is created; it is
+  null for an unknown tool and for arguments that are not JSON.
+- Next (agreed 2026-11-12): the claim compares the binding digest, and a reviewer's edit records its own binding (checklist, A.2).
+
+## Phase 3, revised 2026-11-12
+
+Build the resolution record. Defer the export in Microsoft's field names, its versioning and its conformance tests until something
+consumes them. The freeze rule above is a proposal only: the owner has not set a freeze.
+
 ## Sources
 
 - ADR-0030, action-bound approval protocol: <https://microsoft.github.io/agent-governance-toolkit/adr/0030-action-bound-approval-protocol/>

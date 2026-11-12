@@ -11,23 +11,33 @@ public class DurabilityTests
     private static ActionRequest Send(string? key = null) =>
         new("mail.send", "{\"to\":\"a@b.c\",\"body\":\"hi\"}", Me, null, key);
 
-    private static ActionRecord Stale(string tool, string args, ActionStatus status, DateTimeOffset leaseEnded, string? key = null) => new()
+    /// <summary>The schema version the Host computes for a tool of <see cref="FakeInboxModule"/>: a retry re-checks the binding at the claim.</summary>
+    private static string SchemaOf(string tool) =>
+        new OpenTailHostBuilder().AddModule(new FakeInboxModule()).UsePolicy(PolicyConfig.Parse(Hosts.SendQueued)).Build()
+            .Catalog.SchemaVersionOf(tool)!;
+
+    private static ActionRecord Stale(string tool, string args, ActionStatus status, DateTimeOffset leaseEnded, string? key = null)
     {
-        Id = "act_" + Guid.NewGuid().ToString("N"),
-        ToolName = tool,
-        ModuleId = "fake",
-        ArgumentsJson = args,
-        ArgumentsHash = ArgumentDigest.Of(args),
-        PolicyHash = PolicyConfig.Parse(Hosts.SendQueued).Hash(),
-        Requester = Me,
-        Status = status,
-        PolicyMode = ToolMode.Execute,
-        CreatedAt = leaseEnded.AddMinutes(-10),
-        UpdatedAt = leaseEnded.AddMinutes(-10),
-        Attempts = 1,
-        LeaseUntil = leaseEnded,
-        IdempotencyKey = key,
-    };
+        var policyHash = PolicyConfig.Parse(Hosts.SendQueued).Hash();
+        return new()
+        {
+            Id = "act_" + Guid.NewGuid().ToString("N"),
+            ToolName = tool,
+            ModuleId = "fake",
+            ArgumentsJson = args,
+            ArgumentsHash = ArgumentDigest.Of(args),
+            PolicyHash = policyHash,
+            BindingDigest = new ActionBinding(ActionBinding.ToolCall, Me.Id, null, tool, SchemaOf(tool), null, args, policyHash).Digest(),
+            Requester = Me,
+            Status = status,
+            PolicyMode = ToolMode.Execute,
+            CreatedAt = leaseEnded.AddMinutes(-10),
+            UpdatedAt = leaseEnded.AddMinutes(-10),
+            Attempts = 1,
+            LeaseUntil = leaseEnded,
+            IdempotencyKey = key,
+        };
+    }
 
     [Fact]
     public async Task Pending_survives_a_restart_and_can_then_be_approved()

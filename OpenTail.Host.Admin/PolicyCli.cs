@@ -180,10 +180,11 @@ public static class PolicyCli
                 foreach (var r in await db.QueryAsync(new ActionQuery { Status = ActionStatus.Pending, RequesterId = cancelPending, Limit = int.MaxValue }))
                 {
                     // The cancellation and its entry are one transaction: the trail is this same database (see audit above).
-                    var done = await db.TransitionAuditedAsync(r.Id, ActionStatus.Pending, ActionStatus.Cancelled, x => x with
+                    var done = await db.TransitionAuditedAsync(r.Id, ActionStatus.Pending, ActionStatus.Cancelled, x => (x with
                     {
                         Reviews = [.. x.Reviews, new ActionReview(by, ReviewDecision.Reject, "Cancelled by an operator: " + text, DateTimeOffset.UtcNow) { Subject = "operator:" + by }],
-                    }, d => new AuditEntry(d.UpdatedAt, AuditEvents.ApprovalCancelled, d.Id, d.ToolName, by, $"by {by}: {text}"));
+                    }).WithResolution(ResolutionOutcomes.Cancelled, "operator:" + by, null, DateTimeOffset.UtcNow),
+                        d => new AuditEntry(d.UpdatedAt, AuditEvents.ApprovalCancelled, d.Id, d.ToolName, by, $"by {by}: {text}"));
                     if (done is null) continue;
                     cancelled++;
                 }

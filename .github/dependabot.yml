@@ -1,0 +1,22 @@
+# Keeps dependency versions current. Each pull request runs CI; nothing merges by itself.
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: "/OpenTail.Host.Server"
+    schedule:
+      interval: weekly

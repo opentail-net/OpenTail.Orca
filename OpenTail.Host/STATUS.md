@@ -211,6 +211,25 @@ index covers the governance naming and re-check at claim (on `main` as `d6b10f3`
 
 The solution also contains `OpenTail.Profiles.Jira` and `OpenTail.Profiles.Confluence`. No plan log covers them.
 
+## Module support status
+
+Two levels. The level says what the owner keeps working, not how good the code is.
+
+- **Maintained:** demonstrated live against the real system, and kept working when the vendor changes.
+- **Available:** built and tested against fakes or a recorded connection. Not run against the real system by us. Fixed when a
+  deployment needs it.
+
+As of 2026-11-12, every module and profile is **Available**. None is Maintained yet, because none has been run against a real system
+(see "Needs a live system" below). A module moves to Maintained when its live check has passed and someone uses it.
+
+| Level | Modules and profiles |
+|---|---|
+| Maintained | none yet |
+| Available | Modules: Calendar, Calendar.Ics, Csv, Email, Email.Imap, Files, GitHubIssues, Google, Microsoft365, OpenApi, ServiceNow, Skills, Social, Sql, Sql.Databricks, Sql.Oracle, Storage, Web. Profiles: Confluence, Jira, X, YouTube. |
+
+Dependency versions are kept current by Dependabot (`.github/dependabot.yml`): it opens grouped pull requests each week, and CI runs the
+tests on each. That keeps Available modules building against current packages. It does not show that a vendor's API still behaves the same.
+
 ## Open across the plans
 
 **Needs the owner:** the profile hosting decision (v4), the packaging feed (v3 W6), the pilot's accounts and time (v5), the AI reviewer

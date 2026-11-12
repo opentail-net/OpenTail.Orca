@@ -236,6 +236,11 @@ put `/data` on storage that honours flushes.
 * **Policy changes** take effect on restart; an approved proposal from the page is a policy file like any other ([SOP C1](SOP.md#c1-changing-the-policy)). Run `--replay-policy` against the real database first, and `--test-policy` if you keep cases.
 * **Module upgrades:** a module built against a contract this Host does not support is refused at startup with both versions named.
   Within contract 1 any module version works with any Host version.
+* **A module upgrade that changes a tool's parameter schema refuses the approvals given before it.** Each approved action of that tool
+  that has not run yet fails at its claim with `action_digest_mismatch`, and nothing runs. The approval was given for a different tool
+  contract, so the request must be made again under the new one. An action still waiting for a decision is judged the same way when it
+  is approved after the upgrade, unless the reviewer edits its arguments: an edit is bound to the schema in force when it is made. An
+  action stored before the binding digest existed has none, and is refused in the same way.
 * **Removing a module:** set `"Enabled": false` in `modules.json` first (its pending actions expire, its promotions are cleared, its
   policy entries are tolerated), then remove the package. See [MODULES.md](MODULES.md#removing-a-module).
 * **Rotating a module credential:** change the environment variable or file; it is re-read on the next use. OAuth tokens refresh

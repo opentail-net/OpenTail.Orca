@@ -384,6 +384,7 @@ public class BrickTests
         var after = await second.Store.GetAsync(pending.Id);
         Assert.Equal(ActionStatus.Expired, after!.Status);
         Assert.Equal("module_removed", after.Error!.Code);
+        Assert.Equal((ResolutionOutcomes.Expired, "system", "module_removed"), (after.Resolution!.Outcome, after.Resolution.Resolver, after.Resolution.ReasonCode));
         Assert.False(second.Policy.IsPromoted("p.write"));
     }
 

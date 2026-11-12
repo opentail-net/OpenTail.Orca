@@ -452,7 +452,7 @@ public sealed class OpenTailHost
     }
 
     /// <summary>Pending actions of a switched-off module can never run: expire them. Promotions of its tools are cleared, so a
-    /// reinstall starts from the policy file again. (Approved-but-unstarted ones fail as unknown_tool when the executor reaches them.)</summary>
+    /// reinstall starts from the policy file again. (Approved-but-unstarted ones are refused at their claim as action_digest_mismatch: their tool is no longer loaded, so the binding cannot be recomputed.)</summary>
     private async Task RetireAsync(CancellationToken ct)
     {
         if (RetiredModules.Count == 0) return;
@@ -461,7 +461,8 @@ public sealed class OpenTailHost
         {
             if (!retired.Contains(r.ModuleId)) continue;
             await AtomicTrail.ChangeAsync(Store, Audit, r.Id, ActionStatus.Pending, ActionStatus.Expired,
-                x => x with { Error = new ActionError("module_removed", $"Module '{x.ModuleId}' was switched off before this was decided.", false) },
+                x => (x with { Error = new ActionError("module_removed", $"Module '{x.ModuleId}' was switched off before this was decided.", false) })
+                    .WithResolution(ResolutionOutcomes.Expired, "system", "module_removed", DateTimeOffset.UtcNow),
                 d => new AuditEntry(d.UpdatedAt, AuditEvents.ApprovalExpired, d.Id, d.ToolName, "system", "module_removed"), ct);
         }
         if (TrustStore is { } trust)

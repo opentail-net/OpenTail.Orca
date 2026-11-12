@@ -11,11 +11,14 @@ C is later work. Section D is housekeeping, which does not block a partner. Keep
 
 ## Next up
 
-1. **Re-check test gaps** (A.1). No decision needed.
-2. **Whole-action binding, with RFC 8785 vectors** (A.2).
-3. **Export and resolution contract, with versioning** (A.3).
-4. **A2A phase 0**, including the partner identity foundation (B).
-5. **A2A phase 1 blockers** (C.1), once the corrections in `a2a.md` are built.
+Order agreed with the owner on 2026-11-12, after a review of these plans. Items 1 to 3 are done in the working tree, not committed
+(2026-11-12); they stay listed so the order is visible.
+
+1. ~~**Enforce the binding digest at the claim** (A.2).~~ Done in the working tree, not committed.
+2. ~~**Fold the corrections into the body of `a2a.md`** (B.0).~~ Done in the working tree, not committed.
+3. ~~**The resolution record, without the export** (A.3).~~ Done in the working tree, not committed. The export waits for a consumer.
+4. **A2A phase 0** (B), including the partner identity foundation.
+5. **A2A thin slice** (C.0): one inbox skill end to end against the SDK's own client, before the rest of phase 1.
 
 ## A. Governance prerequisites (before A2A phase 0)
 
@@ -32,35 +35,68 @@ Done:
 - [x] Phase 2 tests: 6 in `RecheckAtClaimTests`. Each check was switched off in turn, and only its own test failed.
 - [x] `execution_allowed` is not added. `approval_consumed` plus `execution_started` cover it (second review agrees).
 
-A.1 Re-check test gaps:
+A.1 Re-check test gaps (done 2026-11-12, in the working tree, not committed):
 
-- [ ] A reviewer's retry under a changed policy has no direct test. The retry path goes through the same check.
-- [ ] A delayed action that runs after a policy change has no direct test. It goes through the same check.
-- [ ] The edit digest (`ActionReview.EditedArgumentsHash`) survives the SQLite store. Tested only with the in-memory store so far.
+- [x] A reviewer's retry under a changed policy is refused (`RecheckAtClaimTests`).
+- [x] A delayed action that comes due after a policy change is refused.
+- [x] The edit digest (`ActionReview.EditedArgumentsHash`) survives the SQLite store.
 
-A.2 Whole-action binding (the naming plan's phase 1):
+A.2 Whole-action binding (the naming plan's phase 1; done 2026-11-12, in the working tree, not committed):
 
-- [ ] Keep the raw-text `ArgumentsHash` unchanged, and add a binding digest beside it. Stored digests stay valid.
-- [ ] Binding over the whole action: agent, subject, operation, tool, tool schema version, resource, arguments, policy version. One digest.
-- [ ] Canonical JSON per RFC 8785 for the binding digest, checked against the reference test data (`cyberphone/json-canonicalization`,
-  `testdata`; not opened yet). The digest is not called RFC 8785 compliant until it passes those vectors. The toolkit's "RFC 8785-style"
-  wording is not enough.
-- [ ] Check the .NET writer's number formatting against RFC 8785. The toolkit's digest writes some numbers differently (exponent forms).
-- [ ] Compute `tool_schema_version` from each tool's parameter schema. The Host does not store one today.
-- [ ] Store the binding digest per action. Schema question first: actions are JSON (`SqliteActionStore`, `$json`), so a new field may need
-  no bump. The current schema is 12.
+- [x] The raw-text `ArgumentsHash` is unchanged (verified: it is the digest of the raw text, not canonical JSON). The binding digest is a
+  new field beside it, `ActionRecord.BindingDigest`. Stored digests stay valid.
+- [x] Binding over the whole action (`ActionBinding`): `schema_version`, `operation` (`tool_call`), `agent_id` (the requester's id),
+  `subject_id` (null until delegation exists), `target` (`tool_name`, `tool_schema_version`, `resource`: null), `parameters`,
+  `policy_version`. One digest, `sha256:` over the canonical form.
+- [x] Canonical JSON per RFC 8785 (`Jcs` in `OpenTail.Host.Abstractions`). It passes all six reference vectors, vendored unchanged in
+  `OpenTail.Host.Abstractions.Tests/Rfc8785/` (Apache-2.0, source commit `32a4819`). The reference repository's 100-million-number file
+  is generated, not shipped, and was not run.
+- [x] Number formatting follows ECMAScript (`1e+30`, `1e-7`, `1e+21`, `0.000001`), tested at the edges. It does not use the .NET
+  writer's format.
+- [x] `tool_schema_version` is `sha256:` over the canonical form of the tool's parameter schema, computed when the tool is registered
+  (`ToolCatalog.SchemaVersionOf`).
+- [x] Stored per action, in the action's JSON. No schema bump was needed; the schema is still 12.
+- [x] Enforce the binding at the claim (agreed 2026-11-12; in the working tree, not committed). Recompute the binding from the stored record
+  and the loaded tool, and refuse a mismatch with `action_digest_mismatch`. A reviewer's edit records a binding of its own, as it records
+  an argument digest (`ActionReview.EditedBindingDigest`). A record with no binding digest is refused, except where the tool was unknown
+  or the arguments were not JSON (those cannot run). The binding is built in one helper (`ActionBindings`) for submission, the edit and the
+  claim. The check is in `ActionExecutor.RecheckRefusal`, after the argument digest.
+- [x] Accepted consequence documented: a module upgrade that changes a tool's parameter schema refuses approvals given before it
+  (`OPERATIONS.md`, upgrades).
+- [x] Mutation check: the binding comparison switched off with `&& false`. Four refusal tests failed (schema change, stored digest changed,
+  stored digest cleared, requester changed); the edit test still passed, as it does not depend on the check. Restored, all pass.
+- Tests: `JcsTests` (28), `ActionBindingTests` (8), `RecheckAtClaimTests` 16 (11 before, 5 for the claim check). `DurabilityTests`
+  fixtures for interrupted records now carry a real binding (they are refused without one, as intended).
+  Abstractions 70 of 70; Host 1204 of 1204 (`dotnet test OpenTail.Host.Tests/OpenTail.Host.Tests.csproj`).
 
-A.3 Export and resolution contract:
+A.3 Resolution record (scope reduced 2026-11-12; in the working tree, not committed):
 
-- [ ] A resolution record per action: outcome, digest, policy version, reason, time.
-- [ ] Export an approval in the field names of `ApprovalRequest` and `ApprovalResolution`, through the CLI and the audit export.
-- [ ] Versioning for the export: a version field, and a rule for which changes need a new version.
-- [ ] Conformance tests for the export mapping. Read `ApprovalProtocolTests.cs` in the toolkit copy first. The full harness is later (C.3).
+- [x] A resolution record per action: outcome, binding digest, policy version, reason, time, and the resolver. This answers an auditor's
+  question: what was approved, under which policy, and did it run.
+  - Design: `ActionRecord.Resolution` (an `ActionResolution`), stored in the action's JSON. No schema bump (the schema is still 12).
+    It is set in the same write as the status change it describes, so the status and its resolution cannot disagree. It holds no
+    arguments. `DecisionRecord` copies it at purge, so it outlives the action. The export stays deferred.
+  - Outcomes (`ResolutionOutcomes`): `allowed` (reviewer approval completed, or the undo window elapsed), `denied` (reviewer rejection),
+    `expired` (sweep, late approval, or module switched off), `cancelled` (requester, reviewer who stopped a delayed action, or operator),
+    `execution_denied` (approval refused at its claim). `changes_requested` and a denial at submission have no resolution: the outcome
+    list has no value for them, and their status and decision trace already answer the question.
+  - Tests: `ResolutionRecordTests` (9): one per outcome, the late approval, the delayed run, a stop, the refused claim over SQLite with
+    a reopen, and a check that a resolution is not stored without its entry. Plus one assertion each in `BrickTests` (module removal) and
+    `DecisionRecordTests` (purge keeps it).
+
+Deferred until someone needs it (no consumer today):
+
+- [ ] Export in the field names of `ApprovalRequest` and `ApprovalResolution`, with a version field and a versioning rule.
+- [ ] Conformance tests for the export mapping. Read `ApprovalProtocolTests.cs` in the toolkit copy first.
 
 ## B. A2A phase 0 (prerequisites, no A2A code yet)
 
-Waits for your go-ahead.
+Go-ahead given 2026-11-12.
 
+- [x] B.0: fold the corrections into the body of `a2a.md`, so the body and the corrections no longer disagree (task ids in section 4,
+  the partner identity in section 2, the versions in sections 1 and 11, the authenticated card in section 8, the skill-selection
+  extension and ListTasks in section 4, `a2a_tasks` in section 10, the build order). In the working tree, not committed. The
+  correction 6 A2A-Version question is still open for the owner.
 - [ ] The role and scope `a2a:call` (`Roles` in `OpenTail.Host.Admin/AdminServer.cs`), accepted by the API key scope validation
   (`HostHttpOptions.cs`, which refuses only review, admin and group scopes today).
 - [ ] Startup check: `DataFlowMode` must be `Enforce` when A2A is configured (it defaults to `ReportOnly`).
@@ -72,9 +108,20 @@ Waits for your go-ahead.
 
 ## C. A2A phase 1 (inbound inbox): blockers before the first partner
 
+C.0 Thin slice first (agreed 2026-11-12):
+
+- [ ] One inbox skill end to end: `SendMessage` with `returnImmediately=true`, `GetTask`, the task id table, `a2a.submit` and `a2a.reply`,
+  driven by the SDK's own client in a test. No pagination, no card, no extension yet.
+- [ ] The same test records what the SDK-mapped endpoint does for an empty, a missing, a `0.3` and a `1.0` `A2A-Version` header. The
+  owner's version decision is then made on observed behaviour.
+- [ ] A per-partner trust rule in the first cut: a conditional rule on `partner`, so a trusted partner's submit or reply need not queue
+  twice for a person. Two approvals per request is the default for a new partner only.
+- [ ] A cap on blocking waits per partner before any partner connects (it was listed as an open detail; it is a prerequisite).
+
 C.1 Blockers:
 
-- [ ] Whole-action binding (A.2) is in place before any external partner is connected. The review's rule.
+- [x] Whole-action binding (A.2) is in place before any external partner is connected. The review's rule. (In the working tree, not
+  committed.)
 - [ ] Task ids: a separate persistent `a2a_tasks` id, linked to the `a2a.submit` action, the work item and the `a2a.reply` action. The
   server generates it (spec §3.4.2). First-message handling is crash-safe and idempotent: a retry with the same `messageId` finds the
   existing task (correction 1).
@@ -120,7 +167,7 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
 - [ ] Plan defaults that the owner has not yet confirmed: JSON-RPC first (decision 4); a generic error for a skill the caller may not use
   (7); card and skill changes are configuration only (8); reviewer reasons stay internal (9); file parts refused in v1 (11).
 
-## C. Later (not blocking a first partner)
+## C2. Later (not blocking a first partner)
 
 - [ ] Phase 2: curated skills in full; the extended card with every skill; card signing; HTTP+JSON; 0.3 compatibility if a partner needs it.
 - [ ] Phase 3: push, status only, to registered hosts; `work.ask_partner` for the INPUT_REQUIRED state.
@@ -183,3 +230,7 @@ All of these must hold before any package is taken:
 - Not renaming `ActionStatus`, `ToolMode`, or the operator config values `Execute`, `Queue`, `Deny`.
 - Not changing notification names or telemetry labels.
 - Not adding `execution_allowed`.
+- The binding digest is enforced at the claim; a tool schema change refuses older approvals (owner, 2026-11-12).
+- The Microsoft-shaped export is deferred until it has a consumer; the resolution record is built (owner, 2026-11-12).
+- A2A is built as a thin slice first, with a per-partner trust rule and a cap on blocking waits in the first cut (owner, 2026-11-12).
+- The naming freeze is not in effect; the owner has not set one (2026-11-12).
