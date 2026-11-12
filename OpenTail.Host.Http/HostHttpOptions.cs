@@ -47,7 +47,21 @@ public sealed class JwtSignInOptions
 
 /// <summary>A hashed API key for a machine agent. Generate one with <see cref="ApiKeys.Generate"/>. <paramref name="Profile"/> names the
 /// agent profile (policy <c>Agents</c>) that limits which tools the key may call; a key without one gets a startup warning.</summary>
-public sealed record ApiKeyEntry(string Name, string Hash, IReadOnlyList<string>? Scopes = null, string? Profile = null);
+/// <param name="Partner">For an <c>a2a:call</c> key: the <see cref="A2aPartner.Id"/> of the partner it belongs to. Several keys may name one partner
+/// (rotation). Other keys leave it out.</param>
+public sealed record ApiKeyEntry(string Name, string Hash, IReadOnlyList<string>? Scopes = null, string? Profile = null, string? Partner = null);
+
+/// <summary>A partner: an outside agent or organisation that calls the Host over A2A. <paramref name="Id"/> is a UUID the operator
+/// generates once (<c>--new-partner</c>) and never changes; <paramref name="DisplayName"/> is for people and may change.</summary>
+public sealed record A2aPartner(string Id, string DisplayName);
+
+/// <summary>The <c>A2A</c> section of the HTTP config. Phase 0: it names the partners and turns on startup checks; no A2A endpoint is
+/// served yet. When <see cref="Enabled"/> is false nothing here is checked and behaviour is unchanged.</summary>
+public sealed record A2aOptions
+{
+    public bool Enabled { get; init; }
+    public IReadOnlyList<A2aPartner> Partners { get; init; } = [];
+}
 
 public sealed class HostHttpOptions
 {
@@ -70,6 +84,9 @@ public sealed class HostHttpOptions
     /// <summary>The Teams bot, which shares the Host's database and its notification channel; its messaging endpoint is mapped when set.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public Teams.TeamsBot? TeamsBot { get; set; }
     public IReadOnlyList<ApiKeyEntry> ApiKeys { get; init; } = [];
+
+    /// <summary>The A2A section (phase 0). Null or disabled: no A2A check runs and nothing changes.</summary>
+    public A2aOptions? A2A { get; init; }
 
     /// <summary>Reviewer tokens for the approval page and API (in addition to JWT reviewers). They can never call tools.</summary>
     public AdminOptions? Admin { get; init; }
@@ -111,6 +128,43 @@ public sealed class HostHttpOptions
                 errors.Add($"API key '{k.Name}' names agent profile '{k.Profile}', which the policy's \"Agents\" does not define.");
         }
         return (errors, warnings);
+    }
+
+    /// <summary>Startup checks for the A2A section, run only when it is enabled (a2a.md section 2 and the build order). The durability
+    /// level is the one the Host's store resolved (<see cref="SqliteActionStore.Synchronous"/>), not the environment text. Null means the
+    /// store is not SQLite, whose durability cannot be read, so it is refused.</summary>
+    public IReadOnlyList<string> CheckA2A(PolicyConfig policy, SqliteSynchronous? synchronous)
+    {
+        var errors = new List<string>();
+        if (A2A is not { Enabled: true }) return errors;
+
+        if (policy.DataFlowMode != LimitMode.Enforce)
+            errors.Add($"A2A is enabled, so the policy's \"DataFlowMode\" must be \"Enforce\" (it is {policy.DataFlowMode}).");
+
+        if (synchronous is null)
+            errors.Add("A2A is enabled, but the Host's store is not SQLite, so its durability cannot be checked. A2A needs the SQLite store.");
+        else if (synchronous != SqliteSynchronous.Full)
+            errors.Add($"A2A is enabled, so the database must run with OPENTAIL_DB_SYNCHRONOUS=full (it resolves to {synchronous.Value.ToString().ToLowerInvariant()}). " +
+                       "A task id a partner was given must survive a power cut.");
+
+        var partners = new HashSet<Guid>();
+        foreach (var p in A2A.Partners)
+        {
+            if (!Guid.TryParseExact(p.Id ?? "", "D", out var id)) errors.Add($"A2A partner '{p.DisplayName}': Id '{p.Id}' is not a UUID (make one with --new-partner).");
+            else if (!partners.Add(id)) errors.Add($"A2A partner Id '{p.Id}' is listed more than once.");
+            if (string.IsNullOrWhiteSpace(p.DisplayName)) errors.Add($"A2A partner '{p.Id}' needs a DisplayName.");
+        }
+
+        foreach (var k in ApiKeys.Where(k => k.Scopes?.Contains(Roles.A2aCall, StringComparer.Ordinal) == true))
+        {
+            if (k.Scopes!.Any(s => s != Roles.A2aCall))
+                errors.Add($"API key '{k.Name}' carries a2a:call with other scopes. A partner's key carries a2a:call alone, so it cannot also call tools.");
+            if (k.Profile is null)
+                errors.Add($"API key '{k.Name}' carries a2a:call and needs a \"Profile\" naming an entry of the policy's \"Agents\".");
+            if (!(Guid.TryParseExact(k.Partner ?? "", "D", out var partnerId) && partners.Contains(partnerId)))
+                errors.Add($"API key '{k.Name}' carries a2a:call and must name a partner from the A2A \"Partners\" list (\"Partner\": \"<id>\").");
+        }
+        return errors;
     }
 
     /// <summary>Everything wrong with these options, so a bad deployment refuses to start instead of starting open.</summary>

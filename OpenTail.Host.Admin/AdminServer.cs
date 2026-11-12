@@ -59,6 +59,10 @@ public static class Roles
     /// <summary>May call tools over MCP. Never granted to a reviewer-only credential, and an API key never carries Review.</summary>
     public const string Tools = "mcp:tools";
 
+    /// <summary>May call the A2A endpoint (phase 0: the role exists and is checked at startup; no A2A endpoint is served yet).
+    /// A partner's key carries this scope alone, so it cannot also call tools.</summary>
+    public const string A2aCall = "a2a:call";
+
     public const string GroupPrefix = "group:";
 }
 

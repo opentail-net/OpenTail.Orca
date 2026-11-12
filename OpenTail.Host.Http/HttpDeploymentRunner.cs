@@ -15,6 +15,7 @@ namespace OpenTail.Host.Http;
 ///   --notifications &lt;file&gt; tell reviewers about pending actions (see <see cref="NotificationConfig"/>)
 ///   --modules &lt;file&gt;      modules enabled by configuration (see <see cref="ModulesConfig"/>)
 ///   --new-api-key &lt;name&gt;   print a new API key once, with the hash to put in the config, and exit
+///   --new-partner &lt;name&gt;   print a new A2A partner id (a UUID, kept for good), with the config to put it in, and exit
 ///   env OPENTAIL_ADMIN_TOKENS  reviewer tokens, "name:token|review,admin,group:finance;name2:token2|review"
 /// </code>
 /// Without <c>--http</c> this is exactly <see cref="DeploymentRunner"/>.
@@ -31,6 +32,9 @@ public static class HttpDeploymentRunner
 
         var newKey = ValueOf(args, "--new-api-key");
         if (newKey is not null) return PrintNewKey(newKey);
+
+        var newPartner = ValueOf(args, "--new-partner");
+        if (newPartner is not null) return PrintNewPartner(newPartner);
 
         var configPath = ValueOf(args, "--http");
         if (configPath is null) return await DeploymentRunner.RunAsync(args, name, addModules, ct);
@@ -137,6 +141,25 @@ public static class HttpDeploymentRunner
         return 0;
     }
 
+    /// <summary>A new A2A partner: a UUID the operator keeps for good, and a display name for people (it may change later).</summary>
+    internal static A2aPartner NewPartner(string displayName) => new(Guid.NewGuid().ToString("D"), displayName.Trim());
+
+    private static int PrintNewPartner(string displayName)
+    {
+        if (displayName.Trim().Length == 0)
+        {
+            Console.Error.WriteLine("Usage: --new-partner <displayName>");
+            return 64;
+        }
+        var partner = NewPartner(displayName);
+        Console.WriteLine("A2A partner '" + partner.DisplayName + "' (its id never changes; do not reuse it for another partner):");
+        Console.WriteLine("  " + JsonSerializer.Serialize(partner));
+        Console.WriteLine();
+        Console.WriteLine("Add it to the \"Partners\" list of \"A2A\" in the HTTP config, and set \"Enabled\": true there when A2A is wanted.");
+        Console.WriteLine("Each of the partner's API keys (--new-api-key) then gets \"Scopes\": [ \"a2a:call\" ], \"Profile\": \"<name>\" and \"Partner\": \"" + partner.Id + "\".");
+        return 0;
+    }
+
     private static string? ValueOf(string[] args, string flag)
     {
         var i = Array.IndexOf(args, flag);
@@ -182,6 +205,9 @@ public sealed class HttpDeploymentConfig
     /// <summary>The Teams bot (cards with Approve, Approve with changes, Reject), see <see cref="Teams.TeamsBotOptions"/>.</summary>
     public Teams.TeamsBotOptions? Teams { get; init; }
 
+    /// <summary>The A2A section (phase 0: partners and startup checks; no endpoint is served yet). Disabled by default.</summary>
+    public A2aOptions? A2A { get; init; }
+
     public static HttpDeploymentConfig Load(string path) =>
         JsonSerializer.Deserialize<HttpDeploymentConfig>(File.ReadAllText(path), JsonOptions)
         ?? throw new InvalidOperationException("The HTTP config is empty.");
@@ -208,6 +234,7 @@ public sealed class HttpDeploymentConfig
                 PageScope = Jwt.PageScope,
             },
             Teams = Teams,
+            A2A = A2A,
             ApiKeys = ApiKeys,
             Admin = tokens.Count > 0 ? new AdminOptions { Tokens = tokens, TokenRoles = roles } : null,
             AllowedOrigins = AllowedOrigins,

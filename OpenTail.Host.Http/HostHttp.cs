@@ -47,6 +47,9 @@ public static class HostHttp
             throw new InvalidOperationException("The Host was built without HTTP sign-in: call builder.UseHttpSignIn(), or every caller would share one identity.");
         var (profileErrors, _) = options.CheckProfiles(host.Policy.Config);
         if (profileErrors.Count > 0) throw new ArgumentException("Invalid HTTP options: " + string.Join(" ", profileErrors));
+        // Phase 0: A2A checks (nothing runs unless the A2A section is enabled). The durability level is the store's resolved one.
+        var a2aErrors = options.CheckA2A(host.Policy.Config, (host.Store as SqliteActionStore)?.Synchronous);
+        if (a2aErrors.Count > 0) throw new ArgumentException("Invalid HTTP options: " + string.Join(" ", a2aErrors));
         // Keys live in this config, not in the database: audit what changed since the last start (audit D4).
         await AccessChanges.RecordKeysAsync(host.AccessSnapshots, host.Audit,
             options.ApiKeys.Select(k => KeyAccess.Of(k.Name, k.Hash, k.Profile)), DateTimeOffset.UtcNow, null, ct);

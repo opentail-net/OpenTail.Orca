@@ -132,6 +132,24 @@ Connect Claude Code, for example, with a project `.mcp.json`:
 { "mcpServers": { "team": { "type": "http", "url": "https://approvals.example/mcp", "headers": { "Authorization": "Bearer <api key>" } } } }
 ```
 
+### A2A (not yet served)
+
+A2A is the planned second front door for agents that are not ours ([design](../docs/design/a2a.md)). **No A2A endpoint exists yet.** This
+section only describes the configuration that phase 0 checks at startup, so a deployment can be prepared without anything being served.
+
+* **Config.** An `A2A` object in `http.json`: `"Enabled"` (default `false`) and `"Partners"`, a list of `{ "Id", "DisplayName" }`.
+  `--new-partner "<name>"` prints a new partner: `Id` is a UUID generated once and kept for good; `DisplayName` is for people and may change.
+  When `Enabled` is false, none of the checks below run and nothing else changes.
+* **Scope.** `a2a:call` is the role for a partner's API key. Give the key `"Scopes": [ "a2a:call" ]` and nothing else, plus a `"Profile"`
+  naming an entry of the policy's `"Agents"`, and `"Partner": "<id>"` naming a listed partner. A key with `a2a:call` cannot call `/mcp`
+  or the review API. Several keys may name one partner, for rotation.
+* **Startup checks** (each one refuses to start, with the reason, when `Enabled` is true):
+  * the policy's `"DataFlowMode"` is `Enforce`;
+  * the database resolves to `synchronous=full` (`OPENTAIL_DB_SYNCHRONOUS=full`); the check reads the level the store resolved, and a store that
+    is not SQLite is refused;
+  * every `a2a:call` key names a profile, carries no other scope, and names a partner from `Partners`;
+  * every partner `Id` is a UUID, no `Id` is listed twice, and every partner has a `DisplayName`.
+
 ## Notifications
 
 `notifications.json` (see the sample): channels (`webhook` signed with HMAC-SHA256, `slack`, `teams`), routes (which events, which tools,

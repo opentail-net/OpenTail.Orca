@@ -95,16 +95,30 @@ Go-ahead given 2026-11-12.
 
 - [x] B.0: fold the corrections into the body of `a2a.md`, so the body and the corrections no longer disagree (task ids in section 4,
   the partner identity in section 2, the versions in sections 1 and 11, the authenticated card in section 8, the skill-selection
-  extension and ListTasks in section 4, `a2a_tasks` in section 10, the build order). In the working tree, not committed. The
+  extension and ListTasks in section 4, `a2a_tasks` in section 10, the build order). Committed in 15b9e8b (2026-11-12). The
   correction 6 A2A-Version question is still open for the owner.
-- [ ] The role and scope `a2a:call` (`Roles` in `OpenTail.Host.Admin/AdminServer.cs`), accepted by the API key scope validation
-  (`HostHttpOptions.cs`, which refuses only review, admin and group scopes today).
-- [ ] Startup check: `DataFlowMode` must be `Enforce` when A2A is configured (it defaults to `ReportOnly`).
-- [ ] Startup check: `OPENTAIL_DB_SYNCHRONOUS=full` when A2A is configured (`SqliteActionStore.Synchronous`; it defaults to `normal`).
-- [ ] Startup check: a key with `a2a:call` must name a profile.
-- [ ] Test: a conditional rule on a top-level argument (`partner`) works in `Policy/Rules/Conditions.cs`.
-- [ ] Partner identity foundation: a server-generated `partnerId` (UUID), stored separately from the key name, with credentials linked to it
-  through an optional partner reference on each API key entry (`a2a.md`, correction 7).
+- [x] The role and scope `a2a:call` (`Roles` in `OpenTail.Host.Admin/AdminServer.cs`), accepted by the API key scope validation
+  (`HostHttpOptions.cs`, which refuses only review, admin and group scopes today). In the working tree, not committed. The validation
+  needed no change: it already accepts `a2a:call`. Tests: `A2aPhase0Tests` (2): the key passes validation; a key with only `a2a:call`
+  gets 403 on `/mcp` and on `/api/actions`, with controls for a tools key and a reviewer.
+- [x] Startup check: `DataFlowMode` must be `Enforce` when A2A is configured (it defaults to `ReportOnly`). In the working tree, not
+  committed. Test: `Enabled_a2a_requires_dataflow_enforce`.
+- [x] Startup check: `OPENTAIL_DB_SYNCHRONOUS=full` when A2A is configured. It reads the store's resolved `Synchronous`, not the
+  environment text; only `full` passes (`extra` is refused too, as written); a store that is not SQLite is refused. In the working tree,
+  not committed. Tests: `Enabled_a2a_requires_full_durability_as_the_store_resolved_it` and
+  `Enabled_a2a_starts_when_the_store_runs_with_full_durability_and_refuses_normal`.
+- [x] Startup check: a key with `a2a:call` must name a profile. Also checked: it carries no other scope, and names a listed partner.
+  In the working tree, not committed. Tests: `A_partner_key_must_name_a_profile`, `A_partner_key_carries_a2a_call_alone`,
+  `A_partner_key_must_name_a_listed_partner`.
+- [x] Test: a conditional rule on a top-level argument (`partner`) works in `Policy/Rules/Conditions.cs`. In the working tree, not
+  committed. Test: `A_rule_on_the_partner_argument_executes_one_partner_and_queues_another`. No production change.
+- [x] Partner identity foundation: a `partnerId` (UUID), stored separately from the key name, with credentials linked to it through an
+  optional partner reference on each API key entry (`a2a.md`, correction 7). In the working tree, not committed. `--new-partner` makes
+  the id, as the phase 0 brief asks. **Open for the owner:** `a2a.md` section 2 says the id is server-generated; the brief has the
+  operator generate it. Built as the brief says. Tests: `New_partners_are_fresh_uuids_with_a_trimmed_name_and_pass_the_checks`,
+  `Partner_ids_must_be_uuids_and_unique_and_partners_need_a_name`, `Several_keys_may_name_one_partner`.
+- Test counts after phase 0 (a full run, Debug): Abstractions 70 of 70; Host 1221 of 1221 (1204 before, plus 17 in `A2aPhase0Tests`).
+  `ContractFreezeTests` passes, and `contract-v1.txt` is unchanged.
 
 ## C. A2A phase 1 (inbound inbox): blockers before the first partner
 
