@@ -1,7 +1,7 @@
 # Design: A2A as a second front door
 
 **Status:** proposed 2026-11-11. Nothing built. Written from reading [`opentail-host`](https://github.com/opentail-net/opentail-host)
-at `4b8a8b7` (branch `standard-skill-files`), the A2A v1.0 specification and the official .NET SDK as published in November 2026.
+at `4b8a8b7` (branch `standard-skill-files`; the approval naming and the re-check changed some lines it cites, see the corrections below), the A2A v1.0 specification and the official .NET SDK as published in November 2026.
 Protocol and SDK facts were checked on 2026-11-11. The SDK is a preview: re-check the facts marked *verify* before building.
 
 **Where it fits:** a way in for agents that are not ours, beside MCP. It adds a protocol edge and two internal tools. It does not
@@ -23,6 +23,40 @@ concrete.
   a caller sees lists only what its profile may use.
 - **Recommended first cut:** an inbound inbox plus curated skills, JSON-RPC, polling only (no streaming, no push), API-key partners,
   every reply reviewed. Outbound calls to other agents, push, card signing and HTTP+JSON come later, in phases below.
+
+## Corrections from external review (2026-11-11)
+
+An external review of this plan was checked against the A2A v1.0 specification (`https://a2a-protocol.org/latest/specification/`) and the
+SDK's documentation. Each correction below is adopted unless it is marked for the owner. Where a correction supersedes earlier text, that
+text is named.
+
+1. **Task ids (supersedes section 4, step 5).** The server generates the task id for a new task, and a client may not supply one to create
+   a task (spec §3.4.2, §4.1.1). A task id must exist before the work item does, so it cannot be the work item id. Use a separate,
+   persistent task id in `a2a_tasks`, linked to the initial `a2a.submit` action, to the work item once it exists, and to the `a2a.reply`
+   action. First-message handling must be crash-safe and idempotent: a crash between creating the action and storing the mapping must not
+   create a second task when the partner retries the same `messageId`.
+2. **`returnImmediately` (supersedes section 4, "returns immediately with SUBMITTED").** The default is blocking. `false` or an omitted value
+   waits until the task reaches a terminal state or an interrupted state (input-required or auth-required). `true` returns once the task is
+   created (spec §3.2.2; `SendMessageConfiguration.ReturnImmediately` in the SDK). The adapter must honour the flag, with tests for `true`,
+   `false` and omitted. **For the owner:** a review can take days, and the spec has no non-terminal state a blocked request can return with.
+   The options are in the checklist.
+3. **The Agent Card (supersedes section 8, "Default").** A public, static card with no partner-specific skills, plus an authenticated
+   `/extendedAgentCard` generated from the caller's profile. The spec allows the extended card to differ by authenticated client (§3.1.11).
+   Internal tools, reviewer groups and policy stay out of both. **For the owner:** this reverses the default recorded from your "no idea"
+   answer on card access.
+4. **Skill selection (supersedes the `metadata.skill` proposal in section 4).** Declare a skill-selection extension in the card's
+   capabilities, send its URI in the message's extensions, and carry the skill id under the matching metadata key. The spec's mechanism is
+   the `A2A-Extensions` header (§14.2.2). The URI in the review, `https://opentail.net/a2a/extensions/skill-selection/v1`, is a proposal for
+   the owner to confirm.
+5. **ListTasks (adds to section 4, step 3).** Cursor pagination with `pageToken` and `nextPageToken`; the last page returns an empty string.
+   Results are sorted newest first by status update time (spec §3.1.4).
+6. **A2A-Version (supersedes "1.0 only" in section 1).** An empty value means 0.3 (spec §3.6.2). The spec does not say what a missing
+   header means, so this design rejects both empty and missing values as unsupported. A 1.0 client has to send `A2A-Version: 1.0`.
+7. **Partner identity (adds to section 2).** Use an immutable `partnerId` as the authenticated principal, with one or more credentials mapped
+   to it, instead of the key's display name. The subject changes from `key:<name>` to a partner subject, and taint, labels and task ownership
+   follow it. The change is small now and expensive later.
+8. **Order (adds to section 4).** Whole-action binding (naming plan, phase 1) lands before the A2A inbox is exposed to external partners. An
+   action that comes from outside is where binding the whole action matters most.
 
 ## Who decides, and who is asked
 
@@ -284,7 +318,7 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 - **Extended card.** `GET /extendedAgentCard` returns, for an authenticated caller, the skills its profile may use, built by the same
   code that builds `tools/list`. Its capabilities say `extendedAgentCard: true`.
 - **What the card never shows.** Tool names outside the caller's profile, internal names, module versions, policy and reviewer groups.
-- **Default: the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A. The SDK's
+- **Default (under review, see correction 3): the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A. The SDK's
   security guide also says protected agents should guard the discovery endpoint. The alternative is a minimal public card with the
   same content as above and no skills (decision 1).
 - **Signing (phase 2).** A JWS over the canonical JSON, with `alg` and `kid`, using a key from configuration. *Verify* that the SDK's

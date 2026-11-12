@@ -172,7 +172,7 @@ Proposed defaults, for the owner to change:
 
 ## What was done
 
-Step 1, done locally on 2026-11-11 (uncommitted, branch `naming-public-names`): the audit event names on the approval path.
+Step 1, done 2026-11-11 (commits `d6b10f3` and `89caf47`, on main): the audit event names on the approval path.
 
 - New `OpenTail.Host/Runtime/AuditEvents.cs` with `ApprovalRequested`, `ApprovalAllowed`, `ApprovalDenied`, `ApprovalExpired` and
   `ApprovalCancelled`.
@@ -204,7 +204,7 @@ Step 1, done locally on 2026-11-11 (uncommitted, branch `naming-public-names`): 
 - Audit routes on webhooks (`audit_entry`) and the admin audit API show the new names.
 - No reason codes exist yet on the approval path, so there was nothing to rename there. They arrive with the re-check (phase 2).
 
-## Phase 2: the re-check at claim (done locally, uncommitted, branch `recheck-at-claim`)
+## Phase 2: the re-check at claim (done 2026-11-11, commit `92c0048`, on main at `635d35e`)
 
 - Before anything is claimed, an approved action is checked for three things: expiry (`approval_expired`), the policy hash it was
   decided under (`policy_version_mismatch`), and the digest of the arguments that would run (`action_digest_mismatch`). A reviewer's

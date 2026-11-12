@@ -119,7 +119,7 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 | Kill switch and suspension | `KillSwitch` (`Hypervisor/KillSwitch.cs` lines 41-100): arm, disarm, `Kill(agentId, reason, detail)`, history, `OnKill` | `IdentityLevels` with a Suspended level and `SuspendAsync` (`OpenTail.Host/Runtime/IdentityLevels.cs` line 170); decoy tripwires (`ActionQueue.cs` lines 101-116) | Similar purpose. Ours is tied to identity and fires automatically. |
 | Execution rings | `ExecutionRing` and `RingResourceLimits` (`Hypervisor/ExecutionRings.cs`) | None identified. | Theirs has resource tiers. |
 | MCP | `McpGateway`, `McpSecurityScanner`, `McpResponseSanitizer`, `McpCredentialRedactor` (`Mcp/`). I read the file names. The README says the scanner detects tool poisoning and typosquatting; I did not read the scanner. | MCP is our server. A search for poisoning, typosquatting or tool-description scanning found nothing. | Matters only if we consume third-party MCP servers. |
-| Packaging and maturity | MIT; `net8.0`; preview per README | PolyForm Strict; `net10.0`; private | Different licence and runtime. Theirs is preview. |
+| Packaging and maturity | MIT; `net8.0`. Core package 5.0.0 is stable on NuGet, not labelled preview; its companion packages (MCP, Microsoft Agents) are labelled Public Preview. The README calls its releases "production-quality public preview releases". Needs YamlDotNet 18.1.0 or later. | PolyForm Strict; `net10.0`; private. Pins YamlDotNet 17.1.0 (`Directory.Packages.props` line 26). | Different licence and runtime. Taking the core package would move the YamlDotNet pin for every project that uses it. |
 | Kernel and wiring | Library. Application wires approvals and execution. | One process; the queue, executor and store are wired by `OpenTailHostBuilder` (`OpenTail.Host/OpenTailHost.cs` lines 113-165). | Ours is wired by default. Theirs must be wired by the application. |
 
 ## Corrections to what was said earlier
@@ -140,7 +140,8 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 2. **One approval system.** The Host's queue already carries taint, labels, profiles, self-approval and audit. Adopting the toolkit's
    chain would mean two systems for the same action, or rewriting the Host's queue around the toolkit's objects.
 3. **Glue on both sides.** The toolkit's kernel does not drive approvals, so we would write the same wiring either way.
-4. **Maturity.** Preview. The approval store has only an in-memory implementation in the copy. The digest's RFC 8785 conformance is
+4. **Maturity.** The core package 5.0.0 is stable on NuGet, but the toolkit's README calls its releases "production-quality public
+   preview releases", and the companion packages are labelled Public Preview. The approval store has only an in-memory implementation in the copy. The digest's RFC 8785 conformance is
    unverified. The ADR (per the summary I read) says the reference implementation is Python and .NET parity was deferred, though the .NET code exists.
 5. **Enforcement point.** It runs inside our process. It does not add a boundary we don't already have.
 
