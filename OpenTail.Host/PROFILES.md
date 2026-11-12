@@ -585,7 +585,7 @@ Today:
 * Response fields come from one item at a time: a result cannot combine data from two places in the answer (such as a user list
   elsewhere in the document). An API that returns authors that way (X's `includes.users`) shows author ids, pseudonymised.
 
-Planned (MCP-HOST-V4-PLAN.md):
+Planned (the v4 plan is in `../docs/done/MCP-HOST-V4-PLAN.md`):
 
 * More shipped profiles on the [query builder](#reference-queries): Zendesk, Freshdesk (Jira is shipped). ServiceNow stays a hand-written module:
   its writes need a lookup before the call, which profiles do not do.

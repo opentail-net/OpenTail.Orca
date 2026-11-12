@@ -1,5 +1,7 @@
 # OpenTail Host v2: from "one developer, one machine" to "a small team"
 
+> **Archived 2026-11-12.** Read [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
+
 Status: plan, revision 2, 2026-10-15. Builds on `MCP-HOST-PLAN.md` (v1, phases 0-8, done) and `OpenTail.Host/PACKAGING.md`.
 Branch: `host/modular-mcp`. Rule for this work: commit locally per phase, never push, no subagents except the one
 design review the owner asked for (its outcome is section 16).

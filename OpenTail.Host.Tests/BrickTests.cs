@@ -8,7 +8,7 @@ using OpenTail.Modules.OpenApi;
 
 namespace OpenTail.Host.Tests;
 
-/// <summary>Modules as bricks (MCP-HOST-V3-PLAN W1 to W4): manifest and contract, credentials and guarded HTTP, enabling modules from
+/// <summary>Modules as bricks (docs/done/MCP-HOST-V3-PLAN.md W1 to W4): manifest and contract, credentials and guarded HTTP, enabling modules from
 /// configuration, uninstalling, policy fragments, adoption, lint and policy tests.</summary>
 public class BrickTests
 {

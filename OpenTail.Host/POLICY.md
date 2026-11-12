@@ -409,7 +409,7 @@ The queue enforces these, so they hold for any reviewer; a refusal is audited as
 for a person. The runner does not offer an AI what it may not decide. Each AI decision is audited as `ai_review` with the model and
 prompt version the reviewer reported; the checks it says it made are stored with the review (not in the audit trail, as they may
 quote arguments). The design and what comes next (a model-backed reviewer, shadow mode, sampling) are in
-[`../MCP-HOST-V6-PLAN.md`](../MCP-HOST-V6-PLAN.md).
+[`../docs/MCP-HOST-V6-PLAN.md`](../docs/MCP-HOST-V6-PLAN.md).
 
 ## When something is not allowed
 

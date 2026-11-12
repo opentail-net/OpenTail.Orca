@@ -9,7 +9,7 @@ namespace OpenTail.Modules.OpenApi;
 /// <summary>
 /// An integration profile: which operations of an OpenAPI document become tools, under which names, with which risk, which arguments
 /// the model may set and within which limits, what a reviewer sees, and how errors are reported. It describes; it never computes. A
-/// profile cannot widen anything: hosts, credentials, policy and taint are still the operator's and the Host's. See MCP-HOST-V4-PLAN.md.
+/// profile cannot widen anything: hosts, credentials, policy and taint are still the operator's and the Host's. See docs/done/MCP-HOST-V4-PLAN.md.
 /// </summary>
 public sealed partial class OpenApiProfile
 {

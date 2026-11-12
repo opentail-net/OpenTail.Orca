@@ -1,8 +1,8 @@
 <Solution>
   <Folder Name="/Solution Items/">
-    <File Path="MCP-HOST-PLAN.md" />
-    <File Path="MCP-HOST-V2-PLAN.md" />
-    <File Path="MCP-HOST-V3-PLAN.md" />
+    <File Path="docs/done/MCP-HOST-PLAN.md" />
+    <File Path="docs/done/MCP-HOST-V2-PLAN.md" />
+    <File Path="docs/done/MCP-HOST-V3-PLAN.md" />
     <File Path="Directory.Build.props" />
   </Folder>
   <Folder Name="/Host/">

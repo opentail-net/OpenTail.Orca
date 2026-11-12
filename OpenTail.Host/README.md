@@ -2,8 +2,8 @@
 
 An MCP server that exposes **only the modules you load** and decides, per tool, whether a call
 **runs now**, **waits for a reviewer**, or is **denied**. It runs on your machine over stdio, or as a signed-in server for a small
-team. The design and the reasons are in [`../MCP-HOST-PLAN.md`](../MCP-HOST-PLAN.md) (v1),
-[`../MCP-HOST-V2-PLAN.md`](../MCP-HOST-V2-PLAN.md) (team features) and [`../MCP-HOST-V3-PLAN.md`](../MCP-HOST-V3-PLAN.md) (modules as
+team. Status by version is in [`STATUS.md`](STATUS.md). The design and the reasons are in [`../docs/done/MCP-HOST-PLAN.md`](../docs/done/MCP-HOST-PLAN.md) (v1),
+[`../docs/done/MCP-HOST-V2-PLAN.md`](../docs/done/MCP-HOST-V2-PLAN.md) (team features) and [`../docs/done/MCP-HOST-V3-PLAN.md`](../docs/done/MCP-HOST-V3-PLAN.md) (modules as
 bricks), each with its design review and implementation log.
 
 | Read | For |

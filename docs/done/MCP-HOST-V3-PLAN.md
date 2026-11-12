@@ -1,5 +1,7 @@
 # OpenTail Host v3: modules as bricks (plan)
 
+> **Archived 2026-11-12.** Read [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
+
 Status: plan only, nothing implemented. Written 2026-10-16 on branch `host/modular-mcp`.
 Builds on [MCP-HOST-PLAN.md](MCP-HOST-PLAN.md) and [MCP-HOST-V2-PLAN.md](MCP-HOST-V2-PLAN.md).
 

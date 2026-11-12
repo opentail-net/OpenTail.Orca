@@ -1,7 +1,7 @@
 # Checklist: governance naming, re-check, and A2A
 
 **One place to see what is done and what is not.** Each item links to the document that describes it. `[x]` means on `origin/main`
-(last push `c283158`, 2026-11-12). `[ ]` means open. Decisions that stay put are plain bullets, not work.
+(last push `0a09946`, 2026-11-12). `[ ]` means open. Decisions that stay put are plain bullets, not work.
 
 Documents behind this list:
 [naming plan](governance-naming-plan.md) · [comparison with Microsoft's toolkit](agt-comparison.md) · [A2A plan](a2a.md)

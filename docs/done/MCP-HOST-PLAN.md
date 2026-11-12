@@ -1,5 +1,7 @@
 # OpenTail MCP Host — modular interaction layer (plan)
 
+> **Archived 2026-11-12.** Read [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
+
 > **Update (2026-10-16):** the team features (HTTP and sign-in, conditional rules, notifications, resumable work, approval controls) are planned and logged in [`MCP-HOST-V2-PLAN.md`](MCP-HOST-V2-PLAN.md). The Host documentation is in `OpenTail.Host/` (`README.md`, `POLICY.md`, `OPERATIONS.md`, `SECURITY.md`, `PACKAGING.md`).
 
 Status: DRAFT for review, 2026-10-15 (revision 2: adds slice-first ordering, taint rule, preview, trust ramps, blast-radius limits, outbox execution, MCP spec check, observability/versioning, acceptance scenario). Nothing in this plan has been built. Do not start Phase 1 until the open decisions in section 11 are answered.

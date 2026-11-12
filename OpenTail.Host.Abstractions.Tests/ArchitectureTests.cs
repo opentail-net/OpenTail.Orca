@@ -2,7 +2,7 @@ using System.Xml.Linq;
 
 namespace OpenTail.Host.Abstractions.Tests;
 
-/// <summary>Enforces the dependency rule from MCP-HOST-PLAN.md section 4.</summary>
+/// <summary>Enforces the dependency rule from docs/done/MCP-HOST-PLAN.md section 4.</summary>
 public class ArchitectureTests
 {
     private static string RepoDir()

@@ -1,6 +1,8 @@
 # OpenTail Host v7: administration and telemetry on the review page (plan)
 
-Status: A1-A4 built 2026-10-19 (local commits, not pushed). Tested with the admin API and the page script syntax-checked; not walked through in a real browser. Follows v6 ([`MCP-HOST-V6-PLAN.md`](MCP-HOST-V6-PLAN.md)).
+> **Archived 2026-11-12.** Read [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
+
+Status: A1-A4 built 2026-10-19 (local commits, not pushed). Tested with the admin API and the page script syntax-checked; not walked through in a real browser. Follows v6 ([`MCP-HOST-V6-PLAN.md`](../MCP-HOST-V6-PLAN.md)).
 
 ## 1. Why
 

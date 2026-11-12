@@ -1,6 +1,6 @@
 # OpenTail Host v5: the people in the loop, a pilot, and what businesses ask for (plan)
 
-Status: proposal, 2026-10-16. Follows v4 (integration profiles, [`MCP-HOST-V4-PLAN.md`](MCP-HOST-V4-PLAN.md)), which needs nothing from
+Status: proposal, 2026-10-16. Follows v4 (integration profiles, [`MCP-HOST-V4-PLAN.md`](done/MCP-HOST-V4-PLAN.md)), which needs nothing from
 outside. This plan is split from it because most of it depends on the owner: accounts, a Microsoft 365 tenant, a reviewer, and
 conversations with businesses. The owner has said those will be slow, so each phase below says what can be built without them and what
 waits, and nothing that waits blocks v4.
