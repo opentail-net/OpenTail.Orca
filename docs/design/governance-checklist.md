@@ -81,8 +81,9 @@ C.1 Blockers:
 - [ ] `returnImmediately`: honoured exactly as the spec says. `true` returns once the task is created. `false` and omitted block until a
   terminal or interrupted state, and a blocked request is never answered with SUBMITTED because a timeout expired. A disconnect discards
   nothing (correction 2). Tests for `true`, `false` and omitted.
-- [ ] `A2A-Version`: an empty or absent header is read as 0.3, and the server answers `VersionNotSupportedError` (correction 6). Tests for
-  empty, absent, `0.3` and `1.0`.
+- [ ] `A2A-Version` (correction 6): the spec and the SDK disagree on an empty header. Recommended: empty is rejected as 0.3, per the spec; a
+  missing header follows the SDK, as 1.0. The owner confirms both. Interop tests against the SDK-mapped endpoint for empty, missing, `0.3`
+  and `1.0`, recording the SDK's actual result for each.
 - [ ] ListTasks: cursor pagination with `pageToken` and `nextPageToken`, newest first (spec §3.1.4) (correction 5).
 - [ ] Authenticated card (decided, correction 3): `/.well-known/agent-card.json` requires authentication. `/extendedAgentCard` is generated
   from the caller's profile. Internal tools, reviewer groups and policy stay out of both.
@@ -99,7 +100,8 @@ C.2 Verify before building:
 
 - [ ] SDK: `MapA2A` returns a builder that accepts `RequireAuthorization`, and an ASP.NET policy can guard the endpoint.
 - [ ] Specification: `skills` may be empty? Check. Sections 3, 4.3, 5.4 and the full text of 13.1 were not read.
-- [ ] Specification and SDK: how an absent `A2A-Version` header is handled. The spec covers only the empty case.
+- [ ] Check the SDK's actual behaviour on the endpoint for each `A2A-Version` case (see C.1). The SDK's migration guide says empty and
+  missing are accepted and default to 1.0, which contradicts the spec for empty. The spec is silent on missing.
 - [ ] Specification: `application/a2a+json` accepted on requests.
 - [ ] The review page escapes partner text when it shows a queued request.
 - [ ] Rule syntax for conditions on a top-level argument.
@@ -174,7 +176,8 @@ All of these must hold before any package is taken:
 - `returnImmediately=true` is the recommended integration mode; blocking requests follow the spec exactly (second review, 2026-11-12).
 - The skill-selection extension URI is `https://opentail.net/a2a/extensions/skill-selection/v1` (second review, 2026-11-12).
 - Partner ids are server-generated UUIDs, separate from key names; credentials use the Host's existing configuration (second review, 2026-11-12).
-- Empty and absent `A2A-Version` are read as 0.3 and answered with `VersionNotSupportedError` (second review, 2026-11-12).
+- `1.0` is the only version served. Empty is rejected as 0.3, per the spec (recommended; owner to confirm). The missing-header rule is
+  an open owner decision (recommended: 1.0, as the SDK does).
 - Replies are reviewed; durability is `synchronous=full` when A2A is on (owner, 2026-11-11).
 - Not adopting the Microsoft NuGet package now (overlap, integration cost, conformance question, no external interoperability requirement yet).
 - Not renaming `ActionStatus`, `ToolMode`, or the operator config values `Execute`, `Queue`, `Deny`.

@@ -54,10 +54,15 @@ text is named.
    The extension is versioned, and its specification is published at that URI before any partner is onboarded.
 5. **ListTasks (adds to section 4, step 3).** Cursor pagination with `pageToken` and `nextPageToken`; the last page returns an empty string.
    Results are sorted newest first by status update time (spec §3.1.4).
-6. **A2A-Version (supersedes "1.0 only" in section 1; second review, 2026-11-12).** An empty value is interpreted as 0.3 (spec §3.6.2). An absent
-   header is read the same way (the second review's reading; the spec's text covers only the empty case, so check it against the SDK). Neither
-   is an invalid header. The server answers `VersionNotSupportedError`, because it supports only 1.0. Interoperability tests cover empty,
-   absent, `0.3` and `1.0`.
+6. **A2A-Version (supersedes "1.0 only" in section 1; checked 2026-11-12).** The two sources disagree on an empty value:
+   - **The spec** says an empty value is interpreted as 0.3 (§3.6.2). The server then answers `VersionNotSupportedError`, because it
+     supports only 1.0.
+   - **The SDK's migration guide** (`docs/migration-guide-v1.md` in a2a-dotnet) says empty or missing is accepted and defaults to the
+     current version, 1.0. It accepts `0.3` and `1.0` and answers any other value with `VersionNotSupported` (-32009).
+   - **A missing header** is not stated in the spec at all. The SDK's rule is the only written answer.
+   - **Recommended, for the owner to confirm:** follow the spec for empty (reject as 0.3), and follow the SDK for missing (treat as 1.0).
+     Reject `0.3` as this Host does not serve it. Interoperability tests run against the SDK-mapped endpoint for empty, missing, `0.3` and
+     `1.0`, and record the SDK's actual result for each.
 7. **Partner identity (adds to section 2; second review, 2026-11-12).** The `partnerId` is a server-generated UUID, immutable, and stored
    separately from the API key name. `displayName` is for people and can change. One or more credentials link to the same `partnerId`, so
    rotation does not change the partner's identity. Use the Host's existing credential configuration, with an optional partner reference on
