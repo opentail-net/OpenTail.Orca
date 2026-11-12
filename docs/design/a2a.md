@@ -38,23 +38,31 @@ text is named.
 2. **`returnImmediately` (supersedes section 4, "returns immediately with SUBMITTED").** The default is blocking. `false` or an omitted value
    waits until the task reaches a terminal state or an interrupted state (input-required or auth-required). `true` returns once the task is
    created (spec §3.2.2; `SendMessageConfiguration.ReturnImmediately` in the SDK). The adapter must honour the flag, with tests for `true`,
-   `false` and omitted. **For the owner:** a review can take days, and the spec has no non-terminal state a blocked request can return with.
-   The options are in the checklist.
-3. **The Agent Card (supersedes section 8, "Default").** A public, static card with no partner-specific skills, plus an authenticated
-   `/extendedAgentCard` generated from the caller's profile. The spec allows the extended card to differ by authenticated client (§3.1.11).
-   Internal tools, reviewer groups and policy stay out of both. **For the owner:** this reverses the default recorded from your "no idea"
-   answer on card access.
+   `false` and omitted. **Decided (second review, 2026-11-12):** honour the spec exactly. `returnImmediately=true` is the documented
+   recommendation for OpenTail integrations, because approval is asynchronous. A blocking request is never answered with SUBMITTED because
+   a server timeout expired. If the client disconnects or times out, the task is not discarded or cancelled, and the first-message mapping
+   stays, so a retry with the same `messageId` from the same partner finds the existing task. **Open:** how many blocking waits one partner
+   may hold open at once. That is an operational limit, and it must not change what a blocked request returns.
+3. **The Agent Card (decided, second review, 2026-11-12).** The card requires authentication, as the owner's default already said. The first
+   review's public card is not adopted for now, because the skill catalogue must not be exposed anonymously. Partners receive the card
+   location and their credentials out of band. The spec allows direct configuration as a discovery mechanism, so this is compliant. The
+   authenticated `/extendedAgentCard`, generated from the caller's profile, stays. Internal tools, reviewer groups and policy stay out of
+   every card.
 4. **Skill selection (supersedes the `metadata.skill` proposal in section 4).** Declare a skill-selection extension in the card's
    capabilities, send its URI in the message's extensions, and carry the skill id under the matching metadata key. The spec's mechanism is
-   the `A2A-Extensions` header (§14.2.2). The URI in the review, `https://opentail.net/a2a/extensions/skill-selection/v1`, is a proposal for
-   the owner to confirm.
+   the `A2A-Extensions` header (§14.2.2). The URI is `https://opentail.net/a2a/extensions/skill-selection/v1` (second review, 2026-11-12).
+   The extension is versioned, and its specification is published at that URI before any partner is onboarded.
 5. **ListTasks (adds to section 4, step 3).** Cursor pagination with `pageToken` and `nextPageToken`; the last page returns an empty string.
    Results are sorted newest first by status update time (spec §3.1.4).
-6. **A2A-Version (supersedes "1.0 only" in section 1).** An empty value means 0.3 (spec §3.6.2). The spec does not say what a missing
-   header means, so this design rejects both empty and missing values as unsupported. A 1.0 client has to send `A2A-Version: 1.0`.
-7. **Partner identity (adds to section 2).** Use an immutable `partnerId` as the authenticated principal, with one or more credentials mapped
-   to it, instead of the key's display name. The subject changes from `key:<name>` to a partner subject, and taint, labels and task ownership
-   follow it. The change is small now and expensive later.
+6. **A2A-Version (supersedes "1.0 only" in section 1; second review, 2026-11-12).** An empty value is interpreted as 0.3 (spec §3.6.2). An absent
+   header is read the same way (the second review's reading; the spec's text covers only the empty case, so check it against the SDK). Neither
+   is an invalid header. The server answers `VersionNotSupportedError`, because it supports only 1.0. Interoperability tests cover empty,
+   absent, `0.3` and `1.0`.
+7. **Partner identity (adds to section 2; second review, 2026-11-12).** The `partnerId` is a server-generated UUID, immutable, and stored
+   separately from the API key name. `displayName` is for people and can change. One or more credentials link to the same `partnerId`, so
+   rotation does not change the partner's identity. Use the Host's existing credential configuration, with an optional partner reference on
+   each API key entry, rather than a second credential subsystem. The subject becomes a partner subject, and taint, labels and task ownership
+   follow it.
 8. **Order (adds to section 4).** Whole-action binding (naming plan, phase 1) lands before the A2A inbox is exposed to external partners. An
    action that comes from outside is where binding the whole action matters most.
 
@@ -312,13 +320,13 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 
 ### 8. The agent card
 
-- **Public card.** The name, a generic description, the version, the JSON-RPC interface with `protocolVersion: "1.0"`, the capabilities
+- **Public card (not served; see correction 3).** The name, a generic description, the version, the JSON-RPC interface with `protocolVersion: "1.0"`, the capabilities
   (no streaming, no push), the input and output modes, and the security schemes the Host really accepts: `apiKey` in the `X-API-Key`
   header and `http` bearer. With Entra, an `openIdConnect` scheme.
 - **Extended card.** `GET /extendedAgentCard` returns, for an authenticated caller, the skills its profile may use, built by the same
   code that builds `tools/list`. Its capabilities say `extendedAgentCard: true`.
 - **What the card never shows.** Tool names outside the caller's profile, internal names, module versions, policy and reviewer groups.
-- **Default (under review, see correction 3): the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A. The SDK's
+- **Decided (see correction 3): the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A. The SDK's
   security guide also says protected agents should guard the discovery endpoint. The alternative is a minimal public card with the
   same content as above and no skills (decision 1).
 - **Signing (phase 2).** A JWS over the canonical JSON, with `alg` and `kid`, using a key from configuration. *Verify* that the SDK's
@@ -417,7 +425,7 @@ Decided by the owner on 2026-11-11 ("no idea" on card access was taken as the de
 
 Still the proposed defaults, unchanged:
 
-3. **One key per partner.** Partner-specific trust through rules on the `partner` argument, not separate tools.
+3. **One partner, one `partnerId`, one or more credentials** (replaces the one-key rule; see correction 7). Partner-specific trust through rules on the `partner` argument, not separate tools.
 4. **JSON-RPC first**, HTTP+JSON when a partner asks.
 5. **A2A-Version 1.0 only**, until a partner needs 0.3.
 7. **A generic error for a skill the caller may not use.**
