@@ -427,10 +427,25 @@ internal static class AdminPage
             },
           };
           // The AI reviewers panel: each reviewer's record beside its state, and the admin's suspend and clear. Every act needs a reason.
+          let aiWindowDays = 7;
+          const aiHeads = ['When', 'Tool', 'Action', 'Decided', 'Now', 'Why', 'Checks it named'];
+          const aiWindowLabel = (days) => days === 0 ? 'all time' : days === 1 ? 'the last 24 hours' : 'the last ' + days + ' days';
+          function aiRow(x) {
+            const tr = el('tr');
+            for (const v of [new Date(x.at).toLocaleString(), x.tool, x.actionId, x.decision, x.status, x.reason || '', (x.checks || []).join('; ')]) tr.append(el('td', v === null || v === undefined ? '' : String(v)));
+            return tr;
+          }
           async function aiReviewersView(b) {
-            const o = await api('/api/admin/ai-reviewers');
+            const days = aiWindowDays;
+            const o = await api('/api/admin/ai-reviewers?days=' + days);
             b.append(el('h3', 'AI reviewers'));
             b.append(el('p', 'What each AI reviewer has decided, and what came of it. A suspension stops its decisions at once, refusals included. Only an admin can suspend or clear one, and each act records its reason.', 'muted'));
+            const pick = el('select'); pick.setAttribute('aria-label', 'Window');
+            for (const [v, label] of [[1, 'Last 24 hours'], [7, 'Last 7 days'], [30, 'Last 30 days'], [0, 'All time']]) {
+              const opt = el('option', label); opt.value = String(v); if (v === days) opt.selected = true; pick.append(opt);
+            }
+            pick.addEventListener('change', () => { aiWindowDays = Number(pick.value); showAdmin('aiReviewers'); });
+            const bar = el('p'); bar.append('Window: ', pick); b.append(bar);
             if (!o.reviewers.length) { b.append(el('p', 'No AI reviewer is configured, and none has decided anything yet.', 'muted')); return; }
             for (const r of o.reviewers) {
               const s = el('section');
@@ -438,7 +453,7 @@ internal static class AdminPage
               head.append(el('span', r.suspended ? 'suspended' : 'active', r.suspended ? 'tag bad' : 'tag'));
               s.append(head);
               const d = r.decisions;
-              s.append(el('p', d.total + ' decisions: ' + d.approve + ' approved, ' + d.reject + ' rejected, ' + d.requestChanges + ' asked for changes, ' + d.retry + ' retried. ' + r.refused + ' refused by the queue (outside its limits, not assigned to it, or suspended).', 'muted'));
+              s.append(el('p', 'All time: ' + d.total + ' decisions (' + d.approve + ' approved, ' + d.reject + ' rejected, ' + d.requestChanges + ' asked for changes, ' + d.retry + ' retried), and ' + r.refused + ' refused by the queue (outside its limits, not assigned to it, or suspended).', 'muted'));
               if (r.suspended) s.append(el('p', 'Suspended: ' + r.suspension.note + ' (since ' + new Date(r.suspension.since).toLocaleString() + ').', 'err'));
               const reason = el('input'); reason.placeholder = 'Reason (required)'; reason.style.maxWidth = '360px';
               const go = el('button', r.suspended ? 'Clear suspension' : 'Suspend this reviewer');
@@ -451,11 +466,26 @@ internal static class AdminPage
                 } catch (e) { say(e.message, true); }
               });
               const controls = el('p'); controls.append(reason, ' ', go); s.append(controls);
-              if (r.recent.length) {
-                s.append(el('h5', 'Recent decisions'));
-                s.append(table(['When', 'Tool', 'Action', 'Decided', 'Now', 'Why', 'Checks it named'], r.recent.map(x => [
-                  new Date(x.at).toLocaleString(), x.tool, x.actionId, x.decision, x.status, x.reason || '', (x.checks || []).join('; ')])));
-              } else s.append(el('p', 'No decisions yet.', 'muted'));
+              // The window's decisions, newest first. "Load older" fetches the next page by the sequence number of the oldest one shown.
+              const count = el('p', null, 'muted'); s.append(count);
+              const t = el('table'); const h = el('tr'); for (const x of aiHeads) h.append(el('th', x)); t.append(h); s.append(t);
+              let shown = 0; let last = null;
+              const show = (items) => {
+                for (const x of items) { t.append(aiRow(x)); shown++; last = x.seq; }
+                count.textContent = 'Showing ' + shown + ' of ' + r.inWindow + ' in ' + aiWindowLabel(days) + '.';
+              };
+              show(r.recent);
+              const more = el('button', 'Load older');
+              more.hidden = !r.hasMore;
+              more.addEventListener('click', async () => {
+                try {
+                  const page = await api('/api/admin/ai-reviewers/' + encodeURIComponent(r.name) + '/decisions?days=' + days + '&before=' + last);
+                  show(page.items);
+                  more.hidden = !page.hasMore;
+                  say('');
+                } catch (e) { say(e.message, true); }
+              });
+              s.append(more);
               b.append(s);
             }
           }

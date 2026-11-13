@@ -144,4 +144,51 @@ public class AiReviewerPanelTests
 
         Assert.Contains("AI reviewers", await admin.GetStringAsync("/"));
     }
+
+    [Fact]
+    public async Task The_list_is_a_window_and_older_decisions_load_a_page_at_a_time()
+    {
+        var (host, _, _) = Hosts.Build(Policy);
+        var now = DateTimeOffset.UtcNow;
+        for (var i = 0; i < 45; i++)
+        {
+            // Twenty-five decisions within the last week, and twenty from ten days ago.
+            var at = i < 25 ? now.AddMinutes(-i) : now.AddDays(-10).AddMinutes(-i);
+            await host.Audit.AppendAsync(new AuditEntry(at, "ai_review", null, "mail.send", "ai:bot", "Approve; model m; prompt p; 0 check(s) reported"));
+        }
+        await using var server = await AdminServer.StartAsync(host, Options());
+        using var admin = Client(server, AdminToken);
+
+        // The default window is seven days: the totals cover all time, the list and its count cover the window.
+        var overview = JsonNode.Parse(await admin.GetStringAsync("/api/admin/ai-reviewers"))!;
+        var bot = overview["reviewers"]!.AsArray().Select(r => r!.AsObject()).Single(r => r["name"]!.GetValue<string>() == "bot");
+        Assert.Equal(45, bot["decisions"]!["total"]!.GetValue<int>());
+        Assert.Equal(25, bot["inWindow"]!.GetValue<int>());
+        Assert.Equal(20, bot["recent"]!.AsArray().Count);
+        Assert.True(bot["hasMore"]!.GetValue<bool>());
+
+        // Load older: the rest of the window, then nothing more inside it.
+        var lastShown = bot["recent"]!.AsArray()[19]!["seq"]!.GetValue<long>();
+        var rest = JsonNode.Parse(await admin.GetStringAsync($"/api/admin/ai-reviewers/bot/decisions?days=7&before={lastShown}"))!;
+        Assert.Equal(5, rest["items"]!.AsArray().Count);
+        Assert.False(rest["hasMore"]!.GetValue<bool>());
+
+        // All time, a page at a time: every decision once, and the last page says there is nothing more.
+        var seqs = new List<long>();
+        long? before = null;
+        var more = true;
+        while (more)
+        {
+            var url = "/api/admin/ai-reviewers/bot/decisions?days=0&limit=20" + (before is { } b ? $"&before={b}" : "");
+            var page = JsonNode.Parse(await admin.GetStringAsync(url))!;
+            var items = page["items"]!.AsArray();
+            seqs.AddRange(items.Select(i => i!["seq"]!.GetValue<long>()));
+            before = seqs[^1];
+            more = page["hasMore"]!.GetValue<bool>();
+        }
+        Assert.Equal(45, seqs.Count);
+        Assert.Equal(seqs.Count, seqs.Distinct().Count());
+
+        Assert.Equal(HttpStatusCode.BadRequest, (await admin.GetAsync("/api/admin/ai-reviewers?days=2000")).StatusCode);
+    }
 }

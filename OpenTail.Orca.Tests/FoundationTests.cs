@@ -310,7 +310,7 @@ public class FoundationTests
         q.CommandText = "SELECT (SELECT user_version FROM pragma_user_version), (SELECT COUNT(*) FROM sqlite_master WHERE name IN ('sessions','subject_taint','trust_promotions','ux_actions_idem2','notices','usage_daily','usage_entities','settings','policy_proposals')), (SELECT COUNT(*) FROM sqlite_master WHERE name='ux_actions_idem')";
         using var r = q.ExecuteReader();
         Assert.True(r.Read());
-        Assert.Equal(13, r.GetInt64(0)); // schema 13: the A2A task table (batch 03b-1)
+        Assert.Equal(14, r.GetInt64(0)); // schema 14: the audit query index (13 was the A2A task table, batch 03b-1)
         Assert.Equal(9, r.GetInt64(1));
         Assert.Equal(0, r.GetInt64(2)); // the global idempotency index is gone
 

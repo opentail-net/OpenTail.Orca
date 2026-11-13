@@ -136,7 +136,7 @@ public sealed class InMemoryActionStore(TimeProvider? clock = null) : IActionSto
     }
 }
 
-public sealed class InMemoryAuditSink : IAuditSink, IAuditReader
+public sealed class InMemoryAuditSink : IAuditSink, IAuditReader, IAuditQuery
 {
     private readonly List<AuditEntry> _entries = [];
 
@@ -149,6 +149,39 @@ public sealed class InMemoryAuditSink : IAuditSink, IAuditReader
     {
         lock (_entries) return _entries.Where(e => actionId is null || e.ActionId == actionId).ToList();
     }
+
+    // The sequence number of an entry is its place in the trail, which only grows: entries are never removed.
+    public IReadOnlyList<AuditRow> Page(AuditQuery query)
+    {
+        lock (_entries)
+        {
+            var rows = new List<AuditRow>();
+            for (var i = _entries.Count - 1; i >= 0 && rows.Count < query.Limit; i--)
+            {
+                var seq = i + 1L;
+                if (query.Before is { } before && seq >= before) continue;
+                if (Matches(_entries[i], query)) rows.Add(new AuditRow(seq, _entries[i]));
+            }
+            return rows;
+        }
+    }
+
+    public long Count(AuditQuery query)
+    {
+        lock (_entries) return _entries.LongCount(e => Matches(e, query));
+    }
+
+    public IReadOnlyList<string> Actors(string evt)
+    {
+        lock (_entries)
+            return _entries.Where(e => e.Event == evt && e.Actor is not null).Select(e => e.Actor!).Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal).ToList();
+    }
+
+    private static bool Matches(AuditEntry e, AuditQuery q) =>
+        (q.Event is null || e.Event == q.Event) && (q.Actor is null || e.Actor == q.Actor)
+        && (q.DetailStartsWith is null || (e.Detail?.StartsWith(q.DetailStartsWith, StringComparison.Ordinal) ?? false))
+        && (q.Since is null || e.At >= q.Since);
 
     public Task AppendAsync(AuditEntry entry, CancellationToken ct = default)
     {

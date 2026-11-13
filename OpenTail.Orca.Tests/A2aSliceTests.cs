@@ -545,7 +545,7 @@ public class A2aSliceTests
             backup = ((SqliteActionStore)rig.Host.Store).MigrationBackupPath;
             Assert.NotNull(backup);
             Assert.True(File.Exists(backup));
-            Assert.Equal(13, rig.Count("SELECT user_version FROM pragma_user_version"));
+            Assert.Equal(14, rig.Count("SELECT user_version FROM pragma_user_version"));
             Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM sqlite_master WHERE name='a2a_tasks'"));
             Assert.Equal(actionsBefore, rig.Count("SELECT COUNT(*) FROM actions"));
         }

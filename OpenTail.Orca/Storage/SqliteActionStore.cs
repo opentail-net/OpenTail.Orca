@@ -14,7 +14,7 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
 {
     /// <summary>Schema 2: requester-scoped idempotency, sessions, subject taint, trust promotions. Schema 3: notices. Schema 4: daily
     /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals. Schema 13: A2A task ids (a2a_tasks; OpenTail.Orca.A2A owns the rows).</summary>
-    private const int SchemaVersion = 13;
+    private const int SchemaVersion = 14;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -354,6 +354,12 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
                 );
                 CREATE INDEX ix_a2a_tasks_context ON a2a_tasks(partner_id, context_id);
                 """);
+        }
+
+        if (version < 14)
+        {
+            // The audit query (an admin's page of one reviewer's decisions, and counts of them) filters by event and actor and pages by seq.
+            Exec(c, tx, "CREATE INDEX IF NOT EXISTS ix_audit_event_actor ON audit(event, actor, seq);");
         }
 
         Exec(c, tx, $"PRAGMA user_version={SchemaVersion};");
@@ -825,11 +831,73 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
 /// sequence number, fields and the previous hash. Editing, removing or reordering an entry breaks every hash after it, which
 /// <see cref="AuditChain.Verify"/> reports. Removing the newest entries is only caught against a checkpoint held somewhere else.
 /// </summary>
-public sealed class SqliteAuditSink(SqliteActionStore store) : IAuditSink, IAuditReader
+public sealed class SqliteAuditSink(SqliteActionStore store) : IAuditSink, IAuditReader, IAuditQuery
 {
     /// <summary>The store whose database holds the trail. The executor commits an outcome together with its entry only when this is the
     /// store it runs on (see <see cref="IAtomicAuditStore"/>).</summary>
     public SqliteActionStore Store => store;
+
+    /// <summary>One page of the trail, newest first, from the database: the filters and the cursor are applied there, so a page does not read the
+    /// rest of the trail.</summary>
+    public IReadOnlyList<AuditRow> Page(AuditQuery query)
+    {
+        using var c = store.OpenConnection();
+        using var cmd = c.CreateCommand();
+        var where = Filters(cmd, query);
+        if (query.Before is { } before)
+        {
+            where.Add("seq < $before");
+            cmd.Parameters.AddWithValue("$before", before);
+        }
+        cmd.CommandText = "SELECT seq,at,event,action_id,tool,actor,detail FROM audit" + Where(where) + " ORDER BY seq DESC LIMIT $limit";
+        cmd.Parameters.AddWithValue("$limit", query.Limit);
+        var rows = new List<AuditRow>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            rows.Add(new AuditRow(r.GetInt64(0), new AuditEntry(DateTimeOffset.Parse(r.GetString(1)), r.GetString(2),
+                r.IsDBNull(3) ? null : r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4),
+                r.IsDBNull(5) ? null : r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6))));
+        return rows;
+    }
+
+    public long Count(AuditQuery query)
+    {
+        using var c = store.OpenConnection();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM audit" + Where(Filters(cmd, query));
+        return (long)cmd.ExecuteScalar()!;
+    }
+
+    public IReadOnlyList<string> Actors(string evt)
+    {
+        using var c = store.OpenConnection();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT DISTINCT actor FROM audit WHERE event=$e AND actor IS NOT NULL ORDER BY actor";
+        cmd.Parameters.AddWithValue("$e", evt);
+        var actors = new List<string>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) actors.Add(r.GetString(0));
+        return actors;
+    }
+
+    /// <summary>The filters of a query as SQL conditions, with their parameters added to <paramref name="cmd"/>. Timestamps are stored in
+    /// the "O" format, so a time filter compares the same text (UTC entries, as the Host writes them).</summary>
+    private static List<string> Filters(SqliteCommand cmd, AuditQuery q)
+    {
+        var where = new List<string>();
+        if (q.Event is not null) { where.Add("event=$event"); cmd.Parameters.AddWithValue("$event", q.Event); }
+        if (q.Actor is not null) { where.Add("actor=$actor"); cmd.Parameters.AddWithValue("$actor", q.Actor); }
+        if (q.DetailStartsWith is not null)
+        {
+            where.Add("substr(detail,1,$plen)=$prefix");
+            cmd.Parameters.AddWithValue("$plen", q.DetailStartsWith.Length);
+            cmd.Parameters.AddWithValue("$prefix", q.DetailStartsWith);
+        }
+        if (q.Since is { } since) { where.Add("at>=$since"); cmd.Parameters.AddWithValue("$since", since.ToUniversalTime().ToString("O")); }
+        return where;
+    }
+
+    private static string Where(List<string> where) => where.Count == 0 ? "" : " WHERE " + string.Join(" AND ", where);
 
     public Task AppendAsync(AuditEntry e, CancellationToken ct = default)
     {
