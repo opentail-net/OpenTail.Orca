@@ -15,6 +15,7 @@ namespace OpenTail.Orca.Http;
 ///   --notifications &lt;file&gt; tell reviewers about pending actions (see <see cref="NotificationConfig"/>)
 ///   --modules &lt;file&gt;      modules enabled by configuration (see <see cref="ModulesConfig"/>)
 ///   --new-api-key &lt;name&gt;   print a new API key once, with the hash to put in the config, and exit
+///   --new-ai-reviewer &lt;name&gt;   print a new AI reviewer secret once, with the hash to put in "AiReviewers", and exit
 ///   --new-partner &lt;name&gt;   print a new A2A partner id (a UUID, kept for good), with the config to put it in, and exit
 ///   env OPENTAIL_ADMIN_TOKENS  reviewer tokens, "name:token|review,admin,group:finance;name2:token2|review"
 /// </code>
@@ -35,6 +36,8 @@ public static class HttpDeploymentRunner
 
         var newKey = ValueOf(args, "--new-api-key");
         if (newKey is not null) return PrintNewKey(newKey);
+        var newAi = ValueOf(args, "--new-ai-reviewer");
+        if (newAi is not null) return PrintNewAiReviewer(newAi);
 
         var newPartner = ValueOf(args, "--new-partner");
         if (newPartner is not null) return PrintNewPartner(newPartner);
@@ -132,6 +135,24 @@ public static class HttpDeploymentRunner
         }
         await server.DisposeAsync();
         notifier?.Dispose();
+        return 0;
+    }
+
+    private static int PrintNewAiReviewer(string name)
+    {
+        if (!AiReviewRules.IsValidReviewerName(name))
+        {
+            Console.Error.WriteLine("An AI reviewer name is 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit.");
+            return 2;
+        }
+        var (secret, hash) = ApiKeys.Generate();
+        Console.WriteLine("AI reviewer '" + name + "' (secret shown once; give it to the reviewing session, do not store it here):");
+        Console.WriteLine("  " + secret);
+        Console.WriteLine();
+        Console.WriteLine("Add this to \"AiReviewers\" in the HTTP config (only the hash is kept):");
+        Console.WriteLine("  { \"Name\": \"" + name + "\", \"Hash\": \"" + hash + "\" }");
+        Console.WriteLine();
+        Console.WriteLine("It may then list, read and decide only the actions whose tool names it in \"AiReviewers\" in the policy.");
         return 0;
     }
 

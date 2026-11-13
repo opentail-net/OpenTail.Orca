@@ -31,6 +31,11 @@ public static class AiReviewRules
         return Subjects.IsAi(aiSubject) && names.Contains(aiSubject[3..], StringComparer.Ordinal);
     }
 
+    /// <summary>Is this action offered to this AI reviewer at all (D-20, D-30): its policy lets an AI decide, and the action is assigned to it?
+    /// The runner, the list and the read all use this, so they agree on what an AI reviewer sees.</summary>
+    public static bool Offered(ActionRecord r, string aiSubject) =>
+        (r.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either) && Assigned(r, aiSubject);
+
     /// <summary>May an AI reviewer make this decision? <paramref name="risk"/> is null when the tool is no longer loaded (treated as
     /// destructive). <paramref name="history"/> may be null when only the action itself is being judged (whether to offer it at all).</summary>
     public static ReviewVerdict Check(ActionRecord r, ReviewDecision decision, ToolRisk? risk, bool editsArguments, AiReviewHistory? history)

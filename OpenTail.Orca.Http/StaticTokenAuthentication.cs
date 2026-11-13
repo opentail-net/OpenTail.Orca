@@ -78,6 +78,10 @@ internal sealed class StaticTokenTable(IReadOnlyList<StaticCredential> credentia
                     : [Roles.Review, Roles.Admin];
                 list.Add(new StaticCredential(ApiKeys.HashBytes(token), Subjects.Admin(name), name, roles));
             }
+        foreach (var ai in options.AiReviewers)
+            // An AI reviewer (D-30): its own identity and the review role, and nothing else. No mcp:tools, so it cannot call a tool; no admin role, so
+            // it cannot change policy, budgets, credentials or levels.
+            list.Add(new StaticCredential(ApiKeys.ParseHash(ai.Hash), Subjects.Ai(ai.Name), ai.Name, [Roles.Review]));
         return new StaticTokenTable(list);
     }
 }

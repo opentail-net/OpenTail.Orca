@@ -416,6 +416,11 @@ prompt version the reviewer reported; the checks it says it made are stored with
 quote arguments). The design and what comes next (a model-backed reviewer, shadow mode, sampling) are in
 [`../docs/MCP-HOST-V6-PLAN.md`](../docs/MCP-HOST-V6-PLAN.md).
 
+**Credentials.** An AI reviewer that runs outside the Host signs in with its own secret, not an admin token. `--new-ai-reviewer <name>` prints the
+secret once and the hash to put in `AiReviewers` in the HTTP config (only the hash is kept). The identity is `ai:<name>` with the review role
+only: it cannot call tools, and it sees and decides only the actions whose tool names it in its `AiReviewers` list. Every other route refuses
+it. The standalone loopback server takes the same hashes in code (`AdminOptions.AiReviewers`).
+
 ## When something is not allowed
 
 Call `--explain` with the arguments. The first line says the decision and the rule; the lines under it say, rule by rule, true / false /

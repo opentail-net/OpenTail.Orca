@@ -31,11 +31,11 @@ public sealed class ReviewerRunner(OpenTailHost host)
         var pending = await host.Store.QueryAsync(new ActionQuery { Status = ActionStatus.Pending, Limit = int.MaxValue }, ct);
         foreach (var action in pending)
         {
-            var allowed = action.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either;
-            // D-20: a reviewer is offered only the actions assigned to it. An unassigned action is never shown to it, so no packet is built for it.
-            if (!AiReviewRules.Assigned(action, Subjects.Ai(reviewer.Name))) { skipped++; continue; }
+            // D-20 and D-30: a reviewer is offered only the actions its policy lets an AI decide and that are assigned to it. An action it is not
+            // offered is never shown to it, so no packet is built for it.
+            if (!AiReviewRules.Offered(action, Subjects.Ai(reviewer.Name))) { skipped++; continue; }
             // Beyond the policy's say-so, the AI limits (risk ceiling, taint, repeated refusals): what an AI may not decide, it never sees.
-            if (!allowed || !(await host.Queue.AiVerdictAsync(action, ReviewDecision.Reject, ct: ct)).Allowed) { skipped++; continue; }
+            if (!(await host.Queue.AiVerdictAsync(action, ReviewDecision.Reject, ct: ct)).Allowed) { skipped++; continue; }
 
             offered++;
             ActionReview? decision;

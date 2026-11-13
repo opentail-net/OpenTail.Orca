@@ -40,6 +40,11 @@ public sealed class AdminOptions
 
     /// <summary>Work queues whose jobs the Jobs view lists and can stop, beside the Host's own work items and continuations.</summary>
     public IReadOnlyList<AdminWorkQueue> WorkQueues { get; init; } = [];
+
+    /// <summary>AI reviewer credentials (D-30): reviewer name to the hash of its secret, as <c>sha256:</c> and 64 hex digits. The secret is shown
+    /// once when it is issued and never stored; an operator rotates it by replacing the hash. The identity is <c>ai:&lt;name&gt;</c>, and it
+    /// carries no role beyond reviewing.</summary>
+    public IReadOnlyDictionary<string, string> AiReviewers { get; init; } = new Dictionary<string, string>();
 }
 
 /// <summary>Role names used by the admin surface (also the scope/role values a JWT or token carries).</summary>
@@ -67,7 +72,11 @@ public static class Roles
 }
 
 /// <summary>Who is reviewing. <see cref="Subject"/> is namespaced (see <see cref="Subjects"/>); the name is for display.</summary>
-public sealed record ReviewerIdentity(string Subject, string Name, bool IsAdmin, IReadOnlyList<string> Groups);
+public sealed record ReviewerIdentity(string Subject, string Name, bool IsAdmin, IReadOnlyList<string> Groups)
+{
+    /// <summary>An AI reviewer (D-30). It may only list, read and decide the actions offered to it; every other route refuses it.</summary>
+    public bool IsAi => Subjects.IsAi(Subject);
+}
 
 public sealed class RunningAdmin(WebApplication app, Uri baseUri) : IAsyncDisposable
 {
@@ -93,6 +102,9 @@ public static class AdminServer
             throw new ArgumentException("The admin surface only binds to a loopback address.");
 
         var tokenHashes = options.Tokens.ToDictionary(t => SHA256.HashData(Encoding.UTF8.GetBytes(t.Key)), t => t.Value, new BytesComparer());
+        if (options.AiReviewers.Any(a => !AiReviewRules.IsValidReviewerName(a.Key) || !System.Text.RegularExpressions.Regex.IsMatch(a.Value, "^sha256:[0-9a-fA-F]{64}$")))
+            throw new ArgumentException("Each AI reviewer needs a valid name and a hash of the form sha256: and 64 hex digits (never the secret itself).");
+        var aiHashes = options.AiReviewers.ToDictionary(a => Convert.FromHexString(a.Value["sha256:".Length..]), a => a.Key, new BytesComparer());
         var rolesByHash = (options.TokenRoles ?? new Dictionary<string, IReadOnlySet<string>>())
             .ToDictionary(t => SHA256.HashData(Encoding.UTF8.GetBytes(t.Key)), t => t.Value, new BytesComparer());
 
@@ -112,7 +124,7 @@ public static class AdminServer
 
             if (ctx.Request.Path.StartsWithSegments("/api"))
             {
-                var reviewer = Authenticate(ctx, tokenHashes, rolesByHash);
+                var reviewer = Authenticate(ctx, tokenHashes, rolesByHash, aiHashes);
                 if (reviewer is null)
                 {
                     ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
@@ -139,7 +151,7 @@ public static class AdminServer
     }
 
     private static ReviewerIdentity? Authenticate(
-        HttpContext ctx, Dictionary<byte[], string> tokenHashes, Dictionary<byte[], IReadOnlySet<string>> rolesByHash)
+        HttpContext ctx, Dictionary<byte[], string> tokenHashes, Dictionary<byte[], IReadOnlySet<string>> rolesByHash, Dictionary<byte[], string> aiHashes)
     {
         var header = ctx.Request.Headers.Authorization.ToString();
         if (!header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) return null;
@@ -148,7 +160,14 @@ public static class AdminServer
         byte[]? matched = null;
         foreach (var (candidate, name) in tokenHashes) // no early exit: the loop time does not depend on which token matched
             if (CryptographicOperations.FixedTimeEquals(candidate, hash)) { found = name; matched = candidate; }
-        if (found is null || matched is null) return null;
+        if (found is null || matched is null)
+        {
+            // Not an admin token: perhaps an AI reviewer's secret (D-30). Its identity is ai:<name>, with no admin role and no groups.
+            string? ai = null;
+            foreach (var (candidate, name) in aiHashes)
+                if (CryptographicOperations.FixedTimeEquals(candidate, hash)) ai = name;
+            return ai is null ? null : new ReviewerIdentity(Subjects.Ai(ai), ai, IsAdmin: false, []);
+        }
 
         // No explicit roles: the single-operator behavior (reviewer and admin, no groups).
         if (!rolesByHash.TryGetValue(matched, out var roles))
@@ -175,6 +194,11 @@ public static class AdminEndpoints
 {
     public const string ReviewerItem = "opentail.reviewer";
 
+    /// <summary>Marks a route an AI reviewer may call (see the endpoint filter in <see cref="Map"/>).</summary>
+    private sealed class AiReviewerAllowed { }
+
+    private static RouteHandlerBuilder AllowAiReviewer(this RouteHandlerBuilder builder) => builder.WithMetadata(new AiReviewerAllowed());
+
     private static readonly JsonSerializerOptions EnumsAsText = new(JsonSerializerDefaults.Web)
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
@@ -193,6 +217,15 @@ public static class AdminEndpoints
     {
         var api = app.MapGroup("/api");
         configureApi?.Invoke(api);
+        // An AI reviewer (D-30) may only list, read and decide actions: the routes marked AllowAiReviewer. Every other route refuses it, so a
+        // route added later is closed to AI until someone marks it.
+        api.AddEndpointFilter(async (EndpointFilterInvocationContext ctx, EndpointFilterDelegate next) =>
+        {
+            if (ctx.HttpContext.Items[ReviewerItem] is ReviewerIdentity { IsAi: true }
+                && ctx.HttpContext.GetEndpoint()?.Metadata.GetMetadata<AiReviewerAllowed>() is null)
+                return Results.Json(new { error = "An AI reviewer may only list, read and decide actions." }, statusCode: StatusCodes.Status403Forbidden);
+            return await next(ctx);
+        });
         AdminViews.Map(api, host, options);
 
         app.MapGet("/", (HttpContext ctx) =>
@@ -222,25 +255,32 @@ public static class AdminEndpoints
             var rows = await host.Store.QueryAsync(new ActionQuery { Status = filter, ToolName = tool, Limit = Math.Clamp(limit ?? 100, 1, 500) });
             var arr = new JsonArray();
             var who = ctx.Items[ReviewerItem] as ReviewerIdentity;
-            foreach (var r in rows.OrderByDescending(r => r.CreatedAt)) arr.Add(Summary(r, host, who));
+            // An AI reviewer is shown only the actions offered to it. Note: the limit applies before this filter, so it may show fewer rows.
+            foreach (var r in rows.Where(r => who is not { IsAi: true } || AiReviewRules.Offered(r, who.Subject)).OrderByDescending(r => r.CreatedAt))
+                arr.Add(Summary(r, host, who));
             return Results.Text(arr.ToJsonString(), "application/json");
-        });
+        }).AllowAiReviewer();
 
         api.MapGet("/actions/{id}", async (string id, HttpContext ctx) =>
         {
             var r = await host.Store.GetAsync(id);
             if (r is null) return Results.NotFound(new { error = "No such action." });
             var viewer = ctx.Items[ReviewerItem] as ReviewerIdentity;
+            // An AI reviewer that is not offered the action gets the same answer as for an action that does not exist.
+            if (viewer is { IsAi: true } && !AiReviewRules.Offered(r, viewer.Subject)) return Results.NotFound(new { error = "No such action." });
             // Who read an action's arguments (they may hold personal data): audit D5.
             await host.Audit.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow, "action_viewed", r.Id, r.ToolName, viewer?.Subject ?? "review page", null));
             var detail = Detail(r, host, viewer);
             await AddContextAsync(detail, r, host);
             return Results.Text(detail.ToJsonString(), "application/json");
-        });
+        }).AllowAiReviewer();
 
         api.MapPost("/actions/{id}/review", async (string id, HttpContext ctx) =>
         {
             var reviewer = (ReviewerIdentity)ctx.Items[ReviewerItem]!;
+            // An AI reviewer decides only what is offered to it; anything else is not found, as it is to the list and the read.
+            if (reviewer.IsAi && !(await host.Store.GetAsync(id) is { } offered && AiReviewRules.Offered(offered, reviewer.Subject)))
+                return Results.NotFound(new { error = "No such action." });
             JsonElement body;
             try
             {
@@ -301,7 +341,7 @@ public static class AdminEndpoints
             catch (KeyNotFoundException) { return Results.NotFound(new { error = "No such action." }); }
             catch (UnauthorizedAccessException ex) { return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status403Forbidden); }
             catch (InvalidOperationException ex) { return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status409Conflict); }
-        });
+        }).AllowAiReviewer();
 
         // Stop a delayed action during its undo window. Anyone in its reviewer group may: stopping is always the safe direction.
         api.MapPost("/actions/{id}/stop", async (string id, HttpContext ctx) =>

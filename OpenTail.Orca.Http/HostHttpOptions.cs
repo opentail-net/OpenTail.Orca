@@ -51,6 +51,10 @@ public sealed class JwtSignInOptions
 /// (rotation). Other keys leave it out.</param>
 public sealed record ApiKeyEntry(string Name, string Hash, IReadOnlyList<string>? Scopes = null, string? Profile = null, string? Partner = null);
 
+/// <summary>An AI reviewer's credential (D-30): the hash of its secret, shown once when issued (<c>--new-ai-reviewer</c>). The reviewer is
+/// <c>ai:&lt;name&gt;</c> with the review role only: it cannot call tools, and it cannot change policy, budgets, credentials or levels.</summary>
+public sealed record AiReviewerEntry(string Name, string Hash);
+
 /// <summary>A partner: an outside agent or organisation that calls the Host over A2A. <paramref name="Id"/> is a UUID the operator
 /// generates once (<c>--new-partner</c>) and never changes; <paramref name="DisplayName"/> is for people and may change.</summary>
 public sealed record A2aPartner(string Id, string DisplayName);
@@ -114,6 +118,9 @@ public sealed class HostHttpOptions
     /// <summary>The Teams bot, which shares the Host's database and its notification channel; its messaging endpoint is mapped when set.</summary>
     [System.Text.Json.Serialization.JsonIgnore] public Teams.TeamsBot? TeamsBot { get; set; }
     public IReadOnlyList<ApiKeyEntry> ApiKeys { get; init; } = [];
+
+    /// <summary>The AI reviewers (D-30) of this HTTP deployment. See <see cref="AiReviewerEntry"/>.</summary>
+    public IReadOnlyList<AiReviewerEntry> AiReviewers { get; init; } = [];
 
     /// <summary>The A2A section (phase 0). Null or disabled: no A2A check runs and nothing changes.</summary>
     public A2aOptions? A2A { get; init; }
@@ -245,6 +252,14 @@ public sealed class HostHttpOptions
                 errors.Add($"API key '{k.Name}': an API key can never carry a reviewer or admin role.");
             if (k.Profile is not null && !AgentProfiles.IsValidName(k.Profile))
                 errors.Add($"API key '{k.Name}': Profile '{k.Profile}' must be 1-64 letters, digits, '.', '_' or '-'.");
+        }
+
+        var aiNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var ai in AiReviewers)
+        {
+            if (!AiReviewRules.IsValidReviewerName(ai.Name ?? "")) errors.Add($"AI reviewer name '{ai.Name}' must be 1-64 letters, digits, '.', '_' or '-', starting with a letter or digit.");
+            if (!aiNames.Add(ai.Name ?? "")) errors.Add($"Duplicate AI reviewer name '{ai.Name}'.");
+            if (!Regex.IsMatch(ai.Hash ?? "", "^sha256:[0-9a-fA-F]{64}$")) errors.Add($"AI reviewer '{ai.Name}': Hash must be 'sha256:' and 64 hex digits (see --new-ai-reviewer).");
         }
 
         if (Admin is { } a)
