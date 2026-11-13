@@ -17,7 +17,7 @@ called V1 to V7 (its sections 5 to 11). When this document says "v2 phase V3", i
 | v3 | Modules as bricks: contract, credentials, configuration, provider modules, process isolation | Built, except W6 (publishing), the live tests and the outside-author conformance kit | [archived](../docs/done/MCP-HOST-V3-PLAN.md) |
 | v4 | Integrations as data: integration profiles | Built; ServiceNow kept as code by decision | [archived](../docs/done/MCP-HOST-V4-PLAN.md) |
 | v5 | The people in the loop: Teams, company sign-in, pilot | Partly built; the pilot waits for the owner | [active](../docs/MCP-HOST-V5-PLAN.md) |
-| v6 | AI reviewers and the defences against an eager requester (merged into the gate plan) | R1 built; R2 and later open | [active](../docs/design/reviewer-gate.md) |
+| v6 | AI reviewers and the defences against an eager requester (merged into the gate plan) | R1, P0 to P3, R5, the AI reviewers panel and the audit archive built; R2 (the model reviewer) and later open | [active](../docs/design/reviewer-gate.md) |
 | v7 | Administration and telemetry on the review page | Built (A1 to A4, 2026-10-19) | [archived](../docs/done/MCP-HOST-V7-PLAN.md) |
 
 Designs for work that is planned but not built, and for work after these plans, are indexed in [`docs/design/README.md`](../docs/design/README.md).
@@ -168,9 +168,20 @@ export, a Postgres store, a hosted deployment, per-team policies, reviewer deleg
 
 ## v6: AI reviewers (active)
 
-Plan: [`design/reviewer-gate.md`](../docs/design/reviewer-gate.md), which merges V6 (now a pointer). R1 done 2026-10-16; the rest proposed.
+Plan: [`design/reviewer-gate.md`](../docs/design/reviewer-gate.md), which merges V6 (now a pointer). R1 done 2026-10-16; the gate phases P0 to P3 and what followed were built on 2026-11-13. The plan's section 11 is the log, and its section 14 lists the gaps between the plan and the code.
 
-Built (R1):
+Built on 2026-11-13 (the gate plan):
+
+- **P0.** The retry rule for every reviewer and route (`RetryRules`), the A2A submit pin, and no AI decision on an action without a policy snapshot.
+- **P1.** Named AI reviewers assigned per tool (`AiReviewers`), enforced at the list, the read, the decision and in the runner. An AI reviewer's own credential, held as a hash (`--new-ai-reviewer`), with the review role only. An AI may not approve its own request. AI decisions are audited and shown as AI decisions.
+- **P2.** `AiMayRefuse` and `AiRefusalBudget`: an AI may refuse where the policy says so, across the Human-only and group lines; it never approves across them. An AI refusal costs the requester nothing.
+- **P3.** `ApproveDelay`: the final approval of a queued action schedules the run after a window in which it can be stopped. A late run, or a suspended requester's run, is held and its approval withdrawn.
+- **R5.** `RedTeamCorpusTests`, 84 cases (seven structural limits on an AI approval times twelve injected texts).
+- **Overseer.** A suspended AI reviewer decides nothing. The "AI reviewers" admin panel shows each reviewer's decisions and lets an admin suspend or clear one, with a reason.
+- **Audit.** The audit query (schema 14) and the audit archive: 4 weeks live, 7 years archived by default.
+- A person may decide an `Ai` action like any other (the earlier rule against it was reverted on the owner's instruction).
+
+Built earlier (R1):
 
 - The AI reviewer rules are enforced by the queue in `AiReviewRules`, so they hold for any reviewer. An AI may decide only up to
   `AiMaxRisk` (default `Write`, never `Destructive`); a tainted `ExternalEffect` action always goes to a person; an AI approval cannot
@@ -184,8 +195,8 @@ Open:
 - **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). It can be built against a fake model first. The plan has Orca
   build the packet, and detect and escalate reviewer-directed text in the content.
 - **R3 and R4** start only after the v5 pilot produces human decisions to compare against.
-- **R5, the red-team corpus.** Built: `RedTeamCorpusTests`, 84 cases (seven structural limits on an AI approval times twelve injected texts).
-- **Owner decisions.** The plan's table has recommendations, not logged decisions: the first provider (OpenAI-compatible first), the
+- **Not built from the gate plan:** the shared budget counter across processes (P6), an AI block proposal (P5), relaxing the human-only A2A pins (P7). Delayed rejection (P4) is dropped. The gaps G1 to G8 in the plan's section 14, of which the first is that an AI refusal on a Human-only tool cannot be limited to named reviewers.
+- **Owner decisions.** Settled by the owner on 2026-11-13: people keep their authority over every policy (D-38), an AI approval may run with no person involved, for experimentation only (D-39), and audit retention (D-41). Still recommendations, not logged decisions: the first provider (OpenAI-compatible first), the
   default AI ceiling (`Write`), whether AI suggestions show during shadow measurement (no), sampling in decide mode (10%), a warning when
   the reviewer is the same model family as the requester, and reasons given in full with attempts counted.
 
@@ -226,7 +237,7 @@ Built (its commits are in the checklist's batch record):
 Not built: the skill-selection extension; more than one skill per Orca; contexts and multi-turn; tool skills; the extended card; card
 signing; HTTP+JSON; push and `INPUT_REQUIRED`; outbound calls; partners authenticated by JWT; streaming and resubscribe; file parts.
 
-Waiting for the owner (the decisions the planner made, and where each is recorded, are in [`docs/briefs/README.md`](../docs/briefs/README.md)):
+The decisions the planner made, and where each is recorded, are in [`docs/briefs/README.md`](../docs/briefs/README.md).
 
 Decided by the owner on 2026-11-13:
 
@@ -243,7 +254,7 @@ Waiting for the owner:
 
 Work after the plans is not recorded here. See [`docs/design/README.md`](../docs/design/README.md) for designs and their state. That
 index covers the governance naming and re-check at claim (on `main` as `d6b10f3` and `92c0048`), the Snowflake read-only Sql target
-([done: S1 and S2](../docs/done/snowflake-s1-s2.md)), the skills plan, and the A2A design, which is partly built (see the A2A section below).
+([done: S1 and S2](../docs/done/snowflake-s1-s2.md)), the skills plan, and the A2A design, which is partly built (see the A2A section above).
 
 The solution also contains `OpenTail.Profiles.Jira` and `OpenTail.Profiles.Confluence`. No plan log covers them.
 

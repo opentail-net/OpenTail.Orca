@@ -126,6 +126,6 @@ The scan's list, with its reasons:
 ## 8. Open items
 
 - Verify the product claims in section 2 before any of them is cited in a design.
-- Resolve section 5: reconcile the gate plan with V6.
+- ~~Resolve section 5: reconcile the gate plan with V6.~~ Done 2026-11-13: `reviewer-gate.md` is the one plan and V6 is a pointer (see the note at the end of section 5).
 - Owner to confirm the priorities in section 6, and whether to amend the existing documents in one batch or one at a time.
 - The Connectivity amendments (E2, E5, E6) belong in the Connectivity repository and are not made here.

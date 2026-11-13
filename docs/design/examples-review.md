@@ -244,5 +244,6 @@ reproduce it, and I have not checked whether `ExecuteAsync` guards it.
 
 ## 8. Next step
 
-Fold section 5 into `reviewer-gate.md` as v2, after the owner's decisions in section 7. That is a separate, reviewable change to the plan. Nothing in
-this review is committed.
+Fold section 5 into `reviewer-gate.md` as v2, after the owner's decisions in section 7. That is a separate, reviewable change to the plan.
+
+**Update, 2026-11-13.** This happened the same day. This review is committed (`052c6a3`), and `reviewer-gate.md` versions 2 and 3 took up its points (the approver the agent cannot reach, the split of approver powers, the timeout approval, history-conditioned rules, the MCP channel defences), and much of that plan is now built. The decisions in section 7 were not answered here one by one; the gate plan's section 9 is where the owner's decisions are recorded.
