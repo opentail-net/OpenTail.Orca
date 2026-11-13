@@ -62,6 +62,16 @@ D12. **CancelTask.** Submit action Pending: cancel it as the requester; state CA
 D13. **Audit.** `a2a.received` (task id, partner id, skill id, content hash, size; no text) and `a2a.refused` (a reason code), written
     through the Host's audit sink. Audit detail never holds argument values.
 
+## Corrections from the facts file (added 2026-11-13, these win over the text above)
+
+- **Tenant (facts 3, 9.4).** The SDK clears `tenant` on JSON-RPC before the handler runs, so the handler cannot refuse it. Do not
+  parse the body yourself to refuse it. Drop the tenant refusal from D8 step 1 and replace the tenant test with: a body carrying a
+  tenant creates an ordinary task and the tenant appears nowhere (row, action arguments, audit).
+- **`requestContext` is null (facts 2, 9.1).** Never dereference it; the caller comes only from `IHttpContextAccessor` (D5).
+- **D6 placement.** The SDK's own check accepts empty and `0.3`, so D6 needs a Host filter or middleware scoped to `/a2a` that runs
+  after authentication and authorization (an unauthenticated caller gets 401, never a version error) and before the SDK processor.
+  A header sent more than once, or a comma-separated list, is refused unless every value is `1.0`.
+
 ## Tests (new files in OpenTail.Host.Tests; drive the endpoint with the SDK's client in-process, as your facts file example does)
 
 - returnImmediately=true creates a task: SUBMITTED. The queued `a2a.submit` carries the partner id from the credential even when the

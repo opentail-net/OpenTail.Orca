@@ -132,23 +132,45 @@ Connect Claude Code, for example, with a project `.mcp.json`:
 { "mcpServers": { "team": { "type": "http", "url": "https://approvals.example/mcp", "headers": { "Authorization": "Bearer <api key>" } } } }
 ```
 
-### A2A (not yet served)
+### A2A (preview: the thin slice)
 
-A2A is the planned second front door for agents that are not ours ([design](../docs/design/a2a.md)). **No A2A endpoint exists yet.** This
-section only describes the configuration that phase 0 checks at startup, so a deployment can be prepared without anything being served.
+A2A lets agents that are not ours send requests to this Host over the A2A JSON-RPC binding ([design](../docs/design/a2a.md)).
+It is **off** unless `A2A.Enabled` is true in `http.json`. With it off there is no `/a2a` route (404) and no `a2a.submit` tool.
 
-* **Config.** An `A2A` object in `http.json`: `"Enabled"` (default `false`) and `"Partners"`, a list of `{ "Id", "DisplayName" }`.
-  `--new-partner "<name>"` prints a new partner: `Id` is a UUID generated once and kept for good; `DisplayName` is for people and may change.
-  When `Enabled` is false, none of the checks below run and nothing else changes.
-* **Scope.** `a2a:call` is the role for a partner's API key. Give the key `"Scopes": [ "a2a:call" ]` and nothing else, plus a `"Profile"`
-  naming an entry of the policy's `"Agents"`, and `"Partner": "<id>"` naming a listed partner. A key with `a2a:call` cannot call `/mcp`
-  or the review API. Several keys may name one partner, for rotation.
-* **Startup checks** (each one refuses to start, with the reason, when `Enabled` is true):
+**Served now:** `SendMessage` for a new task with `returnImmediately=true`; `GetTask`; `CancelTask` (only while the request is still
+pending). Every request is queued for a person under the policy's entry for `a2a.submit`, unless the operator has set that entry to
+`Execute`. The partner gets a task id, and sees `SUBMITTED`, `WORKING`, `REJECTED`, `FAILED` or `CANCELED`, with generic text only.
+
+**Not served yet:** no agent card (no `/.well-known` route); no blocking sends (`returnImmediately` false or omitted is refused with
+UnsupportedOperation, and leaves no row); no replies (`a2a.reply` does not exist); no work items; no `ListTasks`, streaming, resubscribe,
+push notifications or extended card (each refused with UnsupportedOperation); no file parts; no continuation of a task.
+
+* **Config.** The `A2A` object in `http.json`: `"Enabled"`, `"Partners"` (a list of `{ "Id", "DisplayName" }`; `--new-partner "<name>"`
+  prints a new `Id`, a UUID kept for good) and `"Skills"`: each skill id maps to `{ "Name", "Description", "Inbox" }`, where `Inbox` names a
+  profile in the policy's `"Agents"`. Exactly one skill must be usable by the caller, and a skill is usable by a profile that lists
+  `a2a.submit` by name (a wildcard does not count). With none or several, the request is refused with "not available".
+* **Scope.** `a2a:call` is the role for a partner's API key. Give the key `"Scopes": [ "a2a:call" ]` and nothing else, a `"Profile"` naming
+  an entry of the policy's `"Agents"`, and `"Partner": "<id>"` naming a listed partner. A key with `a2a:call` cannot call `/mcp` or the review
+  API, and a key without it cannot call `/a2a` (403; no credential gives 401). Several keys may name one partner, for rotation. A partner's
+  tasks belong to the partner, not to the key: another partner's key gets the same TaskNotFound for a foreign id as for an unknown one.
+* **Version.** `A2A-Version` is checked by the Host before the SDK sees the request, after sign-in: missing is 1.0; `1.0` is accepted; an
+  empty value, `0.3`, and anything else are refused with the SDK's VersionNotSupported error (HTTP 200, JSON-RPC -32009). A header sent more
+  than once, or a comma-separated list, is accepted only when every value is `1.0`.
+* **Limits.** The goal and the inputs are capped by the policy's `"Work"` section (`GoalMaxBytes`, `InputsMaxBytes`). The body limit and the
+  rate limit apply to `/a2a` as to the other routes. A request over the body limit is refused by the SDK as a JSON-RPC internal error with
+  HTTP 200, not as a 413, and is not audited as a refusal.
+* **Audit.** `a2a.received` (task id, partner id, skill id, a hash of the content, size) when a task is created; `a2a.refused` with a reason
+  code when a request is refused. Neither holds the text of a request. Refusals before the body is read (the body limit, sign-in, the version
+  gate) are not audited as `a2a.refused`.
+* **Startup checks** (each refuses to start, with the reason, when `Enabled` is true):
   * the policy's `"DataFlowMode"` is `Enforce`;
-  * the database resolves to `synchronous=full` (`OPENTAIL_DB_SYNCHRONOUS=full`); the check reads the level the store resolved, and a store that
+  * the database resolves to `synchronous=full` (`OPENTAIL_DB_SYNCHRONOUS=full`), read from the level the store resolved; a store that
     is not SQLite is refused;
   * every `a2a:call` key names a profile, carries no other scope, and names a partner from `Partners`;
-  * every partner `Id` is a UUID, no `Id` is listed twice, and every partner has a `DisplayName`.
+  * every partner `Id` is a UUID, no `Id` is listed twice, and every partner has a `DisplayName`;
+  * the policy has an entry for `a2a.submit`; there is at least one skill; every skill's `Inbox` is a profile in `"Agents"`.
+* **Warning.** `a2a.submit` in mode `Execute` with no rule runs every partner's request without a person's review. That is allowed when you
+  trust every partner, and startup prints a warning saying so.
 
 ## Notifications
 

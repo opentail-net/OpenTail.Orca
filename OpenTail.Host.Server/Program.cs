@@ -6,4 +6,5 @@ using OpenTail.Modules.Skills;
 //   opentail-host --check-skill-store <store folder>   lists the skill store's problems; serves and writes nothing
 // In the container, docker-entrypoint.sh passes the files it finds in /config. See OpenTail.Host/DEPLOY.md.
 if (SkillStoreCli.TryRun(args, Console.Out) is { } storeExit) return storeExit;
-return await HttpDeploymentRunner.RunAsync(args, "opentail-host");
+// The A2A front door is served only when the HTTP config enables A2A (its module and endpoint are added then, and not otherwise).
+return await HttpDeploymentRunner.RunAsync(args, "opentail-host", _ => { }, extensions: [new OpenTail.Host.A2A.A2AFrontDoor()]);

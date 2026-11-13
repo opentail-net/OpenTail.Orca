@@ -17,6 +17,7 @@
     <ProjectReference Include="..\OpenTail.Host\OpenTail.Host.csproj" />
     <ProjectReference Include="..\OpenTail.Host.Admin\OpenTail.Host.Admin.csproj" />
     <ProjectReference Include="..\OpenTail.Host.Http\OpenTail.Host.Http.csproj" />
+    <ProjectReference Include="..\OpenTail.Host.A2A\OpenTail.Host.A2A.csproj" />
     <ProjectReference Include="..\OpenTail.Host.Notifications\OpenTail.Host.Notifications.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Calendar\OpenTail.Modules.Calendar.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Csv\OpenTail.Modules.Csv.csproj" />

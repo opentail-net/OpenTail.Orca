@@ -50,6 +50,12 @@ public static class HostHttp
         // Phase 0: A2A checks (nothing runs unless the A2A section is enabled). The durability level is the store's resolved one.
         var a2aErrors = options.CheckA2A(host.Policy.Config, (host.Store as SqliteActionStore)?.Synchronous);
         if (a2aErrors.Count > 0) throw new ArgumentException("Invalid HTTP options: " + string.Join(" ", a2aErrors));
+        // Packages that add to this deployment check their own sections (the A2A front door checks its skills and its policy entry).
+        foreach (var extension in options.Extensions)
+        {
+            var extensionErrors = extension.Check(host, options);
+            if (extensionErrors.Count > 0) throw new ArgumentException("Invalid HTTP options: " + string.Join(" ", extensionErrors));
+        }
         // Keys live in this config, not in the database: audit what changed since the last start (audit D4).
         await AccessChanges.RecordKeysAsync(host.AccessSnapshots, host.Audit,
             options.ApiKeys.Select(k => KeyAccess.Of(k.Name, k.Hash, k.Profile)), DateTimeOffset.UtcNow, null, ct);
@@ -65,6 +71,8 @@ public static class HostHttp
 
         var table = StaticTokenTable.Build(options);
         builder.Services.AddSingleton(table);
+        // Extensions read the caller (its partner and profile claims) through the accessor, never through the request object.
+        builder.Services.AddHttpContextAccessor();
         ConfigureAuthentication(builder, options);
         ConfigureAuthorization(builder, options);
         ConfigureRateLimit(builder, options);
@@ -126,6 +134,9 @@ public static class HostHttp
                 statusCode: report.State == HealthState.Unhealthy ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status200OK);
         }).AllowAnonymous();
         app.MapMcp(options.McpPath).RequireAuthorization(McpPolicy);
+
+        // Extension endpoints share this app, so the host check, origin check, security headers, sign-in, rate limit and body limit apply.
+        foreach (var extension in options.Extensions) extension.MapEndpoints(app, host, options);
 
         if (options.Teams is not null && options.TeamsBot is null)
             throw new InvalidOperationException("Teams is configured but no Teams bot was built: start through HttpDeploymentRunner, or set HostHttpOptions.TeamsBot.");

@@ -25,8 +25,11 @@ public static class HttpDeploymentRunner
     /// <summary>A deployment whose modules all come from <c>--modules</c>: the program names none in code.</summary>
     public static Task<int> RunAsync(string[] args, string name, CancellationToken ct = default) => RunAsync(args, name, _ => { }, ct);
 
-    public static async Task<int> RunAsync(string[] args, string name, Action<OpenTailHostBuilder> addModules, CancellationToken ct = default)
+    /// <param name="extensions">Packages that add to the HTTP deployment (see <see cref="IHttpDeploymentExtension"/>). Read only with <c>--http</c>.</param>
+    public static async Task<int> RunAsync(string[] args, string name, Action<OpenTailHostBuilder> addModules, CancellationToken ct = default,
+        IReadOnlyList<IHttpDeploymentExtension>? extensions = null)
     {
+        extensions ??= [];
         if (await ModuleWorker.TryRunAsync(args, ct: ct) is { } workerExit) return workerExit;
         if (await PolicyCli.TryRunAsync(args, name, addModules, Console.Out) is { } policyExit) return policyExit;
 
@@ -52,7 +55,7 @@ public static class HttpDeploymentRunner
         Notifier? notifier = null;
         try
         {
-            options = HttpDeploymentConfig.Load(configPath).ToOptions(Environment.GetEnvironmentVariable(DeploymentRunner.TokensVariable));
+            options = HttpDeploymentConfig.Load(configPath).ToOptions(Environment.GetEnvironmentVariable(DeploymentRunner.TokensVariable), extensions);
             if (options.Teams is { } teams)
             {
                 options.TeamsBot = new Teams.TeamsBot(teams, dbPath, options.PublicBaseUrl);
@@ -74,10 +77,12 @@ public static class HttpDeploymentRunner
                     botChannel: options.TeamsBot is { } bot ? bot.Channel : null);
                 builder.UseEventSink(notifier);
             }
+            foreach (var extension in extensions) extension.AddModules(builder, options);
             addModules(builder);
             host = builder.Build();
             foreach (var line in ModulesCli.Describe(host)) await Console.Error.WriteLineAsync(line);
-            foreach (var w in host.StartupWarnings.Concat(options.CheckProfiles(host.Policy.Config).Warnings))
+            foreach (var w in host.StartupWarnings.Concat(options.CheckProfiles(host.Policy.Config).Warnings)
+                         .Concat(extensions.SelectMany(extension => extension.Warnings(host, options))))
                 await Console.Error.WriteLineAsync("warning: " + w);
             notifier?.Attach(host.Store, t => host.Catalog.TryGet(t, out var reg) ? reg.Descriptor.Risk : null, host.Audit);
             if (host.Audit is SqliteAuditSink chained)
@@ -216,12 +221,13 @@ public sealed class HttpDeploymentConfig
         JsonSerializer.Deserialize<HttpDeploymentConfig>(File.ReadAllText(path), JsonOptions)
         ?? throw new InvalidOperationException("The HTTP config is empty.");
 
-    public HostHttpOptions ToOptions(string? adminTokens)
+    public HostHttpOptions ToOptions(string? adminTokens, IReadOnlyList<IHttpDeploymentExtension>? extensions = null)
     {
         var tokens = DeploymentRunner.ParseTokens(adminTokens);
         var roles = DeploymentRunner.ParseTokenRoles(adminTokens);
         return new HostHttpOptions
         {
+            Extensions = extensions ?? [],
             Urls = Urls,
             PublicBaseUrl = PublicBaseUrl,
             TrustProxy = TrustProxy,

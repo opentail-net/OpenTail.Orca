@@ -113,13 +113,28 @@ public class ArchitectureTests
         Assert.Equal(["OpenTail.Host"], ProjectsOf("OpenTail.Host.Admin"));
         Assert.Equal(["OpenTail.Host.Abstractions"], ProjectsOf("OpenTail.Host.Notifications"));
         Assert.Equal(["OpenTail.Host", "OpenTail.Host.Admin", "OpenTail.Host.Notifications"], ProjectsOf("OpenTail.Host.Http").Order().ToArray());
+        // The A2A front door sits above the HTTP host: it references it, and nothing below references it (decision D2).
+        Assert.Equal(["OpenTail.Host.Http"], ProjectsOf("OpenTail.Host.A2A"));
+    }
+
+    [Fact]
+    public void Nothing_but_the_server_and_the_tests_references_the_a2a_front_door()
+    {
+        var root = RepoDir();
+        foreach (var csproj in Directory.GetFiles(root, "*.csproj", SearchOption.AllDirectories)
+                     .Where(p => !p.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)))
+        {
+            var name = Path.GetFileNameWithoutExtension(csproj);
+            if (name is "OpenTail.Host.A2A" or "OpenTail.Host.Server" || name.Contains("Tests", StringComparison.Ordinal)) continue;
+            Assert.DoesNotContain("OpenTail.Host.A2A", Refs(csproj).Projects);
+        }
     }
 
     [Fact]
     public void No_host_package_references_core_or_a_module()
     {
         var root = RepoDir();
-        foreach (var name in new[] { "OpenTail.Host.Abstractions", "OpenTail.Host", "OpenTail.Host.Admin", "OpenTail.Host.Notifications", "OpenTail.Host.Http" })
+        foreach (var name in new[] { "OpenTail.Host.Abstractions", "OpenTail.Host", "OpenTail.Host.Admin", "OpenTail.Host.Notifications", "OpenTail.Host.Http", "OpenTail.Host.A2A" })
         {
             var (projects, _) = Refs(Path.Combine(root, name, name + ".csproj"));
             Assert.DoesNotContain(projects, p => p == "OpenTail.Core" || p.StartsWith("OpenTail.Modules.", StringComparison.Ordinal) || p.StartsWith("OpenTail.Core.", StringComparison.Ordinal));

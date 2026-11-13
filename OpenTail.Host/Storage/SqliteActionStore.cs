@@ -13,8 +13,8 @@ namespace OpenTail.Host;
 public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditStore
 {
     /// <summary>Schema 2: requester-scoped idempotency, sessions, subject taint, trust promotions. Schema 3: notices. Schema 4: daily
-    /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals.</summary>
-    private const int SchemaVersion = 12;
+    /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals. Schema 13: A2A task ids (a2a_tasks; OpenTail.Host.A2A owns the rows).</summary>
+    private const int SchemaVersion = 13;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -59,6 +59,9 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
 
     /// <summary>Path of the backup taken before the last schema migration, if one was needed.</summary>
     public string? MigrationBackupPath { get; private set; }
+
+    /// <summary>The database file. Packages that keep their own tables in it (the A2A task table) open their own connection to this path.</summary>
+    public string DatabasePath => _path;
 
     private SqliteConnection Open()
     {
@@ -328,6 +331,28 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
                     status     TEXT NOT NULL,
                     json       TEXT NOT NULL
                 );
+                """);
+        }
+
+        if (version < 13)
+        {
+            // The A2A task id table: one row per task a partner was given. No message text is stored here (see OpenTail.Host.A2A).
+            Exec(c, tx, """
+                CREATE TABLE a2a_tasks (
+                    task_id          TEXT PRIMARY KEY,
+                    partner_id       TEXT NOT NULL,
+                    context_id       TEXT NOT NULL,
+                    message_id       TEXT NOT NULL,
+                    content_hash     TEXT NOT NULL,
+                    skill_id         TEXT NOT NULL,
+                    submit_action_id TEXT NULL,
+                    work_item_id     TEXT NULL,
+                    reply_action_id  TEXT NULL,
+                    created_at       TEXT NOT NULL,
+                    updated_at       TEXT NOT NULL,
+                    UNIQUE (partner_id, message_id)
+                );
+                CREATE INDEX ix_a2a_tasks_context ON a2a_tasks(partner_id, context_id);
                 """);
         }
 

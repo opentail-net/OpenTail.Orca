@@ -17,6 +17,9 @@ public static class HostClaims
     /// <summary>Claim carrying the agent profile bound to the credential (see <see cref="CallerIdentity.Profile"/>).</summary>
     public const string Profile = "opentail:profile";
 
+    /// <summary>Claim carrying the A2A partner id of an <c>a2a:call</c> key (see <see cref="A2aPartner"/>). Absent for every other credential.</summary>
+    public const string Partner = "opentail:partner";
+
     public static string? SubjectOf(ClaimsPrincipal? p) => p?.FindFirst(Subject)?.Value;
 
     public static bool HasRole(ClaimsPrincipal? p, string role) =>
@@ -43,7 +46,7 @@ public static class HostClaims
 }
 
 /// <summary>One credential the server knows: a subject, a display name, and the roles it carries.</summary>
-internal sealed record StaticCredential(byte[] Hash, string Subject, string Name, IReadOnlyList<string> Roles, string? Profile = null);
+internal sealed record StaticCredential(byte[] Hash, string Subject, string Name, IReadOnlyList<string> Roles, string? Profile = null, string? Partner = null);
 
 internal sealed class StaticTokenTable(IReadOnlyList<StaticCredential> credentials)
 {
@@ -64,7 +67,7 @@ internal sealed class StaticTokenTable(IReadOnlyList<StaticCredential> credentia
         {
             // An API key is a tool-calling credential and nothing else; the validation already refused review/admin scopes.
             var roles = (k.Scopes is { Count: > 0 } ? k.Scopes : [Roles.Tools]).ToList();
-            list.Add(new StaticCredential(ApiKeys.ParseHash(k.Hash), Subjects.Key(k.Name), k.Name, roles, k.Profile));
+            list.Add(new StaticCredential(ApiKeys.ParseHash(k.Hash), Subjects.Key(k.Name), k.Name, roles, k.Profile, k.Partner));
         }
         if (options.Admin is { } a)
             foreach (var (token, name) in a.Tokens)
@@ -100,6 +103,7 @@ internal sealed class StaticTokenHandler(
         };
         claims.AddRange(credential.Roles.Select(r => new Claim(ClaimTypes.Role, r)));
         if (credential.Profile is { } profile) claims.Add(new Claim(HostClaims.Profile, profile));
+        if (credential.Partner is { } partner) claims.Add(new Claim(HostClaims.Partner, partner));
         var identity = new ClaimsIdentity(claims, SchemeName, ClaimTypes.Name, ClaimTypes.Role);
         return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(new ClaimsPrincipal(identity), SchemeName)));
     }

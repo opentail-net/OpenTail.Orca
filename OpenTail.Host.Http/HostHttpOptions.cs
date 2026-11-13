@@ -61,6 +61,17 @@ public sealed record A2aOptions
 {
     public bool Enabled { get; init; }
     public IReadOnlyList<A2aPartner> Partners { get; init; } = [];
+
+    /// <summary>The inbox skills a partner may use, by skill id (the slice needs exactly one usable skill for the caller).</summary>
+    public IReadOnlyDictionary<string, A2aSkill> Skills { get; init; } = new Dictionary<string, A2aSkill>(StringComparer.Ordinal);
+}
+
+/// <summary>An A2A skill the operator offers. <see cref="Inbox"/> names the profile whose work the skill's requests go to.</summary>
+public sealed class A2aSkill
+{
+    public string Name { get; init; } = "";
+    public string Description { get; init; } = "";
+    public string Inbox { get; init; } = "";
 }
 
 public sealed class HostHttpOptions
@@ -87,6 +98,11 @@ public sealed class HostHttpOptions
 
     /// <summary>The A2A section (phase 0). Null or disabled: no A2A check runs and nothing changes.</summary>
     public A2aOptions? A2A { get; init; }
+
+    /// <summary>Packages that add to this HTTP deployment (for example the A2A front door). Set by the runner from its caller; not read
+    /// from the config file.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public IReadOnlyList<IHttpDeploymentExtension> Extensions { get; init; } = [];
 
     /// <summary>Reviewer tokens for the approval page and API (in addition to JWT reviewers). They can never call tools.</summary>
     public AdminOptions? Admin { get; init; }

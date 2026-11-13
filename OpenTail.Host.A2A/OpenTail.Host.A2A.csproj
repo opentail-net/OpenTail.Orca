@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Host.A2A</PackageId>
+    <Description>OpenTail Host's A2A front door (preview): partners send requests over the A2A JSON-RPC binding; each request is queued for a person under the policy. Adds the A2A SDK to a Host over HTTP, and only when the deployment enables A2A.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="A2A" />
+    <PackageReference Include="A2A.AspNetCore" />
+    <ProjectReference Include="..\OpenTail.Host.Http\OpenTail.Host.Http.csproj" />
+    <Using Include="OpenTail.Host.Abstractions" />
+    <InternalsVisibleTo Include="OpenTail.Host.Tests" />
+  </ItemGroup>
+</Project>

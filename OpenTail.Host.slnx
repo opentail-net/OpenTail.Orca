@@ -10,6 +10,7 @@
     <Project Path="OpenTail.Host/OpenTail.Host.csproj" />
     <Project Path="OpenTail.Host.Admin/OpenTail.Host.Admin.csproj" />
     <Project Path="OpenTail.Host.Http/OpenTail.Host.Http.csproj" />
+    <Project Path="OpenTail.Host.A2A/OpenTail.Host.A2A.csproj" />
     <Project Path="OpenTail.Host.Notifications/OpenTail.Host.Notifications.csproj" />
     <Project Path="OpenTail.Host.Server/OpenTail.Host.Server.csproj" />
   </Folder>

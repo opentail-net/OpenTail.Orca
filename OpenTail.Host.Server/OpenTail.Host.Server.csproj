@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenTail.Host.Http\OpenTail.Host.Http.csproj" />
+    <ProjectReference Include="..\OpenTail.Host.A2A\OpenTail.Host.A2A.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Calendar\OpenTail.Modules.Calendar.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Calendar.Ics\OpenTail.Modules.Calendar.Ics.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Csv\OpenTail.Modules.Csv.csproj" />

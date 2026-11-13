@@ -49,9 +49,10 @@ public sealed class OpenTailHostBuilder
     public OpenTailHostBuilder UseAudit(IAuditSink audit) { _audit = audit; return this; }
     public OpenTailHostBuilder UseClock(TimeProvider clock) { _clock = clock; return this; }
     public OpenTailHostBuilder WithLease(TimeSpan lease) { _lease = lease; return this; }
-    public OpenTailHostBuilder UseSqlite(string path)
+    /// <param name="synchronous">How hard each commit is pushed to disk. Null reads <c>OPENTAIL_DB_SYNCHRONOUS</c> (the runner's way); tests pass a level explicitly.</param>
+    public OpenTailHostBuilder UseSqlite(string path, SqliteSynchronous? synchronous = null)
     {
-        var store = new SqliteActionStore(path, _clock);
+        var store = new SqliteActionStore(path, _clock, synchronous);
         _store = store;
         _audit = new SqliteAuditSink(store);
         _sessionStore = new SqliteSessionStore(store);

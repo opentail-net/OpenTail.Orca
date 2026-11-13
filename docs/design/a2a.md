@@ -468,9 +468,14 @@ Still the proposed defaults, unchanged:
 
 ## What is built
 
-Nothing. Reused without change: the decision path, profiles, taint, labels, the work items, the audit trail, identity levels, the rate
-limits and the HTTP sign-in. Not built: the scope, the A2A routes, the adapter, the two tools, the tables, the configuration for skills
-and partners, push, signing, outbound calls.
+Phase 0 (in commit f24f8c5) and the first half of the thin slice (batch 03b-1). The slice is OpenTail.Host.A2A,
+which only a server or a test references; the HTTP host takes it through an extension seam and never names it. It serves `/a2a`
+(JSON-RPC, our own `IA2ARequestHandler` over the SDK's `MapA2A`) behind the `a2a:call` role; enforces `A2A-Version` before the SDK (D6); keeps
+the task id table (schema 13: `a2a_tasks`, the Host's id, the partner's owner, the content hash and no text); submits `a2a.submit` as the
+partner with the task id as idempotency key; and answers `GetTask` and `CancelTask` for the owner's tasks only. Reused without change: the
+decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body limit and the HTTP sign-in. Not built yet:
+`a2a.reply`, the work item and the reply path (03b-2), blocking waits, `ListTasks`, the card, the skill-selection extension, push, signing,
+and outbound calls. The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
 
 ## Sources
 
