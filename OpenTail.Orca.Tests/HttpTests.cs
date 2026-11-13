@@ -24,14 +24,16 @@ public class HttpTests : IAsyncLifetime
 
     private readonly string _alice = ApiKeys.Generate().Key;
     private readonly string _bob = ApiKeys.Generate().Key;
+    private readonly string _bot = ApiKeys.Generate().Key;
     private FakeInboxModule _module = null!;
     private OpenTailHost _host = null!;
     private RunningHostHttp _server = null!;
     private HttpClient _http = null!;
 
-    private static HostHttpOptions Options(string alice, string bob, Action<List<string>>? _ = null, int rate = 0, int maxBody = 1024 * 1024) => new()
+    private static HostHttpOptions Options(string alice, string bob, Action<List<string>>? _ = null, int rate = 0, int maxBody = 1024 * 1024, string? bot = null) => new()
     {
         ApiKeys = [new ApiKeyEntry("alice", ApiKeys.Hash(alice)), new ApiKeyEntry("bob", ApiKeys.Hash(bob))],
+        AiReviewers = bot is null ? [] : [new AiReviewerEntry("bot", ApiKeys.Hash(bot))],
         Admin = new AdminOptions
         {
             Tokens = new Dictionary<string, string> { [ReviewerToken] = "rita", [ReadOnlyReviewerToken] = "jo" },
@@ -57,13 +59,24 @@ public class HttpTests : IAsyncLifetime
         MaxBodyBytes = maxBody,
     };
 
+    [Fact]
+    public async Task An_ai_reviewer_secret_cannot_call_tools_and_an_agent_key_cannot_review()
+    {
+        // D-30: an AI reviewer's secret carries the review role only, so the tool endpoint refuses it.
+        Assert.Equal(HttpStatusCode.Forbidden, (await Send(HttpMethod.Post, "/mcp", _bot, InitializeBody)).StatusCode);
+        // An agent's key carries tools only, so the review API refuses it.
+        Assert.Contains((await Send(HttpMethod.Get, "/api/actions", _alice)).StatusCode, new[] { HttpStatusCode.Forbidden, HttpStatusCode.Unauthorized });
+        // The AI reviewer's secret does reach the review API, where its own routes are.
+        Assert.Equal(HttpStatusCode.OK, (await Send(HttpMethod.Get, "/api/actions", _bot)).StatusCode);
+    }
+
     public async ValueTask InitializeAsync()
     {
         _module = new FakeInboxModule();
         _host = new OpenTailHostBuilder().AddModule(_module).UseHttpSignIn()
             .UsePolicy(PolicyConfig.Parse("""{ "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "Tools": { "mail.send": { "Mode": "Queue" } } }"""))
             .Build();
-        _server = await HostHttp.StartAsync(_host, Options(_alice, _bob));
+        _server = await HostHttp.StartAsync(_host, Options(_alice, _bob, bot: _bot));
         _http = new HttpClient { BaseAddress = _server.BaseUri };
     }
 
