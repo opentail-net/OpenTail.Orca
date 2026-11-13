@@ -30,7 +30,7 @@ This page describes what is implemented today (v4 P1 to P4b). Planned additions 
 ## Licence
 
 Profiles in `opentail/profiles`, like Orca and its modules, are licensed under proprietary commercial licence (`opentail/LICENSE.md`):
-a written commercial licence is needed for any use. A profile you write yourself is yours to license as you like.
+a signed commercial licence agreement with OpenTail is needed for any use. A profile you write yourself is yours to license as you like.
 
 ## Why profiles
 

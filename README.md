@@ -34,7 +34,7 @@ Releases: tag `host-v<version>`; see [`OpenTail.Orca/PACKAGING.md`](OpenTail.Orc
 
 ## Licence
 
-Proprietary and commercial. Use, copying, modification and distribution need a written commercial licence from OpenTail; see [LICENSE.md](LICENSE.md).
+Proprietary and commercial. All rights reserved. Any use needs a signed commercial licence agreement with OpenTail; see [LICENSE.md](LICENSE.md).
 
 Repository history was restarted on 2026-10-20 and versions reset to 0.0.1. Commit hashes and version numbers in older
 documents refer to the earlier history.

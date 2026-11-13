@@ -2,11 +2,14 @@
 
 Required Notice: Copyright 2026 OpenTail (https://github.com/opentail-net)
 
-This software is proprietary and commercial. OpenTail reserves all rights. No right is granted to use, copy, modify, merge,
-publish, distribute, sublicense or sell it, in whole or in part, except under a separate written commercial licence from OpenTail.
+All rights reserved. This software is proprietary and commercial.
 
-Viewing the source code in this repository does not grant any right to use it. A licence from OpenTail is needed for any use,
-including personal, internal, evaluation or commercial use, unless that licence says otherwise.
+No licence is granted by this notice, by viewing the source code, by downloading, installing or using a package, or by accepting
+this licence on installation. Any use of the software, including personal, internal, evaluation, development, testing and
+commercial use, requires a commercial licence agreement signed by OpenTail and the licensee. Without such an agreement, you may
+not use, copy, modify, merge, publish, distribute, sublicense, sell or reverse engineer the software, in whole or in part.
+
+Where a signed commercial licence agreement applies, its terms govern the software it covers. This notice adds no rights to it.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY, FITNESS FOR A
 PARTICULAR PURPOSE AND NON-INFRINGEMENT. IN NO EVENT SHALL OPENTAIL BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM

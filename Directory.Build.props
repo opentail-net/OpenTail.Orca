@@ -28,7 +28,7 @@
     <MinVerTagPrefix>host-v</MinVerTagPrefix>
     <MinVerMinimumMajorMinor>0.0</MinVerMinimumMajorMinor>
   </PropertyGroup>
-  <!-- Everything here is licensed under proprietary commercial licence (LICENSE.md): a written commercial licence from OpenTail is needed for any use.
+  <!-- Everything here is licensed under proprietary commercial licence (LICENSE.md): a signed commercial licence agreement with OpenTail is needed for any use.
        -->
   <PropertyGroup>
     <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
