@@ -109,6 +109,7 @@ public class A2aSliceTests
             Extensions = extensions,
             RateLimitPerMinute = rate,
             MaxBodyBytes = maxBody,
+            PublicBaseUrl = "http://127.0.0.1",   // the agent card names this address (batch 04, A3); loopback http is allowed
         };
         // The fake module supplies clock.now, a tool a profile can name without it being A2A.
         var builder = new OpenTailHostBuilder().AddModule(new FakeInboxModule()).UsePolicy(PolicyConfig.Parse(policy)).UseSqlite(db.Path, SqliteSynchronous.Full).UseHttpSignIn();
@@ -486,7 +487,7 @@ public class A2aSliceTests
             """;
         var builder = new OpenTailHostBuilder().UsePolicy(PolicyConfig.Parse(policy)).UseSqlite(db.Path, SqliteSynchronous.Full).UseHttpSignIn();
         var extension = new A2AFrontDoor();
-        var options = new HostHttpOptions { A2A = EnabledA2a, Extensions = [extension] };
+        var options = new HostHttpOptions { A2A = EnabledA2a, Extensions = [extension], PublicBaseUrl = "http://127.0.0.1" };
         extension.AddModules(builder, options);
         var host = builder.Build();
         Assert.Empty(extension.Check(host, options));
@@ -1169,6 +1170,217 @@ public class A2aSliceTests
         }
         using (var db = new TempDb())
             Assert.Contains("MaxBlockingWaits", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, a2a: WithWait(TimeSpan.FromSeconds(30), cap: 0))).Message);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- the agent card (batch 04, part A)
+
+    private const string TokenTools = "mcp-tools-token-0123456789";
+
+    private static async Task<(HttpStatusCode Status, HttpResponseHeaders Headers, string Body)> GetCard(Rig rig, string? token)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, "/.well-known/agent-card.json");
+        if (token is not null) req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        using var resp = await rig.Raw().SendAsync(req);
+        return (resp.StatusCode, resp.Headers, await resp.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task The_card_takes_the_same_sign_in_and_role_as_a2a_no_credential_is_401_and_the_wrong_scopes_are_403()
+    {
+        using var db = new TempDb();
+        var keys = DefaultKeys.Append(new ApiKeyEntry("tools-agent", ApiKeys.Hash(TokenTools), ["mcp:tools"], "clerk", null)).ToArray();
+        await using var rig = await StartAsync(db, keys: keys);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await GetCard(rig, null)).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await GetCard(rig, TokenMcp)).Status);
+        Assert.Equal(HttpStatusCode.Forbidden, (await GetCard(rig, TokenTools)).Status);
+        Assert.Equal(HttpStatusCode.OK, (await GetCard(rig, TokenA)).Status);
+    }
+
+    [Fact]
+    public async Task The_card_does_not_exist_when_A2A_is_disabled()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, policy: PolicyWithoutA2a, a2a: new A2aOptions { Enabled = false }, extension: true);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await GetCard(rig, TokenA)).Status);
+    }
+
+    /// <summary>The open question in batch 04 part A1: an anonymous caller can tell whether A2A is on from the card's status, because the
+    /// card answers 401 when it exists and 404 when it does not. This test records that fact, so the question is answered from a run.</summary>
+    [Fact]
+    public async Task An_anonymous_caller_gets_401_for_the_card_with_A2A_on_and_404_with_it_off()
+    {
+        using var db = new TempDb();
+        await using (var on = await StartAsync(db))
+            Assert.Equal(HttpStatusCode.Unauthorized, (await GetCard(on, null)).Status);
+        using var off = new TempDb();
+        await using (var disabled = await StartAsync(off, policy: PolicyWithoutA2a, a2a: new A2aOptions { Enabled = false }, extension: true))
+            Assert.Equal(HttpStatusCode.NotFound, (await GetCard(disabled, null)).Status);
+    }
+
+    [Fact]
+    public async Task The_card_parses_with_the_SDK_and_has_the_fields_of_A2()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+
+        var (status, _, body) = await GetCard(rig, TokenA);
+        var card = JsonSerializer.Deserialize<AgentCard>(body, A2AJsonUtilities.DefaultOptions)!;
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        Assert.Equal(("OpenTail Host", "1.0"), (card.Name, card.Version));
+        var iface = Assert.Single(card.SupportedInterfaces);
+        Assert.Equal(("JSONRPC", "1.0", "http://127.0.0.1/a2a"), (iface.ProtocolBinding, iface.ProtocolVersion, iface.Url));
+        Assert.Equal((false, false, false), (card.Capabilities!.Streaming, card.Capabilities.PushNotifications, card.Capabilities.ExtendedAgentCard));
+        Assert.Equal(["text/plain", "application/json"], card.DefaultInputModes);
+        Assert.Equal(["text/plain", "application/json"], card.DefaultOutputModes);
+        Assert.Empty(card.Skills);
+        Assert.Equal(new[] { "apiKey", "bearer" }, card.SecuritySchemes!.Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray());
+    }
+
+    [Fact]
+    public async Task The_card_names_no_tool_profile_partner_or_policy_detail()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+
+        var body = (await GetCard(rig, TokenA)).Body;
+
+        foreach (var forbidden in new[] { "a2a.submit", "a2a.reply", "clock.now", "clerk", "reply-assistant", "work.", PartnerA, PartnerB, "Acme", "Beta", "Policy", "reviewer" })
+            Assert.DoesNotContain(forbidden, body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void The_interface_URL_follows_PublicBaseUrl_and_the_card_is_only_what_it_is_configured_to_be()
+    {
+        var card = A2ACard.Build(new A2aCardOptions { Name = "Lab", Description = "A test host.", Version = "2.1" }, "https://host.example/base/");
+
+        Assert.Equal("https://host.example/base/a2a", Assert.Single(card.SupportedInterfaces).Url);
+        Assert.Equal(("Lab", "A test host.", "2.1"), (card.Name, card.Description, card.Version));
+    }
+
+    [Fact]
+    public async Task The_card_is_private_and_the_SDK_gives_it_an_ETag_behind_sign_in()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+
+        var (status, headers, _) = await GetCard(rig, TokenA);
+
+        Assert.Equal(HttpStatusCode.OK, status);
+        var cacheControl = headers.CacheControl?.ToString() ?? "";
+        Assert.Contains("private", cacheControl, StringComparison.Ordinal);
+        Assert.DoesNotContain("public", cacheControl, StringComparison.Ordinal);
+        Assert.NotNull(headers.ETag);
+    }
+
+    [Fact]
+    public async Task The_card_read_is_audited_once_per_partner_in_the_window()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+
+        await GetCard(rig, TokenA);
+        await GetCard(rig, TokenA);
+        await GetCard(rig, TokenB);
+
+        var served = ((SqliteAuditSink)rig.Host.Audit).ReadChain().Where(e => e.Event == "a2a.card_served").Select(e => e.Actor).ToList();
+        Assert.Equal(["partner:" + PartnerA, "partner:" + PartnerB], served);
+    }
+
+    [Fact]
+    public void Startup_refuses_a_PublicBaseUrl_that_is_missing_or_plain_http_off_loopback_and_accepts_https_or_loopback_http()
+    {
+        static IReadOnlyList<string> ErrorsFor(string? publicBaseUrl)
+        {
+            using var db = new TempDb();
+            var options = new HostHttpOptions { A2A = EnabledA2a, PublicBaseUrl = publicBaseUrl, Extensions = [new A2AFrontDoor()] };
+            var builder = new OpenTailHostBuilder().AddModule(new FakeInboxModule()).UsePolicy(PolicyConfig.Parse(Policy)).UseSqlite(db.Path, SqliteSynchronous.Full).UseHttpSignIn();
+            foreach (var extension in options.Extensions) extension.AddModules(builder, options);
+            var host = builder.Build();
+            return options.Extensions.SelectMany(extension => extension.Check(host, options)).Where(e => e.Contains("PublicBaseUrl", StringComparison.Ordinal)).ToList();
+        }
+
+        Assert.NotEmpty(ErrorsFor(null));
+        Assert.NotEmpty(ErrorsFor("http://partner-facing.example.com"));
+        Assert.Empty(ErrorsFor("https://partner-facing.example.com"));
+        Assert.Empty(ErrorsFor("http://localhost:8080"));
+    }
+
+    [Fact]
+    public async Task GetExtendedAgentCard_stays_UnsupportedOperation()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+
+        var refused = await Assert.ThrowsAsync<A2AException>(() => client.GetExtendedAgentCardAsync(new GetExtendedAgentCardRequest()));
+        Assert.Equal(A2AErrorCode.UnsupportedOperation, refused.ErrorCode);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- part C: trust, suspension, the cap (batch 04)
+
+    [Fact]
+    public async Task C1_a_per_partner_rule_runs_one_partners_submit_and_leaves_the_other_queued()
+    {
+        using var db = new TempDb();
+        var trusted = Policy.Replace("\"a2a.submit\": { \"Mode\": \"Queue\" }",
+            "\"a2a.submit\": { \"Mode\": \"Queue\", \"Rules\": [ { \"Name\": \"trust-acme\", \"Mode\": \"Execute\", \"When\": { \"arg\": \"/partner\", \"equals\": \""
+            + PartnerA + "\" }, \"IgnoreArgs\": [ \"taskId\", \"skill\", \"goal\", \"inputs\" ] } ] }");
+        await using var rig = await StartAsync(db, policy: trusted);
+        using var a = rig.Client(TokenA);
+        using var b = rig.Client(TokenB);
+
+        var fromA = (await a.SendMessageAsync(Send("m-trust-a", "Trusted partner's request."))).Task!;
+        var fromB = (await b.SendMessageAsync(Send("m-trust-b", "Untrusted partner's request."))).Task!;
+
+        Assert.Equal(TaskState.Working, fromA.Status.State);
+        Assert.Equal(ActionStatus.Succeeded, (await SubmitOfAsync(rig, PartnerA, fromA.Id)).Status);
+        Assert.Equal(TaskState.Submitted, fromB.Status.State);
+        Assert.Equal(ActionStatus.Pending, (await SubmitOfAsync(rig, PartnerB, fromB.Id)).Status);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM work_items"));
+        Assert.Equal("partner:" + PartnerA, rig.Host.Work.Store.Query().Single().From);
+    }
+
+    [Fact]
+    public async Task C2_a_suspended_partner_is_answered_REJECTED_with_nothing_new_run_and_GetTask_and_ListTasks_still_read_its_tasks()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var a = rig.Client(TokenA);
+        await rig.Host.Levels.SuspendAsync("partner:" + PartnerA, "rita", "incident for the test");
+
+        var refused = (await a.SendMessageAsync(Send("m-suspended", "After the suspension."))).Task!;
+
+        Assert.Equal(TaskState.Rejected, refused.Status.State);
+        Assert.Equal(ActionStatus.Denied, (await SubmitOfAsync(rig, PartnerA, refused.Id)).Status);
+        Assert.Empty(rig.Host.Work.Store.Query());
+        Assert.DoesNotContain("incident", JsonSerializer.Serialize(refused, A2AJsonUtilities.DefaultOptions));
+        // Today: the refused task is still the partner's, so GetTask and ListTasks answer for it.
+        Assert.Equal(TaskState.Rejected, (await a.GetTaskAsync(new GetTaskRequest { Id = refused.Id })).Status.State);
+        Assert.Contains(refused.Id, (await a.ListTasksAsync(new ListTasksRequest())).Tasks.Select(t => t.Id));
+    }
+
+    [Fact]
+    public async Task C3_a_partner_at_the_pending_cap_gets_the_next_send_as_REJECTED_and_the_row_stays_and_another_partner_is_not_affected()
+    {
+        using var db = new TempDb();
+        var capped = Policy.Replace("\"DataFlowMode\": \"Enforce\",", "\"DataFlowMode\": \"Enforce\", \"MaxPendingPerRequester\": 1,");
+        await using var rig = await StartAsync(db, policy: capped);
+        using var a = rig.Client(TokenA);
+        using var b = rig.Client(TokenB);
+
+        var first = (await a.SendMessageAsync(Send("m-cap-1", "First."))).Task!;
+        var second = (await a.SendMessageAsync(Send("m-cap-2", "Second."))).Task!;
+
+        Assert.Equal(TaskState.Submitted, first.Status.State);
+        Assert.Equal(TaskState.Rejected, second.Status.State);
+        var refusedAction = await SubmitOfAsync(rig, PartnerA, second.Id);
+        Assert.Equal((ActionStatus.Denied, "queue_full"), (refusedAction.Status, refusedAction.Error!.Code));
+        Assert.Equal(2, rig.Table.Count());   // the row is left behind: a retry with the same messageId answers the same task
+        Assert.Equal(second.Id, (await a.SendMessageAsync(Send("m-cap-2", "Second."))).Task!.Id);
+        Assert.Equal(TaskState.Submitted, (await b.SendMessageAsync(Send("m-cap-b", "Another partner's first."))).Task!.Status.State);
     }
 
     /// <summary>Builds the options and the Host, and starts the extension's startup checks; it must throw.</summary>

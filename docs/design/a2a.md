@@ -352,9 +352,13 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 - **Extended card.** `GET /extendedAgentCard` returns, for an authenticated caller, the skills its profile may use, built by the same
   code that builds `tools/list`. Its capabilities say `extendedAgentCard: true`.
 - **What the card never shows.** Tool names outside the caller's profile, internal names, module versions, policy and reviewer groups.
-- **Decided (correction 3): the card requires authentication,** so an anonymous caller learns nothing, not even that the Host speaks A2A.
+- **Decided (correction 3): the card requires authentication,** so an anonymous caller reads nothing from it. It can still tell that A2A is on: the card and `/a2a` answer 401 when A2A is enabled and 404 when it is not (observed in batch 04). That is accepted (planner's delegated decision, 2026-11-13): section 7 promises 401 with `WWW-Authenticate` for a missing credential, and `/mcp` answers the same way.
   The SDK's security guide also says protected agents should guard the discovery endpoint. A public card with no skills, the
   alternative, is not adopted (decision 1 is the default).
+- **Built (batch 04), and the open point.** The card is built as described above, with a `private` cache header (the SDK's default is
+  `public`), an ETag that the SDK sends behind sign-in, and a `card_served` audit at most once per partner in 10 minutes. The status an
+  anonymous caller gets is not what the decision above says: 401 with A2A on, 404 with it off (RUN: `An_anonymous_caller_gets_401...`).
+  So an anonymous caller can tell that A2A is on. The options are in `docs/briefs/a2a-reviewer-view.md`; the planner decides.
 - **Signing (phase 2).** A JWS over the canonical JSON, with `alg` and `kid`, using a key from configuration. *Verify* that the SDK's
   serialisation can be canonicalised to RFC 8785 before relying on it.
 
@@ -426,7 +430,7 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 | Information in errors | Generic messages; reviewer reasons and failure kinds stay internal. |
 | SSRF through push URLs (phase 3) | Registered hosts only; the SDK's address check; the Host's guard. |
 | Card spoofing of a remote agent (phase 4) | Pinning; signature verification when present. |
-| A human approver manipulated by partner text | The review page must show partner text as quoted and escaped (*verify* the review page's rendering); approval stays with a person; self-approval is forbidden for administration tools. |
+| A human approver manipulated by partner text | The review page shows partner text whole and as text: the page writes every value with `textContent`, and the API gives the whole summary (batch 04 B1, RUN). Teams cards escape it, so no markup, link or line break from the partner survives (B2, RUN), and a card does not offer approve on a preview it has cut, on the card or on the click (B3, RUN). Approval stays with a person; self-approval is forbidden for administration tools. By default Teams may approve an `a2a.reply` (B4, RUN; a record for the owner). |
 
 ## Build order
 
@@ -492,8 +496,9 @@ returns the item's id. A finished item is reconciled into one queued `a2a.reply`
 profile, with the item's taint and labels put on that session first. `GetTask` and `CancelTask` answer for the owner's tasks only. The
 completer's session now carries onto its work item (E1); `WorkService` raises `Completed` (E2) and cancels only an open item when asked (E7).
 Reused without change: the decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body limit and the
-HTTP sign-in. Built in 03b-3: the blocking send with its wait and cap, and `ListTasks` (the caller's tasks only, keyset paging). Not built
-yet: the card, the skill-selection extension, push, signing, and outbound calls.
+HTTP sign-in. Built in 03b-3: the blocking send with its wait and cap, and `ListTasks` (the caller's tasks only, keyset paging). Built in 04: the agent card, with its startup rule on `PublicBaseUrl` and its cache and audit rules, and the review-view rules for partner text
+(the page, and Teams cards: cut previews cannot be approved, on the card or on the click). Not built yet: the skill-selection extension,
+push, signing, and outbound calls.
 The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
 
 ## Sources

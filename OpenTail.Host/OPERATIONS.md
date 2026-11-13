@@ -199,6 +199,19 @@ with UnsupportedOperation); no file parts; no continuation of a task.
   * `BlockingWait` is from 1 second to 5 minutes, and `MaxBlockingWaitsPerPartner` from 1 to 64.
 * **Warning.** `a2a.submit` in mode `Execute` with no rule runs every partner's request without a person's review. That is allowed when you
   trust every partner, and startup prints a warning saying so.
+* **Agent card.** With A2A on, `GET /.well-known/agent-card.json` returns the card to a caller with the `a2a:call` role. No credential is
+  401; a key without the role is 403; with A2A off the path does not exist (404). `A2A.Card` sets the name, description and version
+  (defaults: "OpenTail Host", a generic description, "1.0"). The card names one JSON-RPC 1.0 interface at `PublicBaseUrl` + `/a2a`, has no
+  streaming, push or extended card and no skills, and names the two ways a key is sent (the bearer token and `X-API-Key`). It never names a
+  tool, profile, partner, policy or reviewer group. Its cache header is `private`, and a partner's first read in each 10 minutes is audited
+  as `a2a.card_served`.
+* **PublicBaseUrl.** With A2A on, `PublicBaseUrl` must be set, and must be `https`, or `http` on a loopback address, because the card names
+  it. The existing rule requires it only when the server listens beyond loopback.
+* **Partner text on the review page and in Teams.** The review page shows a request's text whole, as text. A Teams card shows a preview of
+  up to 400 characters: a longer one is cut, the card says so, and it offers no approve, run now or change from that card. Reject and
+  request changes stay. Open shows the whole text on the review page; Open needs `PublicBaseUrl`. The digest and the Teams notification card
+  mark a cut line the same way. By default Teams may decide actions up to `ExternalEffect`, so a partner's reply can be approved from Teams;
+  set `ChatMaxRisk` to `Write` to keep replies on the review page.
 * **Policy example.** The entries an A2A deployment needs; the rest of the policy is unchanged. The inbox profile (here `clerk`) lists
   `work.*` so that it can claim the item it is sent.
 

@@ -230,6 +230,10 @@ public sealed class TeamsChannel : INotificationChannel
         return sb.ToString().Replace("://", ":\u200B//", StringComparison.Ordinal).Replace("www.", "www\u200B.", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>True when <see cref="Escape"/> would cut this text at <paramref name="max"/> characters (batch 04, B3): a card that shows the
+    /// cut text must say so, and must not offer to approve it.</summary>
+    public static bool IsCut(string? text, int max) => !string.IsNullOrEmpty(text) && Escape(text, int.MaxValue - 1).Length > max;
+
     public static string Body(NotificationMessage m)
     {
         var headline = m.Name switch
@@ -266,7 +270,11 @@ public sealed class TeamsChannel : INotificationChannel
             new JsonObject { ["type"] = "TextBlock", ["text"] = headline, ["weight"] = "Bolder", ["size"] = "Medium", ["wrap"] = true },
             Text(Escape(m.Event.ToolName, 80) + (m.Event.Risk is { } risk ? $" · {risk}" : ""), subtle: true),
         };
-        if (m.PreviewSummary is { } p) body.Add(Text(Escape(p, 300)));
+        if (m.PreviewSummary is { } p)
+        {
+            body.Add(Text(Escape(p, 300)));
+            if (IsCut(p, 300)) body.Add(Text("The text is cut here. Open the review page to see all of it before anyone decides.", bold: true));
+        }
         if (effect is not null) body.Add(Text(effect, bold: true));
         if (m.Event.Tainted) body.Add(Text("Held because the caller read outside content first. Check that this is what you want.", subtle: true));
         body.Add(Text("Requested by " + Escape(m.Event.RequesterId, 80), subtle: true));

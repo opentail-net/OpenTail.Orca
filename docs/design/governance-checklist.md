@@ -157,7 +157,9 @@ C.1 Blockers:
 - [x] ListTasks: cursor pagination with `pageToken` and `nextPageToken`, newest first (correction 5). **Done (03b-3):** keyset paging over
   creation time and task id, newest first by creation (a decision, under Decided); only the caller's tasks; `status` and
   `statusTimestampAfter` are refused, not ignored. The order differs from the spec's status update time; `a2a.md` says so.
-- [ ] Authenticated card (decided, correction 3): `/.well-known/agent-card.json` requires authentication. `/extendedAgentCard` is generated
+- [x] Authenticated card (decided, correction 3): `/.well-known/agent-card.json` requires authentication. **Built (batch 04):** the card,
+  its authorisation (401, 403, and 200 for a2a:call), its cache and its audit. The anonymous status is open: 401 with A2A on, 404 with it off,
+  so an anonymous caller can tell A2A is on; the decision says it must not (`a2a.md` section 8; options in `docs/briefs/a2a-reviewer-view.md`). `/extendedAgentCard` is generated
   from the caller's profile. Internal tools, reviewer groups and policy stay out of both.
 - [ ] Skill selection extension at `https://opentail.net/a2a/extensions/skill-selection/v1`, declared in the card and sent in the message
   (correction 4). The extension's specification is published at that URI before any partner is onboarded.

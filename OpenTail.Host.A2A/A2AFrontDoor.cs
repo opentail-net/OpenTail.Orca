@@ -27,6 +27,27 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
     /// real delay.</summary>
     internal Func<TimeSpan, CancellationToken, Task>? PollDelay { get; init; }
 
+    /// <summary>How long a client may reuse the agent card (the cache header carries it).</summary>
+    private static readonly TimeSpan CardMaxAge = TimeSpan.FromHours(1);
+
+    /// <summary>The window in which one partner's card read is audited once.</summary>
+    private static readonly TimeSpan CardAuditInterval = TimeSpan.FromMinutes(10);
+
+    private readonly Dictionary<string, DateTimeOffset> _cardServed = new(StringComparer.Ordinal);
+    private readonly Lock _cardGate = new();
+
+    /// <summary>True when this partner's card read should be audited: its first in the window. In memory, so a restart starts a new window.</summary>
+    private bool CardAuditDue(string partner)
+    {
+        lock (_cardGate)
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (_cardServed.TryGetValue(partner, out var last) && now - last < CardAuditInterval) return false;
+            _cardServed[partner] = now;
+            return true;
+        }
+    }
+
     public void AddModules(OpenTailHostBuilder builder, HostHttpOptions options)
     {
         if (options.A2A is not { Enabled: true } config) return;
@@ -66,6 +87,11 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         foreach (var (id, skill) in config.Skills)
             if (!policy.Agents.ContainsKey(skill.Inbox))
                 errors.Add($"A2A skill '{id}' names inbox profile '{skill.Inbox}', which the policy's \"Agents\" does not define.");
+        // A3: the card names the address clients reach the Host at. The message is the one HostHttpOptions gives for a missing PublicBaseUrl,
+        // extended with the A2A rule (https, or http on loopback), which only A2A needs.
+        if (options.PublicBaseUrl is null || !Uri.TryCreate(options.PublicBaseUrl, UriKind.Absolute, out var publicUri)
+            || (publicUri.Scheme != Uri.UriSchemeHttps && !(publicUri.Scheme == Uri.UriSchemeHttp && IsLoopbackHost(publicUri.Host))))
+            errors.Add("PublicBaseUrl is required (the address clients reach this server at), and with A2A it must be https, or http on a loopback address: the agent card names it.");
         if (config.BlockingWait < TimeSpan.FromSeconds(1) || config.BlockingWait > TimeSpan.FromMinutes(5))
             errors.Add("A2A BlockingWait must be from 1 second to 5 minutes (the default is 00:00:30).");
         if (config.MaxBlockingWaitsPerPartner is < 1 or > 64)
@@ -83,6 +109,10 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         }
         return errors;
     }
+
+    private static bool IsLoopbackHost(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || (System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip) && System.Net.IPAddress.IsLoopback(ip));
 
     public IReadOnlyList<string> Warnings(OpenTailHost host, HostHttpOptions options)
     {
@@ -102,6 +132,24 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         var work = new A2AWork(host, config, tasks);
         _work = work;
         host.Work.Completed += work.OnCompleted;
+        // A1, A4, A5: the card is the same for every caller, but it is not public. It takes the same sign-in and role as /a2a. Its cache header
+        // is private (the SDK's default is public). A partner's read is audited at most once per partner in each 10 minutes.
+        app.MapWellKnownAgentCard(A2ACard.Build(config.Card, options.PublicBaseUrl!), "", new AgentCardCacheOptions { MaxAge = CardMaxAge })
+            .RequireAuthorization(policy => policy.RequireAuthenticatedUser().RequireRole(Roles.A2aCall))
+            .Add(endpoint => endpoint.FilterFactories.Add((_, next) => async invocation =>
+            {
+                var response = invocation.HttpContext.Response;
+                response.OnStarting(() =>
+                {
+                    response.Headers["Cache-Control"] = $"private, max-age={(int)CardMaxAge.TotalSeconds}";
+                    return Task.CompletedTask;
+                });
+                if (invocation.HttpContext.User.FindFirst(HostClaims.Partner)?.Value is { } partner && CardAuditDue(partner))
+                    await host.Audit.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow, "a2a.card_served", null, null, A2AWork.SubjectOf(partner), null),
+                        invocation.HttpContext.RequestAborted);
+                return await next(invocation);
+            }));
+
         var pause = PollDelay ?? ((delay, ct) => Task.Delay(delay, ct));
         var handler = new A2ARequestHandler(host, config, app.ServiceProvider.GetRequiredService<IHttpContextAccessor>(), tasks, work, pause);
         app.MapA2A(handler, Path)

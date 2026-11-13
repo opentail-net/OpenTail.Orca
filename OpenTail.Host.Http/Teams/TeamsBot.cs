@@ -177,6 +177,10 @@ public sealed class TeamsBot
                 ? $"{rk} actions are decided on the review page."
                 : "This tool is not loaded, so its risk is unknown: decide it on the review page."));
 
+        // B3, on the click as well as on the card: a preview cut on the card cannot be approved, or changed, from it, whatever the button sent.
+        if (verb is "approve" or "edit" && PreviewCut(record))
+            return CardResponse(FullCard(record, convKey, note: CutNote(_publicBaseUrl is not null)));
+
         ReviewDecision decision;
         string? reason = data["reason"]?.GetValue<string>()?.Trim();
         string? edited = null;
@@ -344,7 +348,7 @@ public sealed class TeamsBot
         return o;
     }
 
-    private JsonObject Execute(string title, string verb, string actionId, string convKey, string? style = null)
+    internal JsonObject Execute(string title, string verb, string actionId, string convKey, string? style = null)
     {
         var a = new JsonObject
         {
@@ -371,7 +375,12 @@ public sealed class TeamsBot
             new JsonObject { ["type"] = "TextBlock", ["text"] = Headline(r), ["weight"] = "Bolder", ["size"] = "Medium", ["wrap"] = true },
             Text(TeamsChannel.Escape(r.ToolName, 80) + (risk is { } rk ? $" · {rk}" : ""), subtle: true),
         };
-        if (PreviewSummary(r) is { } summary) body.Add(Text(TeamsChannel.Escape(summary, 400)));
+        var cut = PreviewCut(r);
+        if (PreviewSummary(r) is { } summary)
+        {
+            body.Add(Text(TeamsChannel.Escape(summary, CardPreviewMax)));
+            if (cut) body.Add(Text(CutNote(_publicBaseUrl is not null), bold: true));
+        }
         if (risk is ToolRisk.ExternalEffect) body.Add(Text("Reaches other people.", bold: true));
         if (risk is ToolRisk.Destructive) body.Add(Text("Deletes or closes something; may not be undoable.", bold: true));
         if (r.Status == ActionStatus.Pending && r.Tainted) body.Add(Text("Held because the caller read outside content first. Check that this is what you want.", subtle: true));
@@ -387,10 +396,12 @@ public sealed class TeamsBot
         var delayed = r.Status == ActionStatus.Pending && r.RunAt is not null;
         if (delayed) actions.Add(Execute("Stop", "stop", r.Id, convKey, "destructive"));
         var canDecide = r.Status == ActionStatus.Pending && ChatMayDecide(risk, _o.ChatMaxRisk);
-        if (canDecide && delayed) actions.Add(Execute("Run now", "approve", r.Id, convKey, "positive"));
+        // B3: a preview cut on this card cannot be approved, or changed, from it. Reject and request changes stay: neither sends text out.
+        var approvable = canDecide && !cut;
+        if (approvable && delayed) actions.Add(Execute("Run now", "approve", r.Id, convKey, "positive"));
         else if (canDecide)
         {
-            var editable = Editable(r);
+            var editable = approvable ? Editable(r) : new List<(string, string)>();
             foreach (var (name, value) in editable)
                 body.Add(new JsonObject
                 {
@@ -398,8 +409,8 @@ public sealed class TeamsBot
                     ["isMultiline"] = value.Length > 80, ["maxLength"] = 20_000,
                 });
             body.Add(new JsonObject { ["type"] = "Input.Text", ["id"] = "reason", ["label"] = "Reason (needed to reject or request changes)", ["maxLength"] = 1000 });
-            actions.Add(Execute("Approve", "approve", r.Id, convKey, "positive"));
-            if (editable.Count > 0)
+            if (approvable) actions.Add(Execute("Approve", "approve", r.Id, convKey, "positive"));
+            if (approvable && editable.Count > 0)
             {
                 if (Host.Catalog.TryGet(r.ToolName, out var reg) && reg.Preview is null)
                     body.Add(Text("Changes to this text are not checked by the tool (it has no preview).", subtle: true));
@@ -428,7 +439,7 @@ public sealed class TeamsBot
     }
 
     /// <summary>A digest card over these actions, oldest first, at most 20 with a button each.</summary>
-    private JsonObject DigestCard(IReadOnlyList<ActionRecord> items, string convKey)
+    internal JsonObject DigestCard(IReadOnlyList<ActionRecord> items, string convKey)
     {
         var body = new JsonArray
         {
@@ -448,6 +459,7 @@ public sealed class TeamsBot
         {
             var risk = RiskOf(r);
             body.Add(Text($"• {TeamsChannel.Escape(PreviewSummary(r) ?? r.ToolName, 140)}" + (risk is ToolRisk.ExternalEffect or ToolRisk.Destructive ? $" ({risk})" : "")
+                + (PreviewSummary(r) is { } digestText && TeamsChannel.IsCut(digestText, 140) ? " (cut: open it to read it all)" : "")
                 + (r.Tainted ? " · after outside content" : "")));
             actions.Add(Execute("Review: " + TeamsChannel.Escape(r.ToolName, 40), "open", r.Id, convKey));
         }
@@ -455,6 +467,16 @@ public sealed class TeamsBot
         if (actions.Count > 0) card["actions"] = actions;
         return card;
     }
+
+    /// <summary>The longest preview a card shows whole (batch 04, B3). A longer one is cut, and a cut preview is not decided from the card.</summary>
+    internal const int CardPreviewMax = 400;
+
+    /// <summary>True when this action's preview is cut on a card (more than <see cref="CardPreviewMax"/> characters after escaping).</summary>
+    internal bool PreviewCut(ActionRecord r) => PreviewSummary(r) is { } s && TeamsChannel.IsCut(s, CardPreviewMax);
+
+    private string CutNote(bool hasOpen) => hasOpen
+        ? "The text is cut on this card, so it cannot be approved or changed here. Open shows all of it on the review page."
+        : "The text is cut on this card, so it cannot be approved or changed here. The review page shows all of it.";
 
     private static string? PreviewSummary(ActionRecord r)
     {

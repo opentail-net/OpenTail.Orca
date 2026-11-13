@@ -71,6 +71,18 @@ public sealed record A2aOptions
 
     /// <summary>How many blocking sends one partner may have waiting at once. 1 to 64; the default is 4.</summary>
     public int MaxBlockingWaitsPerPartner { get; init; } = 4;
+
+    /// <summary>The agent card served at <c>/.well-known/agent-card.json</c>.</summary>
+    public A2aCardOptions Card { get; init; } = new();
+}
+
+/// <summary>What the agent card says about this Host. Nothing else is configurable here, and nothing else is read into the card: no tools,
+/// profiles, partners, policy or reviewer groups.</summary>
+public sealed record A2aCardOptions
+{
+    public string Name { get; init; } = "OpenTail Host";
+    public string Description { get; init; } = "A governed host for AI agents: partner requests wait for a person's review.";
+    public string Version { get; init; } = "1.0";
 }
 
 /// <summary>An A2A skill the operator offers. <see cref="Inbox"/> names the profile whose work the skill's requests go to.</summary>

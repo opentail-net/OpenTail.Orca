@@ -646,4 +646,27 @@ public class TeamsBotTests : IAsyncLifetime
         var elsewhere = await Click(waiting, "open", user: Carol, conversation: "a:conv-carol");
         Assert.Contains("not valid here", elsewhere.ToJsonString());
     }
+
+    [Fact]
+    public async Task A_preview_cut_on_the_card_is_not_approved_even_when_an_approve_click_is_sent()
+    {
+        // Batch 04, B3: the card showed a cut text, so its approve button is not there; a click that sends approve anyway is refused too.
+        await StartAsync();
+        await InstallForAlice();
+        // The harness's mail tool has no preview, so the test gives the pending action a long summary, the way a tool's preview would.
+        var pending = await QueueMail();
+        var longSummary = "Send an email with a very long subject: " + new string('s', 500) + " END-OF-TEXT";
+        var previewed = await _host.Store.TransitionAsync(pending.Id, ActionStatus.Pending, ActionStatus.Pending,
+            r => r with { PreviewJson = System.Text.Json.JsonSerializer.Serialize(new { Summary = longSummary }) });
+        var stored = previewed!;
+        Assert.True(_bot.PreviewCut(stored));
+        var card = _bot.FullCard(stored, "user:" + Alice);
+        Assert.DoesNotContain(card["actions"]!.AsArray(), a => a!["verb"]?.GetValue<string>() == "approve");
+
+        var approve = _bot.Execute("Approve", "approve", pending.Id, "user:" + Alice, "positive");
+        var refused = await Click(new JsonObject { ["actions"] = new JsonArray { approve } }, "approve");
+
+        Assert.Contains("cannot be approved or changed here", refused.ToJsonString());
+        Assert.Equal(ActionStatus.Pending, (await _host.Store.GetAsync(pending.Id))!.Status);
+    }
 }
