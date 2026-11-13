@@ -2,7 +2,7 @@
 
 What a skill version needs to pass the Host, and what each refusal means. Use this when you write a version, whether through the workbench or by hand. The operating side (publishing, approving, rolling back) is in the [runbook](skills.md). The module's behaviour is in its [reference](../../OpenTail.Modules.Skills/README.md).
 
-Written from `opentail-host` at `dc957f7`, 2026-11-10.
+Written from `opentail-orca` at `dc957f7`, 2026-11-10.
 
 ## What a version is
 

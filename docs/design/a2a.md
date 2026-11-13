@@ -1,6 +1,6 @@
 # Design: A2A as a second front door
 
-**Status:** proposed 2026-11-11; the phase 0 work and the thin slice are built (2026-11-13; see "What is built" at the end). Phases 2 to 4 are not built. Written from reading [`opentail-host`](https://github.com/opentail-net/opentail-host)
+**Status:** proposed 2026-11-11; the phase 0 work and the thin slice are built (2026-11-13; see "What is built" at the end). Phases 2 to 4 are not built. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
 at `4b8a8b7` (branch `standard-skill-files`; the approval naming and the re-check changed some lines it cites, see the corrections below), the A2A v1.0 specification and the official .NET SDK as published in November 2026.
 Protocol and SDK facts were checked on 2026-11-11. The SDK is a preview: re-check the facts marked *verify* before building.
 
@@ -521,7 +521,7 @@ Built, by commit. The brief that asked for each batch is listed in `docs/briefs/
 
 - **Phase 0** (`f24f8c5`): the `a2a:call` role and scope; the startup checks; the partner ids; the conditional rule on `partner`, proven
   by a test.
-- **The thin slice** (`fae2725`, `23020b1`, `00b52ce`, `c159639`, `7b6003c`). `OpenTail.Host.A2A` is referenced only by a server or a
+- **The thin slice** (`fae2725`, `23020b1`, `00b52ce`, `c159639`, `7b6003c`). `OpenTail.Orca.A2A` is referenced only by a server or a
   test; the HTTP host takes it through an extension seam and never names it. It serves `/a2a` (JSON-RPC: our `IA2ARequestHandler` over
   the SDK's `MapA2A`) behind the `a2a:call` role, and enforces `A2A-Version` before the SDK (D6).
   - `SendMessage` with `returnImmediately` true. With false or omitted, a blocking wait (`BlockingWait`, default 30 seconds) that answers

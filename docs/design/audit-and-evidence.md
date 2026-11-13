@@ -1,6 +1,6 @@
 # Design: audit and evidence
 
-**Status:** proposed 2026-10-18. D1 to D7 and D10 built 2026-10-18, D8 and D9 in part. Written from reading [`opentail-host`](https://github.com/opentail-net/opentail-host)
+**Status:** proposed 2026-10-18. D1 to D7 and D10 built 2026-10-18, D8 and D9 in part. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
 at `ef471f1`. Regulatory facts were checked on 2026-10-18 from secondary sources; re-check the official texts before telling a
 customer what a regulation requires.
 
@@ -257,7 +257,7 @@ job of adaptive limits, the customer's monitoring and the streamed copy.
    chain up to the end of the period (it can only be checked from its start) with each entry's preimage, so `verify.py` needs only
    SHA-256 and a JSON parser, not .NET's serializer; decision records in complete purge batches, plus records built from actions not
    yet purged (`batch: live`); policy versions in force; `head.txt`; `manifest.json`. Tests run `verify.py` with real Python when it
-   is installed and check it catches an edit even when the manifest is fixed. `OpenTail.Host/AUDIT.md` is the guide.*
+   is installed and check it catches an edit even when the manifest is fixed. `OpenTail.Orca/AUDIT.md` is the guide.*
 5. **D8 tamper protection:** streaming to a log store, then write-once checkpoints, then the signed truncation entry. *Streaming
    built 2026-10-18: an `audit_entry` notification event, webhook channels only (signed, through the outbox with retries), picked
    up every scheduler pass (30 s) from a cursor kept across restarts. Format provisional: the Host's own JSON over a signed webhook,

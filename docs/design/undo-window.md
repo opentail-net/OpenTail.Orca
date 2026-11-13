@@ -4,7 +4,7 @@
 `Limits.ElevatedDelay`, `DelayUntilWorkingHours` with policy `WorkingHours`; the run-at time on actions (a Pending action with
 `RunAt`, so no new status or schema change was needed); the sweep that runs due actions and holds a stale backlog (more than its
 delay late); Stop and run-now on the review page and the Teams card; a "Going out soon" headline in notifications. First written 2026-10-17. Written from reading
-[`opentail-host`](https://github.com/opentail-net/opentail-host) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions). Corrected on 2026-10-18: Delay is a `DelayFor` on `Execute`, not a fourth `ToolMode` value ([why](#where-it-sits-in-policy)).
+[`opentail-orca`](https://github.com/opentail-net/opentail-orca) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions). Corrected on 2026-10-18: Delay is a `DelayFor` on `Execute`, not a fourth `ToolMode` value ([why](#where-it-sits-in-policy)).
 
 **Where it fits:** Host work. A new step between running a call now and waiting for a reviewer. It fits the
 [adaptive limits ladder](adaptive-limits.md#the-ladder) as the step an Elevated agent can drop to before everything queues.

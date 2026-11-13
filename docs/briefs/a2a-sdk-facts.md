@@ -78,7 +78,7 @@ Scratch project, outside the repo: `C:\Users\Dmitri\AppData\Local\Temp\claude\5f
 ## 8. Content types and client
 
 - Content types (RUN): application/json, application/a2a+json, no Content-Type and text/plain were all accepted and handled. No media-type check was found in the processor (SOURCE `A2AJsonRpcProcessor.cs:78-110`). Responses are application/json; JSON-RPC errors are HTTP 200 (RUN), though `JsonRpcResponseResult`'s remarks say 400 (SOURCE).
-- Client: `A2AClient(Uri baseUrl, HttpClient? httpClient = null)` (SOURCE). The repo's tests already run a real Kestrel server on 127.0.0.1:0 (`OpenTail.Host.Tests/StubServer.cs:1-30`); the probe did the same, with no WebApplicationFactory or TestServer.
+- Client: `A2AClient(Uri baseUrl, HttpClient? httpClient = null)` (SOURCE). The repo's tests already run a real Kestrel server on 127.0.0.1:0 (`OpenTail.Orca.Tests/StubServer.cs:1-30`); the probe did the same, with no WebApplicationFactory or TestServer.
 - Example, run as written (RUN, probe Part 3), against a real socket:
 
 ```csharp

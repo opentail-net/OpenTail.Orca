@@ -1,6 +1,6 @@
 name: Sql on real servers
 
-# The Sql module against real SQL Server, Postgres, MySQL, MariaDB and Oracle in service containers (OpenTail.Host.Tests.SqlServers).
+# The Sql module against real SQL Server, Postgres, MySQL, MariaDB and Oracle in service containers (OpenTail.Orca.Tests.SqlServers).
 # Linux only and never on every push, to save Actions minutes: run it by hand, or it runs when the Sql module or these tests change.
 # Each server gets two logins, as the module expects in production: a read login (SELECT only) and a write login.
 
@@ -11,7 +11,7 @@ on:
     paths:
       - 'OpenTail.Modules.Sql/**'
       - 'OpenTail.Modules.Sql.Oracle/**'
-      - 'OpenTail.Host.Tests.SqlServers/**'
+      - 'OpenTail.Orca.Tests.SqlServers/**'
       - '.github/workflows/sql-servers.yml'
 
 permissions:
@@ -76,7 +76,7 @@ jobs:
           global-json-file: global.json
 
       - name: Build
-        run: dotnet build OpenTail.Host.Tests.SqlServers -c Release
+        run: dotnet build OpenTail.Orca.Tests.SqlServers -c Release
 
       - name: Logins on SQL Server
         run: |
@@ -141,7 +141,7 @@ jobs:
           OTAIL_SQL_ORACLE_WRITE: User Id=ot_writer;Password=${{ env.WRITE_PASSWORD }};Data Source=localhost:1521/FREEPDB1
         # A skipped server test here means a connection string is missing: fail rather than pass quietly.
         run: |
-          dotnet test --project OpenTail.Host.Tests.SqlServers -c Release --no-build 2>&1 | tee test.log
+          dotnet test --project OpenTail.Orca.Tests.SqlServers -c Release --no-build 2>&1 | tee test.log
           status=${PIPESTATUS[0]}
           if grep -Eq "skipped: [1-9]" test.log; then echo "::error::Some server tests were skipped"; exit 1; fi
           exit $status

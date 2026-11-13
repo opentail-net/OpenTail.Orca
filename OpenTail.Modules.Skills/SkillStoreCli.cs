@@ -14,7 +14,7 @@ public static class SkillStoreCli
         if (flag < 0) return null;
         if (flag + 1 >= args.Length || args[flag + 1].StartsWith("--", StringComparison.Ordinal))
         {
-            Console.Error.WriteLine("Usage: opentail-host --check-skill-store <store folder>");
+            Console.Error.WriteLine("Usage: opentail-orca --check-skill-store <store folder>");
             return 64;
         }
 

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatform>true</UseMicrosoftTestingPlatform>
+    <NoWarn>$(NoWarn);xUnit1051;xUnit1031</NoWarn>
+    <Description>The Sql module's Snowflake provider through the real driver. The factory checks always run; the account tests skip
+      unless the OTAIL_SNOWFLAKE_* variables are set (see docs/guides/snowflake.md).</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Snowflake.Data" />
+    <ProjectReference Include="..\OpenTail.Orca\OpenTail.Orca.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
+  </ItemGroup>
+</Project>

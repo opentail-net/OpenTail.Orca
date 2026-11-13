@@ -7,7 +7,7 @@ own plain style: short sentences, what is built and what is not, no praise.
 
 ## What to write
 
-R1. **`OpenTail.Host/STATUS.md`.** It still says the A2A design "is proposed and not built" (line 210) and has no A2A section. Add
+R1. **`OpenTail.Orca/STATUS.md`.** It still says the A2A design "is proposed and not built" (line 210) and has no A2A section. Add
     one, in the file's existing form: what is built (phase 0; the slice: endpoint, partner identity, task table, submit, work item,
     reviewed reply, GetTask, CancelTask, blocking sends, ListTasks, the card, the kit), what is not (streaming, push, files, the
     skill-selection extension, several skills per partner, contexts and multi-turn, tool skills, the extended card, card signing,
@@ -28,7 +28,7 @@ R4. **`docs/briefs/README.md`** (new, at most 60 lines): one line per brief and 
     "Waiting for the owner". Take the decisions from the briefs and from the checklist's "Decided" entries. Known ones, verify each:
     the A2A-Version rule; `a2a.reply` never Execute; completion carries the completer's labels; blocking wait 30 seconds ending in
     an error; the cap of 4; ListTasks ordered by creation; 401 for an anonymous caller; a cut Teams preview cannot be approved from
-    chat. Waiting for the owner: whether `OpenTail.Host.A2A` ships as a package; whether the default `ChatMaxRisk` should let Teams
+    chat. Waiting for the owner: whether `OpenTail.Orca.A2A` ships as a package; whether the default `ChatMaxRisk` should let Teams
     approve `a2a.reply`; whether 400 characters is the right card preview limit; a live check in a real Teams tenant (mentions).
 R5. **One test** (the only code in this batch): the session-expiry case of R3. A task whose submit session no longer exists when
     the item completes: the reply is still queued, the item's labels are on the new session, and a labelled reply to a partner

@@ -67,7 +67,7 @@ Schema names in `Schemas` are compared without case, so `sales` also matches Ora
 
 Oracle Database Free runs in a container: `docker run -p 1521:1521 -e ORACLE_PASSWORD=<pw> gvenzl/oracle-free:23-slim-faststart`.
 The CI setup creates the users; see `.github/workflows/sql-servers.yml`. Set `OTAIL_SQL_ORACLE_READ` and `OTAIL_SQL_ORACLE_WRITE`
-and run `OpenTail.Host.Tests.SqlServers`. Oracle Cloud's Always Free Autonomous Database is another option, with a wallet.
+and run `OpenTail.Orca.Tests.SqlServers`. Oracle Cloud's Always Free Autonomous Database is another option, with a wallet.
 
 ## Troubleshooting
 

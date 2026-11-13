@@ -1,10 +1,10 @@
 # Teams inventory
 
-Read only, from the code at 15b9e8b. No code was changed for this file. Line numbers are as read on 2026-11-12. Paths are relative to the repo root; `Teams/` is `OpenTail.Host.Http/Teams/`.
+Read only, from the code at 15b9e8b. No code was changed for this file. Line numbers are as read on 2026-11-12. Paths are relative to the repo root; `Teams/` is `OpenTail.Orca.Http/Teams/`.
 
 ## 1. What a person can do from Teams
 
-- **Tier 1, webhook** (`"Type": "teams"`, `OpenTail.Host.Notifications/Channels.cs` :196): a card with **Open**, a link to the review page, when a review link is set (:281). Nothing can be decided.
+- **Tier 1, webhook** (`"Type": "teams"`, `OpenTail.Orca.Notifications/Channels.cs` :196): a card with **Open**, a link to the review page, when a review link is set (:281). Nothing can be decided.
 - **Tier 2, bot** (`"Type": "teams-bot"`, `Teams/TeamsBot.cs`; `BotConnector.cs` for Bot Framework calls; `TeamsStore.cs` for chats and card ids):
 
 | Button | Verb | Line | Limits |
@@ -21,7 +21,7 @@ Non-reviewers see the card and a note (:111-112). Cards refresh after decisions,
 
 ## 2. What the review page can do that Teams cannot
 
-Admin surface, `OpenTail.Host.Admin/`:
+Admin surface, `OpenTail.Orca.Admin/`:
 - Decide `request_changes` and `retry` (AdminServer.cs:259-260). Teams has approve, reject and approve with changes only.
 - Decide any risk: the review endpoint has no risk limit (AdminServer.cs:241-306). Teams stops at `ChatMaxRisk` (TeamsBot.cs:123, :316).
 - Edit any argument: `editedArguments` takes any JSON object (AdminServer.cs:270-278). Teams edits three string fields.
@@ -37,7 +37,7 @@ Admin surface, `OpenTail.Host.Admin/`:
 
 ## 4. Tests
 
-- **Fake Bot Framework connector**, `OpenTail.Host.Tests/TeamsBotTests.cs`: `FakeConnector` (:28), faked token endpoint (:69), HS256 test keys for validation (:72). Covers delivery, approve (:149), approve with changes (:176), forged, foreign, replayed and unlisted clicks (:189), non-reviewer (:217), risk limit at Write (:228), digest (:239), page decision refreshes the card (:262), stop (:276), open and back (:251-254).
+- **Fake Bot Framework connector**, `OpenTail.Orca.Tests/TeamsBotTests.cs`: `FakeConnector` (:28), faked token endpoint (:69), HS256 test keys for validation (:72). Covers delivery, approve (:149), approve with changes (:176), forged, foreign, replayed and unlisted clicks (:189), non-reviewer (:217), risk limit at Write (:228), digest (:239), page decision refreshes the card (:262), stop (:276), open and back (:251-254).
 - **Fake HTTP handler**, webhook only: `TeamsNotificationTests.cs` (`ScriptedHandler`, :21; the card has only Open, :35-53).
 - **Config refusal:** `NotificationTests.cs:510-513` (audit checkpoints cannot go to the bot).
 - **No test:** `conversation:<key>` delivery (TeamsBot.cs:178-202); Run now (:301); edit validation through a Preview, and its refusal (:144-148); the missing-secret refusal (:33-34); production token validation with Bot Framework metadata and RS256 (BotConnector.cs:30-31, :46); `TeamsStore` on its own; `scripts/make-teams-app.ps1` (no test, no CI reference).

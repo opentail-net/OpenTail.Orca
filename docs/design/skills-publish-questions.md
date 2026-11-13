@@ -1,7 +1,7 @@
 # skills.publish: questions to resolve
 
 **Status:** decided by the owner on 2026-10-18: all three recommendations below are accepted, and publishing needs one approval for `staging` and two for `production`. Built on 2026-10-18: `expectedFrom` (required, checked at queue and at execution), the report binding line (`skill-report: <id>@<version> <content hash>`, refused when it names other content, labelled "not bound" when absent), and no reviewer edits. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. **The code they concern is in
-[`opentail-host`](https://github.com/opentail-net/opentail-host)**, `OpenTail.Modules.Skills` and the action queue, read at
+[`opentail-orca`](https://github.com/opentail-net/opentail-orca)**, `OpenTail.Modules.Skills` and the action queue, read at
 `230cdd0`; line numbers will drift. Raised in review of the [skills design](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/design/skills-and-scenarios.md) as built. Who may
 call `skills.publish` at all is a separate design: [roles and permissions](roles-and-permissions.md).
 
@@ -44,7 +44,7 @@ report ever travels separately from the call (attached later, or relayed by anot
 
 ## 2. What does an approval apply to?
 
-**Today.** The preview is computed once, when the action is queued (`OpenTail.Host/Runtime/ActionQueue.cs:90`), and stored. It
+**Today.** The preview is computed once, when the action is queued (`OpenTail.Orca/Runtime/ActionQueue.cs:90`), and stored. It
 records, for example, "move production from version 3 to version 4" (`SkillsModule.cs:148`). When the action is approved, the
 publish moves the label to the requested version without looking at where it points now (`SkillsModule.cs:115`,
 `SkillStore.cs:105`). A publish can wait up to seven days (`ExpireAfter` in the suggested policy).

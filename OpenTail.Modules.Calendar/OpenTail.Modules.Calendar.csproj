@@ -5,10 +5,10 @@
     <Description>OpenTail Host module: read calendars and events; create, delete and answer invitations as previewed, queued actions. Works with any OpenTail ICalendarAdapter (Google, Microsoft Graph, ICS).</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <ProjectReference Include="..\OpenTail.Orca.Abstractions\OpenTail.Orca.Abstractions.csproj" />
     <PackageReference Include="OpenTail.Connectivity.Files" />
     <Using Include="Microsoft.Extensions.AI" />
-    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Orca.Abstractions" />
     <Using Include="OpenTail.Connectivity.Files.Contracts" />
     <Using Include="OpenTail.Connectivity.Files.Models" />
     <Using Include="System.ComponentModel" />

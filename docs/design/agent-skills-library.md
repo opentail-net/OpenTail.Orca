@@ -3,7 +3,7 @@
 **Status:** planned 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
 **System:** a new library, `OpenTail.AgentSkills` (name and repository for the owner, O-L1). It reads, validates and packages skill directories, and preserves every file in them. It does not hold a store or govern anything: the Host keeps its version store, labels, lock and approvals (O-L4).
 **Not in this plan:** approval, audit, labels moving through approval, and the MCP tools (these stay in the Host); the workbench's evaluation (stays in the workbench); script execution (excluded); a permissions model (excluded).
-**Code basis:** `opentail-host` on `standard-skill-files` at 4b8a8b7 (committed; not in `main`): `OpenTail.Modules.Skills/Standard/StandardSkill.cs`, `StandardPublish.cs` (both unchanged since 6f1a59b and the same in `main` 6779f6b), `SkillStore.cs` (its strict-type changes are in 4b8a8b7), `SkillText.cs`; `opentail-workbench`: `Formats/NativePackage.cs`, `Formats/Skill.cs`, `Agent/AgentRunner.cs`.
+**Code basis:** `opentail-orca` on `standard-skill-files` at 4b8a8b7 (committed; not in `main`): `OpenTail.Modules.Skills/Standard/StandardSkill.cs`, `StandardPublish.cs` (both unchanged since 6f1a59b and the same in `main` 6779f6b), `SkillStore.cs` (its strict-type changes are in 4b8a8b7), `SkillText.cs`; `opentail-workbench`: `Formats/NativePackage.cs`, `Formats/Skill.cs`, `Agent/AgentRunner.cs`.
 **Scope note (rule 4):** the library is one system. Three of its steps change other systems: step 3 changes the Host's stored format and the identity (store and hashing plans), step 5 changes `Format`, which stays Host code, and O-L5 moves identity code those plans change. O-L4 (the Host keeps its store) moves no store code. **Order:** the store plan and the hashing plan's decisions land first, in the Host; step 1 here moves the code as it is then, with its tests. O-L4 (recommended: the Host keeps its store) means the store code does not move at all; O-L5 moves the identity code afterwards, unchanged in behaviour. Step 3 needs O-L3 and O-H2 together.
 
 ## Purpose
@@ -139,7 +139,7 @@ public enum PackageEntryKind { File, Directory }
 
 **What the library must not contain.** Host types (`IHostModule`, `ModuleManifest`, `ToolDescriptor`); Microsoft.Extensions.AI; ModelContextProtocol; any code that runs a script.
 
-**Dependencies.** YamlDotNet (the Host's central pin is 17.1.0). Nothing else. An architecture test enforces the list, as `OpenTail.Host.Abstractions.Tests/ArchitectureTests.cs` does for modules.
+**Dependencies.** YamlDotNet (the Host's central pin is 17.1.0). Nothing else. An architecture test enforces the list, as `OpenTail.Orca.Abstractions.Tests/ArchitectureTests.cs` does for modules.
 
 ## Gate before any code
 

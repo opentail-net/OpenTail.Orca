@@ -2,7 +2,7 @@
 
 **Status:** steps 1 to 3 of the [order](#order) built on 2026-10-18 (profiles on API keys, administration tools, the
 `skills.publish` fixes); `RoleProfiles` and delegation are not. First written 2026-10-17. Written from reading
-[`opentail-host`](https://github.com/opentail-net/opentail-host) at `230cdd0`. The first version had three mechanisms (tool
+[`opentail-orca`](https://github.com/opentail-net/opentail-orca) at `230cdd0`. The first version had three mechanisms (tool
 planes, two agent roles, and a `Callers` list on each policy entry); this version replaces them with one, agent profiles, plus an
 `Administers` flag. [What changed](#what-changed-from-the-first-version) says why. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
 

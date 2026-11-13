@@ -46,7 +46,7 @@ below. I did not read every file (the Microsoft toolkit alone has about 5,000), 
 **Where it lands:** ADR-0030 is the core of the gate's contract. It settles the open questions in the plan's section 4 (F4, F8, the approval
 versus execution split). The fingerprint and response scanning are new channel defences for MCP.
 
-**What we already have:** the execution-time recheck of the policy hash and binding digest (`OpenTail.Host/Runtime/ActionExecutor.cs:400-443`),
+**What we already have:** the execution-time recheck of the policy hash and binding digest (`OpenTail.Orca/Runtime/ActionExecutor.cs:400-443`),
 which covers the recheck part of §6. Whether the approval and the execution start share one transaction is not verified. Expiry fails closed (`ActionQueue.ExpireDueAsync`). Duplicate-vote handling exists in
 `ReviewAuthority.Tally`.
 
@@ -148,7 +148,7 @@ threat applies directly to plan §5.2: an AI approver's identity must not be one
 - **The policy file is a trust boundary.** Whoever can edit it can allow anything, so it must be writable only by its owner
   (`policy.example.yaml`, the comments; ADR-0004).
 
-**What we already have:** the hash chain and `--verify-audit` (`OpenTail.Host/OPERATIONS.md`), and policy versions with hashes. We have not
+**What we already have:** the hash chain and `--verify-audit` (`OpenTail.Orca/OPERATIONS.md`), and policy versions with hashes. We have not
 checked whether our audit covers requests denied before they reach the queue. That check is open.
 
 **Verdict:** mine for hardening, after the gate work.

@@ -1,0 +1,24 @@
+{
+  // The Host behind a reverse proxy that terminates TLS (Caddy in compose.yaml, or your load balancer). It listens on plain http
+  // inside the container network only; nothing else may reach port 8080.
+  "Urls": [ "http://0.0.0.0:8080" ],
+  "TrustProxy": true,
+  // What people and Microsoft reach the Host at. Also the review page's address and the links in notifications.
+  "PublicBaseUrl": "https://approvals.example.com",
+
+  // Sign-in for AI agents. Make a key with:  docker run --rm opentail-orca --new-api-key alice-agent
+  // and paste the printed { "Name", "Hash" } here, then add "Profile" naming an entry of the policy's "Agents".
+  // The key itself goes to the agent, never into this file.
+  "ApiKeys": [
+  ],
+
+  // Company sign-in (Entra ID or another identity provider) for agents and the review page; see OPERATIONS.md.
+  // "Jwt": { "Authority": "https://login.microsoftonline.com/<tenant id>/v2.0", "Audience": "api://opentail-orca",
+  //          "PageClientId": "<review page app registration client id>" },
+
+  // The Teams approvals bot; see TEAMS-SETUP.md. The secret comes from the environment variable named here.
+  // "Teams": { "AppId": "<Microsoft App ID>", "AppPasswordEnv": "TEAMS_BOT_SECRET", "TenantId": "<tenant id>",
+  //            "Reviewers": { "<entra object id>": { "Name": "alice" } } },
+
+  "RateLimitPerMinute": 120
+}

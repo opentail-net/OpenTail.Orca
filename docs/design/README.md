@@ -2,7 +2,7 @@
 
 Designs for Host work that is planned but not built, newest first. The cross-repo checklist is the
 [work plan](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/plan.md) in `opentail-connectivity`
-(sections 12 to 16); the Host's versioned plans are archived in `docs/done/` (completed) or in `docs/` (active: `MCP-HOST-V5-PLAN.md`; the AI-reviewer plan is `design/reviewer-gate.md`, which supersedes `MCP-HOST-V6-PLAN.md`); status by version is in `OpenTail.Host/STATUS.md`.
+(sections 12 to 16); the Host's versioned plans are archived in `docs/done/` (completed) or in `docs/` (active: `MCP-HOST-V5-PLAN.md`; the AI-reviewer plan is `design/reviewer-gate.md`, which supersedes `MCP-HOST-V6-PLAN.md`); status by version is in `OpenTail.Orca/STATUS.md`.
 
 | Design | Plan section | State |
 |---|---|---|

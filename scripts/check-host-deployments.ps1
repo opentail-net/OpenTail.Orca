@@ -22,17 +22,17 @@ $forbidden = @(
   'Microsoft.SemanticKernel*', 'Microsoft.CodeAnalysis*', 'System.Reactive', 'LLamaSharp*', 'Hangfire*', 'Spectre.Console*')
 
 $deployments = @(
-  @{ Name = 'OpenTail.Host.Sample.EmailOnly';    Must = @('OpenTail.Host','OpenTail.Host.Abstractions','OpenTail.Modules.Email','MailKit');
+  @{ Name = 'OpenTail.Orca.Sample.EmailOnly';    Must = @('OpenTail.Orca','OpenTail.Orca.Abstractions','OpenTail.Modules.Email','MailKit');
                                                  MustNot = @('OpenTail.Modules.OpenApi','OpenTail.Modules.Files','OpenTail.Modules.Sql','OpenTail.Modules.Web','OpenTail.Modules.Calendar','OpenTail.Modules.Csv','Microsoft.OpenApi*') },
-  @{ Name = 'OpenTail.Host.Sample.FilesOpenApi'; Must = @('OpenTail.Host','OpenTail.Host.Abstractions','OpenTail.Modules.Files','OpenTail.Modules.OpenApi','Microsoft.OpenApi');
-                                                 MustNot = @('OpenTail.Modules.Email','MailKit','OpenTail.Connectivity.Inbox*','OpenTail.Host.Http','OpenTail.Host.Notifications') },
-  @{ Name = 'OpenTail.Host.Sample.SqlServer';    Must = @('OpenTail.Host','OpenTail.Host.Abstractions','OpenTail.Modules.Sql','Microsoft.Data.SqlClient');
-                                                 MustNot = @('OpenTail.Modules.Email','MailKit','OpenTail.Modules.Files','OpenTail.Modules.OpenApi','Npgsql','MySqlConnector','OpenTail.Host.Http') },
-  @{ Name = 'OpenTail.Host.Sample.TeamHttp';     Must = @('OpenTail.Host','OpenTail.Host.Abstractions','OpenTail.Host.Http','OpenTail.Host.Notifications','OpenTail.Modules.Files','OpenTail.Modules.OpenApi','ModelContextProtocol.AspNetCore');
+  @{ Name = 'OpenTail.Orca.Sample.FilesOpenApi'; Must = @('OpenTail.Orca','OpenTail.Orca.Abstractions','OpenTail.Modules.Files','OpenTail.Modules.OpenApi','Microsoft.OpenApi');
+                                                 MustNot = @('OpenTail.Modules.Email','MailKit','OpenTail.Connectivity.Inbox*','OpenTail.Orca.Http','OpenTail.Orca.Notifications') },
+  @{ Name = 'OpenTail.Orca.Sample.SqlServer';    Must = @('OpenTail.Orca','OpenTail.Orca.Abstractions','OpenTail.Modules.Sql','Microsoft.Data.SqlClient');
+                                                 MustNot = @('OpenTail.Modules.Email','MailKit','OpenTail.Modules.Files','OpenTail.Modules.OpenApi','Npgsql','MySqlConnector','OpenTail.Orca.Http') },
+  @{ Name = 'OpenTail.Orca.Sample.TeamHttp';     Must = @('OpenTail.Orca','OpenTail.Orca.Abstractions','OpenTail.Orca.Http','OpenTail.Orca.Notifications','OpenTail.Modules.Files','OpenTail.Modules.OpenApi','ModelContextProtocol.AspNetCore');
                                                  MustNot = @('OpenTail.Modules.Email','MailKit','OpenTail.Modules.Sql','OpenTail.Modules.Calendar') },
   # The container image's program: every module and profile compiled in, still nothing from the heavy stack.
-  @{ Name = 'OpenTail.Host.Server'; SamplePolicy = $false;
-                                                 Must = @('OpenTail.Host','OpenTail.Host.Http','OpenTail.Host.A2A','OpenTail.Host.Notifications','ModelContextProtocol.AspNetCore',
+  @{ Name = 'OpenTail.Orca.Server'; SamplePolicy = $false;
+                                                 Must = @('OpenTail.Orca','OpenTail.Orca.Http','OpenTail.Orca.A2A','OpenTail.Orca.Notifications','ModelContextProtocol.AspNetCore',
                                                           'OpenTail.Modules.Files','OpenTail.Modules.Email.Imap','OpenTail.Modules.Microsoft365','OpenTail.Modules.Google',
                                                           'OpenTail.Modules.GitHubIssues','OpenTail.Modules.ServiceNow','OpenTail.Modules.OpenApi','OpenTail.Profiles.YouTube','OpenTail.Profiles.X','OpenTail.Profiles.Jira','OpenTail.Profiles.Confluence');
                                                  MustNot = @() })
@@ -63,8 +63,8 @@ foreach ($d in $deployments) {
 }
 
 Write-Host "== packing Host packages"
-$packs = 'OpenTail.Host.Abstractions','OpenTail.Host','OpenTail.Host.Admin',
-         'OpenTail.Host.Notifications','OpenTail.Host.Http','OpenTail.Modules.Files','OpenTail.Modules.Email','OpenTail.Modules.OpenApi',
+$packs = 'OpenTail.Orca.Abstractions','OpenTail.Orca','OpenTail.Orca.Admin',
+         'OpenTail.Orca.Notifications','OpenTail.Orca.Http','OpenTail.Modules.Files','OpenTail.Modules.Email','OpenTail.Modules.OpenApi',
          'OpenTail.Modules.Csv','OpenTail.Modules.Sql','OpenTail.Modules.Calendar','OpenTail.Modules.Web','OpenTail.Modules.GitHubIssues',
          'OpenTail.Modules.Email.Imap','OpenTail.Modules.Calendar.Ics','OpenTail.Modules.Microsoft365','OpenTail.Modules.ServiceNow',
          'OpenTail.Modules.Social','OpenTail.Modules.Google','OpenTail.Modules.Storage',
@@ -84,8 +84,8 @@ else { Write-Host "   all packages are version $versions" }
 # A consumer outside the repo restores ONLY from the packed feed, the Connectivity feed and nuget.org, and builds: proves the
 # dependency lists are complete.
 Write-Host "== consuming the packages from a clean feed"
-$pkgNames = Get-ChildItem $pkgDir -Filter 'OpenTail.Host.Http.*.nupkg' | Select-Object -First 1
-$version = $pkgNames.BaseName.Substring('OpenTail.Host.Http.'.Length)
+$pkgNames = Get-ChildItem $pkgDir -Filter 'OpenTail.Orca.Http.*.nupkg' | Select-Object -First 1
+$version = $pkgNames.BaseName.Substring('OpenTail.Orca.Http.'.Length)
 $consumer = Join-Path $work 'consumer'
 New-Item -ItemType Directory -Path $consumer | Out-Null
 @"
@@ -106,7 +106,7 @@ $refs = ('Host.Http','Host.Notifications','Modules.Files','Modules.OpenApi','Mod
 <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><NuGetAudit>false</NuGetAudit></PropertyGroup><ItemGroup>$refs</ItemGroup></Project>
 "@ | Set-Content (Join-Path $consumer 'Consumer.csproj')
 @'
-using OpenTail.Host.Http;
+using OpenTail.Orca.Http;
 using OpenTail.Modules.Csv;
 using OpenTail.Modules.Files;
 using OpenTail.Modules.Web;
@@ -139,7 +139,7 @@ Copy-Item (Join-Path $consumer 'NuGet.config') $bricks
 $brickRefs = ('Host.Http','Modules.Files','Modules.GitHubIssues','Modules.Csv','Modules.Web','Modules.Sql','Modules.Email.Imap','Modules.Calendar.Ics','Modules.Microsoft365','Modules.ServiceNow','Modules.Social','Modules.Google','Profiles.YouTube' | ForEach-Object { "<PackageReference Include=`"OpenTail.$_`" Version=`"$version`" />" }) -join ''
 "<Project Sdk=`"Microsoft.NET.Sdk`"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework><Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings><NuGetAudit>false</NuGetAudit></PropertyGroup><ItemGroup>$brickRefs</ItemGroup></Project>" |
   Set-Content (Join-Path $bricks 'Bricks.csproj')
-'return await OpenTail.Host.Http.HttpDeploymentRunner.RunAsync(args, "bricks");' | Set-Content (Join-Path $bricks 'Program.cs')
+'return await OpenTail.Orca.Http.HttpDeploymentRunner.RunAsync(args, "bricks");' | Set-Content (Join-Path $bricks 'Program.cs')
 '{ "Include": [ "policy.d" ], "Tools": {} }' | Set-Content (Join-Path $bricks 'policy.json')
 ('{ "Modules": [',
  '  { "Type": "files", "Id": "docs", "Config": { "Root": "share" } },',

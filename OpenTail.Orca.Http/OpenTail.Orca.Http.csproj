@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Orca.Http</PackageId>
+    <Description>OpenTail Host over Streamable HTTP for a team: OAuth 2.1 resource-server sign-in (JWT) or hashed API keys, protected-resource metadata, Origin/Host checks, rate limits, and the approval page mounted behind the same sign-in.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <ProjectReference Include="..\OpenTail.Orca\OpenTail.Orca.csproj" />
+    <ProjectReference Include="..\OpenTail.Orca.Admin\OpenTail.Orca.Admin.csproj" />
+    <ProjectReference Include="..\OpenTail.Orca.Notifications\OpenTail.Orca.Notifications.csproj" />
+    <Using Include="OpenTail.Orca.Abstractions" />
+    <InternalsVisibleTo Include="OpenTail.Orca.Tests" />
+  </ItemGroup>
+</Project>

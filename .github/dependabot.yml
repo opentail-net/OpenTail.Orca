@@ -17,6 +17,6 @@ updates:
       actions:
         patterns: ["*"]
   - package-ecosystem: docker
-    directory: "/OpenTail.Host.Server"
+    directory: "/OpenTail.Orca.Server"
     schedule:
       interval: weekly

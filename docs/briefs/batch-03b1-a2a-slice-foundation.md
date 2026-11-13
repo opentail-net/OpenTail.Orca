@@ -12,9 +12,9 @@ waits) is batch 03b-2: do not build it now.
 D1. **Packages.** Add `A2A` and `A2A.AspNetCore` 1.0.0-preview4 to `Directory.Packages.props`, and raise
     `Microsoft.Extensions.AI.Abstractions` to the lowest version that restores (10.11.0 per your probe). Run both full suites right
     after the bump, before any other change. If anything fails or any other pin must move, STOP and report.
-D2. **A new project `OpenTail.Host.A2A`** (package id the same; licence and packaging like `OpenTail.Host.Http`). It references
-    `OpenTail.Host.Http`. Nothing references it except `OpenTail.Host.Server` and the tests, so deployments that do not want A2A do
-    not carry the SDK. Add it to `OpenTail.Host.slnx`, to the architecture tests' layering rules (Http -> A2A, one way), and to the
+D2. **A new project `OpenTail.Orca.A2A`** (package id the same; licence and packaging like `OpenTail.Orca.Http`). It references
+    `OpenTail.Orca.Http`. Nothing references it except `OpenTail.Orca.Server` and the tests, so deployments that do not want A2A do
+    not carry the SDK. Add it to `OpenTail.Orca.slnx`, to the architecture tests' layering rules (Http -> A2A, one way), and to the
     versioning and packaging lists the architecture tests check. If `HttpDeploymentRunner` has no seam through which another package
     can map endpoints and add a module, add the smallest one (for example an optional callback on the options) and describe it.
 D3. **Served only when `A2A.Enabled` is true.** Otherwise no route exists (404) and no A2A tool is registered.
@@ -72,7 +72,7 @@ D13. **Audit.** `a2a.received` (task id, partner id, skill id, content hash, siz
   after authentication and authorization (an unauthenticated caller gets 401, never a version error) and before the SDK processor.
   A header sent more than once, or a comma-separated list, is refused unless every value is `1.0`.
 
-## Tests (new files in OpenTail.Host.Tests; drive the endpoint with the SDK's client in-process, as your facts file example does)
+## Tests (new files in OpenTail.Orca.Tests; drive the endpoint with the SDK's client in-process, as your facts file example does)
 
 - returnImmediately=true creates a task: SUBMITTED. The queued `a2a.submit` carries the partner id from the credential even when the
   message metadata or data claims another partner. The session is tainted by it.

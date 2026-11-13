@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <PackageId>OpenTail.Orca.Admin</PackageId>
+    <Description>Local admin API and page for the OpenTail Host: list the approval queue, see previews, approve, reject, request changes or edit-and-approve. Loopback only, bearer-token protected.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="OpenTail.Connectivity.Queues" />
+    <ProjectReference Include="..\OpenTail.Orca\OpenTail.Orca.csproj" />
+    <Using Include="OpenTail.Orca.Abstractions" />
+  </ItemGroup>
+</Project>

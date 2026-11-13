@@ -1,6 +1,6 @@
 # Design: standard skill files
 
-**Status:** phases 1 and 2 built 2026-11-09, committed in `opentail-host` (`dc957f7`) and `opentail-workbench` (`e83e469`). Decisions 1, 2, 5 and 6 are the owner's, confirmed 2026-11-09. Decisions 3, 4 and 7 were taken provisionally by Claude on the same day, for the owner to review. Written from reading `opentail-host` at `6081d5b`, `opentail-workbench` at `6d3e220`, the [Agent Skills specification](https://agentskills.io/specification) (fetched 2026-11-09), and the reference validator `skills-ref` (its `validator.py` and `parser.py`, fetched 2026-11-09; its test fixtures are not yet read). The implementation record is at the end.
+**Status:** phases 1 and 2 built 2026-11-09, committed in `opentail-orca` (`dc957f7`) and `opentail-workbench` (`e83e469`). Decisions 1, 2, 5 and 6 are the owner's, confirmed 2026-11-09. Decisions 3, 4 and 7 were taken provisionally by Claude on the same day, for the owner to review. Written from reading `opentail-orca` at `6081d5b`, `opentail-workbench` at `6d3e220`, the [Agent Skills specification](https://agentskills.io/specification) (fetched 2026-11-09), and the reference validator `skills-ref` (its `validator.py` and `parser.py`, fetched 2026-11-09; its test fixtures are not yet read). The implementation record is at the end.
 
 **Where it fits:** the Host's skills module (`OpenTail.Modules.Skills`), with the workbench's package writer as the one consumer outside it. It adds no package, no repository, no catalog, no loader and no runtime. Skills stay where they are: the Host's store, its labels, its approval and its `skills.get`.
 
@@ -211,7 +211,7 @@ Acceptance: `SKILL.md` for each of the three existing skills is the same as befo
 
 ## Test plan
 
-Implemented in `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs` (45 cases with the theories, all passing in the scratch run). The list below is the intent; the implementation record says which items are not tests.
+Implemented in `OpenTail.Orca.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs` (45 cases with the theories, all passing in the scratch run). The list below is the intent; the implementation record says which items are not tests.
 
 **Reader:** BOM; CRLF; quoted and folded descriptions; a colon and a `#` inside quotes; duplicate keys; unknown keys, reported as errors with the key name; a non-string or nested metadata value; missing or unclosed delimiters; anchors, aliases, sequences and tags; a non-ASCII name read without error and refused on save with a suggestion; a description of 1024 emoji, which is 2048 UTF-16 units, accepted.
 
@@ -240,17 +240,17 @@ Implemented in `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishT
 
 **Built, uncommitted:**
 
-- `opentail-host/OpenTail.Modules.Skills/Standard/StandardSkill.cs` and `StandardPublish.cs`.
-- `opentail-host/OpenTail.Modules.Skills/SkillsModule.cs`: the publish preview and execution go through `StandardPublish.Prepare`; `skills.publish` takes `ignoreFrontmatterKeys`; the change request carries `frontmatterWarnings`.
-- `opentail-host/OpenTail.Modules.Skills/OpenTail.Modules.Skills.csproj` and `Directory.Packages.props`: YamlDotNet 17.0.1.
-- `opentail-host/OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`.
+- `opentail-orca/OpenTail.Modules.Skills/Standard/StandardSkill.cs` and `StandardPublish.cs`.
+- `opentail-orca/OpenTail.Modules.Skills/SkillsModule.cs`: the publish preview and execution go through `StandardPublish.Prepare`; `skills.publish` takes `ignoreFrontmatterKeys`; the change request carries `frontmatterWarnings`.
+- `opentail-orca/OpenTail.Modules.Skills/OpenTail.Modules.Skills.csproj` and `Directory.Packages.props`: YamlDotNet 17.0.1.
+- `opentail-orca/OpenTail.Orca.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`.
 - `opentail-workbench/src/OpenTail.Workbench/Formats/NativePackage.cs`: writes through `StandardSkill.Format`, and refuses an invalid skill with `InvalidDataException` before creating any folder.
 - `opentail-workbench/tests/OpenTail.Workbench.Tests/DeliveryTests.cs`: one assertion compares the instructions with line endings normalised.
 
 **Verified here:**
 
 - The Skills module builds with warnings as errors, and with no warnings.
-- 45 tests pass. They run from a scratch project outside the repository that links the repository's test files and global usings unchanged. The publish tests drive the real `SkillsModule` through a fake tool registry. The scratch project exists because `OpenTail.Host.Tests` cannot be restored on this machine.
+- 45 tests pass. They run from a scratch project outside the repository that links the repository's test files and global usings unchanged. The publish tests drive the real `SkillsModule` through a fake tool registry. The scratch project exists because `OpenTail.Orca.Tests` cannot be restored on this machine.
 - The three workbench packages, before and after. Ignoring line endings, the only difference is the `metadata` block (`version: "1"`).
 - A skill with an empty `appliesTo` is refused at export, and no file is written.
 
@@ -258,15 +258,15 @@ Implemented in `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishT
 
 **Second pass, same day, from scratch projects outside the repository.** The repository's own test projects need the private GitHub feed, which this machine does not have (the feed token is not set, and the connectivity packages are not in the local cache). So the Skills-related code was compiled from the repository's files, unchanged, against the Host core and the Skills module:
 
-- **Host:** the Skills-related test files of `OpenTail.Host.Tests` (the 12 `SkillsModuleTests`, the 2 `SkillOutcomesTests`, and the 45 new cases) compile with warnings as errors and pass: 59 of 59. The rest of that project has not been run.
+- **Host:** the Skills-related test files of `OpenTail.Orca.Tests` (the 12 `SkillsModuleTests`, the 2 `SkillOutcomesTests`, and the 45 new cases) compile with warnings as errors and pass: 59 of 59. The rest of that project has not been run.
 - **Workbench:** all 51 tests of `OpenTail.Workbench.Tests` compile with warnings as errors. 29 pass, including `NativePackageTests`. The other 22 fail during setup, all with one error: the sandboxed Host needs an `email-imap` module type, which comes from a GitHub-only package. That is before any skill code runs. I did not run them against the code from before this change, so the claim that they are environmental rests on that error message.
 - **CLI:** `workbench package` builds and runs. Its output is byte-identical to the harness's output, and the only text change from before is the `metadata` block in the three skills.
 
-**Still to run on the owner's machine:** the full `OpenTail.Host.Tests` and `OpenTail.Workbench.Tests` projects, with the feed token, to cover the 22 workbench tests and the rest of the Host suite.
+**Still to run on the owner's machine:** the full `OpenTail.Orca.Tests` and `OpenTail.Workbench.Tests` projects, with the feed token, to cover the 22 workbench tests and the rest of the Host suite.
 
 **Not tests:** a `---` inside the body; an empty body on publish (`SkillStore.Parse` already refuses it); export as a unit test (a one-off before-and-after comparison was done instead).
 
-**Update 2026-11-10.** The YamlDotNet pin was 17.0.1, and restore against the GitHub feed failed: `OpenTail.Connectivity.Files` needs 17.1.0 or later through `Transformations.Text` (NU1109). The pin is 17.1.0 in `538e77c`. With the feed token, `OpenTail.Host.Tests` restores and passes: 1037 tests. The module reference's first two open items were fixed in `1464f70`: the publish preview now compares `skill.json` for a republished version as well as the instructions, and `skills.find` names a label whose files are missing in a `warnings` list. The workbench's `Directory.Packages.props` still pins 17.0.1. This was not checked, and it may need the same change.
+**Update 2026-11-10.** The YamlDotNet pin was 17.0.1, and restore against the GitHub feed failed: `OpenTail.Connectivity.Files` needs 17.1.0 or later through `Transformations.Text` (NU1109). The pin is 17.1.0 in `538e77c`. With the feed token, `OpenTail.Orca.Tests` restores and passes: 1037 tests. The module reference's first two open items were fixed in `1464f70`: the publish preview now compares `skill.json` for a republished version as well as the instructions, and `skills.find` names a label whose files are missing in a `warnings` list. The workbench's `Directory.Packages.props` still pins 17.0.1. This was not checked, and it may need the same change.
 
 ## Known limits
 

@@ -17,14 +17,14 @@
     <Authors Condition="'$(Authors)'==''">OpenTail</Authors>
     <Company Condition="'$(Company)'==''">OpenTail</Company>
     <Description Condition="'$(Description)'==''">$(MSBuildProjectName) component of OpenTail. Please set a more specific Description in the project file if required.</Description>
-    <PackageProjectUrl Condition="'$(PackageProjectUrl)'==''">https://github.com/opentail-net/opentail-host</PackageProjectUrl>
-    <RepositoryUrl Condition="'$(RepositoryUrl)'==''">https://github.com/opentail-net/opentail-host</RepositoryUrl>
+    <PackageProjectUrl Condition="'$(PackageProjectUrl)'==''">https://github.com/opentail-net/opentail-orca</PackageProjectUrl>
+    <RepositoryUrl Condition="'$(RepositoryUrl)'==''">https://github.com/opentail-net/opentail-orca</RepositoryUrl>
     <RepositoryType Condition="'$(RepositoryType)'==''">git</RepositoryType>
     <PackageTags Condition="'$(PackageTags)'==''">opentail;ai;agent;workspace</PackageTags>
   </PropertyGroup>
   <!-- The Host packages (Host, Host.Abstractions, Host.Admin, Modules.*, Profiles.*) are versioned together by their own tag series: tag `host-v0.0.2` to release them all as 0.0.2.
  0.x until the module contract (IHostModule/IToolRegistry) is frozen. -->
-  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('OpenTail.Host')) Or $(MSBuildProjectName.StartsWith('OpenTail.Modules.')) Or $(MSBuildProjectName.StartsWith('OpenTail.Profiles.'))">
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('OpenTail.Orca')) Or $(MSBuildProjectName.StartsWith('OpenTail.Modules.')) Or $(MSBuildProjectName.StartsWith('OpenTail.Profiles.'))">
     <MinVerTagPrefix>host-v</MinVerTagPrefix>
     <MinVerMinimumMajorMinor>0.0</MinVerMinimumMajorMinor>
   </PropertyGroup>

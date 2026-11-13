@@ -6,6 +6,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
-    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Orca.Abstractions" />
   </ItemGroup>
 </Project>

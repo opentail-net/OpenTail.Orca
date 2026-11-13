@@ -23,12 +23,12 @@ record of what each brief asked, and where the decisions are.
 Each line gives the decision, where it is recorded, and how to change it.
 
 1. **A2A-Version.** Missing is 1.0; `1.0` is accepted; empty, `0.3` and other values are refused with VersionNotSupported. Recorded:
-   checklist, Decided (D6); `a2a-sdk-facts.md` section 5. Change: `OpenTail.Host.A2A/A2AVersionGate.cs`, and the version matrix test in
+   checklist, Decided (D6); `a2a-sdk-facts.md` section 5. Change: `OpenTail.Orca.A2A/A2AVersionGate.cs`, and the version matrix test in
    `A2aSliceTests`.
 2. **`a2a.reply` is never `Execute`.** Recorded: the batch 03b-2 brief; checklist C.1; `OPERATIONS.md`, A2A startup checks. Change: the
    check in `A2AFrontDoor.Check`. Not recommended.
 3. **A completion carries the completer's labels and taint onto the work item.** Recorded: the batch 03b-2 brief (E1). Change:
-   `WorkService.CompleteAsync` in `OpenTail.Host/Work/WorkItems.cs`.
+   `WorkService.CompleteAsync` in `OpenTail.Orca/Work/WorkItems.cs`.
 4. **A blocking send waits 30 seconds, then answers an error if the task is still going** (InternalError, naming the task; the task keeps
    running). Recorded: checklist, Decided (2026-11-13); `OPERATIONS.md`. Change: `A2A.BlockingWait` in the HTTP config (1 second to 5 minutes,
    checked at startup); the error is in `A2ARequestHandler.WaitForTerminalAsync`.
@@ -40,8 +40,8 @@ Each line gives the decision, where it is recorded, and how to change it.
    (a) in `docs/briefs/a2a-reviewer-view.md`. The 401 comes from the default challenge scheme in `HostHttp.cs`.
 8. **A cut Teams preview (over 400 characters) cannot be approved from chat, on the card or on the click.** Recorded: the batch 04 brief,
    B3; `OPERATIONS.md`. Change: `TeamsBot.CardPreviewMax` and the check in `TeamsBot.InvokeAsync`. **Owner accepted 400 on 2026-11-13.**
-9. **A2A ships inside `OpenTail.Host.Server`, not as its own package.** One server hosts A2A and MCP; the server already references
-   `OpenTail.Host.A2A`. Decided by the owner on 2026-11-13. Change: remove that project reference and pack the A2A project separately.
+9. **A2A ships inside `OpenTail.Orca.Server`, not as its own package.** One server hosts A2A and MCP; the server already references
+   `OpenTail.Orca.A2A`. Decided by the owner on 2026-11-13. Change: remove that project reference and pack the A2A project separately.
 10. **Teams may approve a partner reply by default.** The switch `ApprovePartnerRepliesInChat` (Teams options, default `true`) turns this
     off: a reply then waits for the review page. Decided by the owner on 2026-11-13 (default yes). Change: the setting in
     `TeamsBotOptions.cs`. Status: built and tested on 2026-11-13 (full suite: 1441 total, 0 failed, 32 skipped).

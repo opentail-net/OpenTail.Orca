@@ -40,7 +40,7 @@ B1. **`work`**: counts of work items by status (open, claimed, dead, expired in 
     chat is an exit. If work items are not enabled, it says so.
 B2. **`tasks`**: A2A tasks in flight, newest 10: short task id, the partner's display name, the state a partner would see, age, and
     what it waits for ("a reviewer: request", "an agent", "a reviewer: reply"). No goal, no answer text. The Teams bot is in
-    `OpenTail.Host.Http` and must not reference `OpenTail.Host.A2A`: add the smallest seam for it, for example a default interface
+    `OpenTail.Orca.Http` and must not reference `OpenTail.Orca.A2A`: add the smallest seam for it, for example a default interface
     member on `IHttpDeploymentExtension` that returns chat commands (name, one-line help, a function returning plain lines), which
     the bot escapes and renders. `help` lists commands from the seam too. When A2A is off the command does not exist.
 B3. All text the commands print goes through the bot's existing escape. Partner display names come from config, but escape them too.

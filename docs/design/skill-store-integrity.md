@@ -3,7 +3,7 @@
 **Status:** planned 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
 **System:** the Host's skill store and the tools that read it: `OpenTail.Modules.Skills` (`SkillStore`, `SkillsModule`).
 **Not in this plan:** the content hash ([skill-content-hashing.md](skill-content-hashing.md)), outcome attribution ([skill-outcome-attribution.md](skill-outcome-attribution.md)), extracting the standard into a library ([agent-skills-library.md](agent-skills-library.md)), and resources ([skill-resources.md](skill-resources.md)).
-**Code basis:** `opentail-host` on `standard-skill-files` at 4b8a8b7 (committed; not in `main`). The strict-type changes in `SkillStore.cs` were uncommitted when this plan was first written and are in that commit. Where `main` (6779f6b, which is `origin/main`; the local `main` ref is older, 6081d5b) differs, it is noted. Checked 2026-11-10: within the skills module, 4b8a8b7 differs from 6f1a59b only in `SkillStore.cs` and the module README; `SkillsModule.cs` and `Standard/` are unchanged.
+**Code basis:** `opentail-orca` on `standard-skill-files` at 4b8a8b7 (committed; not in `main`). The strict-type changes in `SkillStore.cs` were uncommitted when this plan was first written and are in that commit. Where `main` (6779f6b, which is `origin/main`; the local `main` ref is older, 6081d5b) differs, it is noted. Checked 2026-11-10: within the skills module, 4b8a8b7 differs from 6f1a59b only in `SkillStore.cs` and the module README; `SkillsModule.cs` and `Standard/` are unchanged.
 **Order with the other plans:** this plan changes the store in place, in the Host, first. The library plan does not move the store (O-L4: the Host keeps it). It adds optional `skill.json` keys (O-L3), which this store reads and writes, and it moves the identity code (O-L5), as changed by the hashing plan (this plan does not change it). The hashing plan changes the republish comparison (its design item 6) and adds the `sha256v2:` policy-hash prefix; design item 4 below must accept whatever prefixes the hashing plan has introduced by then.
 
 ## Purpose
@@ -215,15 +215,15 @@ Mapping of the preview rows to tests. Malformed labels file: `A_preview_with_mal
 - Design item 5, publish cleanup (guarantee 2; S4): a version folder that a publish created is removed when the label write fails, and temporary files are always removed. An incomplete version folder already in place is refused by name, not repaired.
 - Design item 4, read-time checks (S3): blank `appliesTo` and `tools` entries are refused when read and at publish; a policy hash must be null or `sha256:` and 64 lowercase hex digits. Both checks live in `SkillStore.Parse`.
 - Design item 6, policy-name clash (S5): `skills.get` names two different policy references that share a file name. Resolution is unchanged (O-S1 is still open).
-- Design item 7, store check: `opentail-host --check-skill-store <folder>` (`SkillStoreCli`, dispatched by the server program). Read-only; exit 1 on a problem. Lists the read path's problems and what nothing reads. Run on a demo store only.
+- Design item 7, store check: `opentail-orca --check-skill-store <folder>` (`SkillStoreCli`, dispatched by the server program). Read-only; exit 1 on a problem. Lists the read path's problems and what nothing reads. Run on a demo store only.
 - The preview table: a label at a missing version, and an incomplete target folder, are refused (they were previewed as "first publication" and as a new version). The other preview rows already held and now have named tests.
-- Design item 9, lock test (S7): the cross-process test starts `OpenTail.Host.Tests.LockHolder` instead of PowerShell, so it cannot skip. It asserts the publish is refused as busy.
+- Design item 9, lock test (S7): the cross-process test starts `OpenTail.Orca.Tests.LockHolder` instead of PowerShell, so it cannot skip. It asserts the publish is refused as busy.
 
 **Provisional decisions taken during autonomous work** (the owner may reverse each one):
 - Item 4 accepts `sha256:` only. `sha256v2:` is added with the hashing plan's step 4, together with this rule, as the plan requires.
 - "Blank" means empty or whitespace only.
 - The store check lists a complete version that no label points at as a note, not a problem: history is normal.
-- The store check is a command in the server program, not in `PolicyCli`, so `OpenTail.Host.Admin` stays independent of the modules.
+- The store check is a command in the server program, not in `PolicyCli`, so `OpenTail.Orca.Admin` stays independent of the modules.
 - Policy names clash without regard to case, as Windows compares file names.
 - The preview refusal for an incomplete target uses the publish's wording ("not a complete version").
 

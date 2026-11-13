@@ -13,7 +13,7 @@ proof of key rotation. First
 written 2026-10-17. The point of
 writing it now is the [metrics groundwork](#groundwork-get-the-metrics-right-first): what the Host must record from today so that
 limits, backoff and detection can be built later on real data. Written from reading
-[`opentail-host`](https://github.com/opentail-net/opentail-host) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
+[`opentail-orca`](https://github.com/opentail-net/opentail-orca) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
 
 **Where it fits:** Host work, next to [roles and permissions](roles-and-permissions.md). Profiles decide **what** an agent may
 do; this design watches **how it behaves** while doing it, and tightens as the behaviour turns suspicious. Profiles come first:

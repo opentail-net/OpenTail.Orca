@@ -5,11 +5,11 @@
     <Description>OpenTail Host module providers: the Email and Calendar modules over Microsoft Graph (an app registration with application permissions on one mailbox), enabled from modules.json as "email-graph" and "calendar-graph"; and "files-graph", read-only search and text of files in allowed SharePoint libraries and OneDrives; and "pages-graph", the pages of allowed SharePoint sites.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <ProjectReference Include="..\OpenTail.Orca.Abstractions\OpenTail.Orca.Abstractions.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Email\OpenTail.Modules.Email.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Calendar\OpenTail.Modules.Calendar.csproj" />
     <PackageReference Include="OpenTail.Connectivity.Inbox.Graph" />
-    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Orca.Abstractions" />
     <Using Include="OpenTail.Connectivity.Files.Contracts" />
   </ItemGroup>
 </Project>

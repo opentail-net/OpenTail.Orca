@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <UseMicrosoftTestingPlatform>true</UseMicrosoftTestingPlatform>
+    <NoWarn>$(NoWarn);xUnit1051;xUnit1031</NoWarn>
+    <Description>The Sql module against real SQL Server, Postgres, MySQL, MariaDB and Oracle servers. Each server's tests skip unless its OTAIL_SQL_*_READ
+      and OTAIL_SQL_*_WRITE connection strings are set; the sql-servers workflow starts the servers and sets them.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Npgsql" />
+    <PackageReference Include="MySqlConnector" />
+    <ProjectReference Include="..\OpenTail.Orca\OpenTail.Orca.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Sql\OpenTail.Modules.Sql.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Sql.Oracle\OpenTail.Modules.Sql.Oracle.csproj" />
+  </ItemGroup>
+</Project>

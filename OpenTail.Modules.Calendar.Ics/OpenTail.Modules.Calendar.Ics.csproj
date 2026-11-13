@@ -5,10 +5,10 @@
     <Description>OpenTail Host module provider: the Calendar module over an ICS feed (read only), enabled from modules.json as "calendar-ics". Fetched through the Host's guarded HTTP client.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <ProjectReference Include="..\OpenTail.Orca.Abstractions\OpenTail.Orca.Abstractions.csproj" />
     <ProjectReference Include="..\OpenTail.Modules.Calendar\OpenTail.Modules.Calendar.csproj" />
     <PackageReference Include="OpenTail.Connectivity.Calendar.Ics" />
-    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Orca.Abstractions" />
     <Using Include="OpenTail.Connectivity.Files.Contracts" />
   </ItemGroup>
 </Project>

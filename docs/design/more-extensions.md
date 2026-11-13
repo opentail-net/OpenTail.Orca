@@ -1,7 +1,7 @@
 # Design: three smaller extensions
 
 **Status:** initial plan, 2026-10-17. Nothing here is implemented. Written from reading
-[`opentail-host`](https://github.com/opentail-net/opentail-host) at `230cdd0`. Each is smaller than the
+[`opentail-orca`](https://github.com/opentail-net/opentail-orca) at `230cdd0`. Each is smaller than the
 [roles](roles-and-permissions.md), [adaptive limits](adaptive-limits.md), [data flow](data-flow.md) and
 [undo window](undo-window.md) designs, and each builds on one of them. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here.
 

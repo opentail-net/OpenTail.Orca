@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A deployment-shaped program for the isolation tests: it acts as its own module worker and holds probe bricks that misbehave on purpose. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Orca\OpenTail.Orca.csproj" />
+    <Using Include="Microsoft.Extensions.AI" />
+    <Using Include="OpenTail.Orca.Abstractions" />
+    <Using Include="System.ComponentModel" />
+  </ItemGroup>
+</Project>

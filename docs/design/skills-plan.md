@@ -143,7 +143,7 @@ A second permission system inside skills (policy already controls tools and appr
 
 Repository state: Host `skills-plan` at `ebcfebd` when this revision was written (pushed; 14 commits ahead of `origin/main`, which is `6779f6b`, counted with `git rev-list`; any later commit moves the head, so check with `git log`); Host `standard-skill-files` at `4b8a8b7` (pushed, not in `main`); Host `main` at `6779f6b`; Workbench `progressive-disclosure` at `b762d50` (pushed); Workbench `main` at `ce65cb3`. The plans are on `skills-plan`, not `main`.
 
-- Host: `OpenTail.Host.Tests` passed at `4b8a8b7` (1072 tests, none failed or skipped), run locally on 2026-11-10 before that commit. No `.cs` file has changed on this branch since `4b8a8b7` (`git diff --name-only 4b8a8b7 HEAD -- '*.cs'` is empty), so that result covers the branch's code. The later commits change documents only. No check runs are recorded on GitHub for these commits. `main` is at `6779f6b`.
+- Host: `OpenTail.Orca.Tests` passed at `4b8a8b7` (1072 tests, none failed or skipped), run locally on 2026-11-10 before that commit. No `.cs` file has changed on this branch since `4b8a8b7` (`git diff --name-only 4b8a8b7 HEAD -- '*.cs'` is empty), so that result covers the branch's code. The later commits change documents only. No check runs are recorded on GitHub for these commits. `main` is at `6779f6b`.
 - Workbench: `OpenTail.Workbench.Tests` passes on `progressive-disclosure`: 57 tests (51 before steps 2 and 4; six added). The whole solution builds with no warnings or errors.
 - Design documents: checked against the Agent Skills specification on 2026-11-10 and against the code listed in each document's contracts section.
 

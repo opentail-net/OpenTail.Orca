@@ -3,7 +3,7 @@
 **Status:** planned 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
 **System:** the identity function `SkillText` in `OpenTail.Modules.Skills`, and every identity computed from it in the Host and in the workbench.
 **Not in this plan:** store behaviour beyond the hashes ([skill-store-integrity.md](skill-store-integrity.md)), outcome attribution, the library extraction ([agent-skills-library.md](agent-skills-library.md)). The library plan moves this code; this plan defines what it computes.
-**Code basis:** `opentail-host` on `standard-skill-files` at 4b8a8b7 (`SkillText.cs` and `SkillsModule.cs` are unchanged since 6f1a59b and are the same in `main` 6779f6b); `opentail-workbench` `progressive-disclosure`.
+**Code basis:** `opentail-orca` on `standard-skill-files` at 4b8a8b7 (`SkillText.cs` and `SkillsModule.cs` are unchanged since 6f1a59b and are the same in `main` 6779f6b); `opentail-workbench` `progressive-disclosure`.
 **Order with the other plans:** the store plan's policy-hash syntax check (its design item 4) must accept `sha256v2:` in the same release as step 4 here. The resources design ([skill-resources.md](skill-resources.md), "Hash binding") adds a resources term to the identity. Resources are hashed over their exact stored bytes, never with `SkillText.Normalise` (design item 10), so v1 normalisation cannot drop indentation in a resource. That design is updated to say so; whichever plan lands second must keep the rule. The library plan moves this code (O-L5) only after these decisions.
 
 ## Purpose

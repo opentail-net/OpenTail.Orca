@@ -5,7 +5,7 @@
 A2A lets an agent that is not yours send a request to this Host over the A2A JSON-RPC binding. The request is outside text. It is queued
 for a person to approve before it becomes a work item. An internal agent takes the work, a person approves the answer, and only then does
 the partner receive it. Nothing a partner sends runs without review in the sample, and a partner gets task states and the answer text only.
-The design is in [../design/a2a.md](../design/a2a.md); the settings and startup checks are in [../../OpenTail.Host/OPERATIONS.md](../../OpenTail.Host/OPERATIONS.md).
+The design is in [../design/a2a.md](../design/a2a.md); the settings and startup checks are in [../../OpenTail.Orca/OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md).
 
 ## Start the sample
 
@@ -26,7 +26,7 @@ Two environment variables, set in your shell and never in a file:
 
 From the repository root:
 
-    dotnet run --project OpenTail.Host.Server -- --policy docs/guides/a2a-sample/policy.json --http docs/guides/a2a-sample/http.json --db sample.db
+    dotnet run --project OpenTail.Orca.Server -- --policy docs/guides/a2a-sample/policy.json --http docs/guides/a2a-sample/http.json --db sample.db
 
 The log should end with `Listening on http://127.0.0.1:5600/`. A line that names a startup check means the config or the policy is wrong;
 the message says which.
@@ -45,12 +45,12 @@ few seconds. It prints each change of state, and what a person must do next. It 
 
 The first state is `TASK_STATE_SUBMITTED`, and the script says: approve the request on the review page. Open `http://127.0.0.1:5600/`, sign
 in with the reviewer token, and approve the `a2a.submit` action. The state becomes `TASK_STATE_WORKING`. Teams shows the same request in a
-chat, if the Teams bot is configured ([../../OpenTail.Host/TEAMS-SETUP.md](../../OpenTail.Host/TEAMS-SETUP.md)).
+chat, if the Teams bot is configured ([../../OpenTail.Orca/TEAMS-SETUP.md](../../OpenTail.Orca/TEAMS-SETUP.md)).
 
 ## The inbox agent takes the work
 
 The approved request is a work item for the `inbox` profile. The inbox agent calls the Host's MCP endpoint at `/mcp` with the inbox key,
-and uses three of the built-in work tools (from `OpenTail.Host/Mcp/BuiltInTools.cs`):
+and uses three of the built-in work tools (from `OpenTail.Orca/Mcp/BuiltInTools.cs`):
 
 - `next_work` claims the next item for the agent and reads it. It takes an optional `waitSeconds`. The result carries `workId`, `goal`
   and `status` (`claimed`).
@@ -76,7 +76,7 @@ passes first, the partner gets an error naming the task, and the task keeps runn
 
 ## Onboard a real partner
 
-1. Make a partner id, which is kept for good: `dotnet run --project OpenTail.Host.Server -- --new-partner "Acme"`. It prints a UUID and the
+1. Make a partner id, which is kept for good: `dotnet run --project OpenTail.Orca.Server -- --new-partner "Acme"`. It prints a UUID and the
    config line to add to `"Partners"` in the `A2A` section.
 2. Make the partner's key: `--new-api-key acme-agent`. It prints a key once and the hash to put in `ApiKeys`. Give the key to the partner
    and keep only the hash here.
@@ -100,7 +100,7 @@ passes first, the partner gets an error naming the task, and the task keeps runn
 ## Startup checks
 
 Each check refuses to start the Host, with the reason, when A2A is enabled and the check fails. The full list and what each means is in
-[OPERATIONS.md](../../OpenTail.Host/OPERATIONS.md), under "A2A (preview)". In short: `DataFlowMode` is `Enforce`; the database runs at
+[OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md), under "A2A (preview)". In short: `DataFlowMode` is `Enforce`; the database runs at
 `synchronous=full`; every `a2a:call` key names a profile and a partner and has no other scope; the partner ids are UUIDs, unique and
 named; `Work.Enabled` is set; `a2a.submit` has an entry; `a2a.reply` is `Queue` or `Deny` (never `Execute`), reviewed by a person, with no
 edits and no `Execute` or AI-reviewed rule; every skill's `Inbox` is an agent profile; each `a2a:call` profile lists both tools; `PublicBaseUrl`
@@ -124,6 +124,6 @@ The design lists them, with the reasons, in [../design/a2a.md](../design/a2a.md)
 
 ## Where the details are
 
-- Settings and startup checks: [OPERATIONS.md](../../OpenTail.Host/OPERATIONS.md), "A2A (preview)".
-- Teams commands and approvals: [TEAMS-SETUP.md](../../OpenTail.Host/TEAMS-SETUP.md).
+- Settings and startup checks: [OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md), "A2A (preview)".
+- Teams commands and approvals: [TEAMS-SETUP.md](../../OpenTail.Orca/TEAMS-SETUP.md).
 - The protocol decisions and the states: [../design/a2a.md](../design/a2a.md).

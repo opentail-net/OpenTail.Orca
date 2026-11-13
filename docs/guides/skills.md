@@ -2,7 +2,7 @@
 
 For whoever runs a Host with the skills module, and for the people who approve changes to skills. What the module does, and what it promises, is in [OpenTail.Modules.Skills/README.md](../../OpenTail.Modules.Skills/README.md). How to write a skill version is in [writing a skill version](writing-skill-versions.md).
 
-Written from `opentail-host` at `dc957f7`, 2026-11-10. Commands use `my-host` as the deployment's name.
+Written from `opentail-orca` at `dc957f7`, 2026-11-10. Commands use `my-host` as the deployment's name.
 
 ## Enable the module
 
@@ -13,9 +13,9 @@ Written from `opentail-host` at `dc957f7`, 2026-11-10. Commands use `my-host` as
    It shows the module's tools, their risks, and what the policy does with each.
 4. **Adopt the suggested policy:**
    `my-host --policy policy.json --modules modules.json --adopt-policy skills`
-   It writes `policy.d/skills.json`. The options are in [OPERATIONS.md](../../OpenTail.Host/OPERATIONS.md).
-5. **Put the approvers in the `skill-approvers` group.** The Host docs show how groups are set only for Teams reviewers (`Teams.Reviewers`, in [TEAMS-SETUP.md](../../OpenTail.Host/TEAMS-SETUP.md)). For the approval page, the docs do not say how groups are assigned. Confirm that before the first approval (see [open questions](#open-questions)).
-6. **Give each caller a profile.** Profiles are defined under `Agents` in the policy file. An API key names its profile in the HTTP config. Read [agent profiles](../../OpenTail.Host/POLICY.md#agent-profiles) first. A sketch:
+   It writes `policy.d/skills.json`. The options are in [OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md).
+5. **Put the approvers in the `skill-approvers` group.** The Host docs show how groups are set only for Teams reviewers (`Teams.Reviewers`, in [TEAMS-SETUP.md](../../OpenTail.Orca/TEAMS-SETUP.md)). For the approval page, the docs do not say how groups are assigned. Confirm that before the first approval (see [open questions](#open-questions)).
+6. **Give each caller a profile.** Profiles are defined under `Agents` in the policy file. An API key names its profile in the HTTP config. Read [agent profiles](../../OpenTail.Orca/POLICY.md#agent-profiles) first. A sketch:
 
    ```json
    "Agents": {
@@ -79,7 +79,7 @@ To clear the warning:
 
 ## Backups and recovery
 
-- **Back up the store folder with the database.** The store is a folder on disk. It is not in the SQLite file, and the database backup in [OPERATIONS.md](../../OpenTail.Host/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) does not cover it. Copy it when no approval is running.
+- **Back up the store folder with the database.** The store is a folder on disk. It is not in the SQLite file, and the database backup in [OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) does not cover it. Copy it when no approval is running.
 - **Nothing in the store is deleted.** The module keeps every version. The folder only grows.
 - **To restore**, copy the folder back. Then check `labels.json` and `skills.find` against the publishes you know were approved.
 

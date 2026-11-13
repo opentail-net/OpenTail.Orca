@@ -40,7 +40,7 @@ The last row matters for scope: the standard leaves retrieval to the client. A H
 
 ## Contracts this must satisfy
 
-Read from the code on 2026-11-10, at `opentail-host` `6779f6b` and `opentail-workbench` `ce65cb3`.
+Read from the code on 2026-11-10, at `opentail-orca` `6779f6b` and `opentail-workbench` `ce65cb3`.
 
 **Host store** (`OpenTail.Modules.Skills/SkillStore.cs`)
 - `SkillStore.Publish(id, version, label, metadataJson, instructions, expectedFrom)`: a version's files never change; republishing the same content is a no-op; different content under an existing number is refused; the label moves only if `expectedFrom` still matches; the publish holds `.publish.lock` throughout.

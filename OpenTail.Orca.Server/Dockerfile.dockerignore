@@ -1,0 +1,19 @@
+# Build context for OpenTail.Orca.Server/Dockerfile: only what the Host needs, and never local data or secrets.
+**/bin/
+**/obj/
+**/*.user
+**/*.db
+**/*.db-wal
+**/*.db-shm
+**/*.log
+**/logs/
+**/.env
+**/*.env
+**/secrets/
+.git/
+.vs/
+_to_delete/
+fixtures/
+OpenTail.Tests/
+OpenTail.*Tests/
+OpenTail.Orca.Tests.Worker/

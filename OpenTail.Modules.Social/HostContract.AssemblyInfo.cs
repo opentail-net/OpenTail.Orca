@@ -1,1 +1,1 @@
-[assembly: OpenTail.Host.Abstractions.HostContractVersion(OpenTail.Host.Abstractions.HostContract.Version)]
+[assembly: OpenTail.Orca.Abstractions.HostContractVersion(OpenTail.Orca.Abstractions.HostContract.Version)]

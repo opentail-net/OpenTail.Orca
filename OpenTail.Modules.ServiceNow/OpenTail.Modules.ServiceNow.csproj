@@ -5,9 +5,9 @@
     <Description>OpenTail Host module: search and read ServiceNow records (incidents by default) and their journal; comment, create, update and resolve them through the Table API, in allow-listed tables only. Writes are ExternalEffect (resolve is Destructive), so a caller that read ticket text is always held for a reviewer.</Description>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\OpenTail.Host.Abstractions\OpenTail.Host.Abstractions.csproj" />
+    <ProjectReference Include="..\OpenTail.Orca.Abstractions\OpenTail.Orca.Abstractions.csproj" />
     <Using Include="Microsoft.Extensions.AI" />
-    <Using Include="OpenTail.Host.Abstractions" />
+    <Using Include="OpenTail.Orca.Abstractions" />
     <Using Include="System.ComponentModel" />
   </ItemGroup>
 </Project>

@@ -8,7 +8,7 @@ it needs a design decision not made here. Baseline: 1363 passed, 0 failed, 32 sk
 
 Answers to your 03b-2 report: (1) the failing test: option (a), done by the planner (it now asserts the startup refusal; the handler's
 profile check stays). (2) A completion without a session carrying `SessionlessTainted`: intended, it is what `Carry` means everywhere.
-(3) The facts file's nullability line is corrected. (4) Whether `OpenTail.Host.A2A` ships as a package is the owner's; leave it.
+(3) The facts file's nullability line is corrected. (4) Whether `OpenTail.Orca.A2A` ships as a package is the owner's; leave it.
 
 ## Why
 

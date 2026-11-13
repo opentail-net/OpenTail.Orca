@@ -4,7 +4,7 @@ The Host module that serves a business's **skills** to its agents. A skill's liv
 
 A **skill** is a versioned procedure for one kind of situation, such as "an invoice arrived by email". It holds instructions for the agent, the situations it applies to, and the policies it reads. A skill guides the agent. It never changes what policy allows: a tool a skill names is still governed by its own policy entry.
 
-Written from reading `opentail-host` on 2026-11-10, after commit `1464f70`. Where a statement comes from a design document rather than from the code, the text says so.
+Written from reading `opentail-orca` on 2026-11-10, after commit `1464f70`. Where a statement comes from a design document rather than from the code, the text says so.
 
 **Read next:** [setup, publishing and operations](../docs/guides/skills.md) · [writing a skill version](../docs/guides/writing-skill-versions.md)
 
@@ -12,7 +12,7 @@ Written from reading `opentail-host` on 2026-11-10, after commit `1464f70`. Wher
 
 | Part | State |
 |---|---|
-| `skills.find`, `skills.get`, `skills.publish` with approval, rollback, policy drift warning, `skill_served` audit | Built. Tests in `OpenTail.Host.Tests/SkillsModuleTests.cs` |
+| `skills.find`, `skills.get`, `skills.publish` with approval, rollback, policy drift warning, `skill_served` audit | Built. Tests in `OpenTail.Orca.Tests/SkillsModuleTests.cs` |
 | Publish checks: `expectedFrom`, report binding, no edits to a publish | Built 2026-10-18 ([decisions](../docs/design/skills-publish-questions.md)) |
 | Standard `SKILL.md` form: reader, validator, formatter, publish check | Built in `dc957f7`. Decisions 3, 4 and 7 are provisional and await the owner's review ([design](../docs/design/standard-skill-files.md)) |
 | `name` and `description` in `skills.get` (standard phase 3) | Not built. Optional |
@@ -32,9 +32,9 @@ Written from reading `opentail-host` on 2026-11-10, after commit `1464f70`. Wher
 | `OpenTail.Modules.Skills.csproj` | The project. YamlDotNet is its only package, pinned at 17.1.0 in `Directory.Packages.props` (17.1.0 is the minimum the Connectivity packages need) |
 
 The module also relies on code outside this folder:
-- [`OpenTail.Host/Runtime/SkillOutcomes.cs`](../OpenTail.Host/Runtime/SkillOutcomes.cs) reads the `skill_served` audit and the decisions after it, for `--skill-outcomes`.
-- Contract members from [PACKAGING.md](../OpenTail.Host/PACKAGING.md): `AuditResult`, `ServerInstructions`, `Administers`.
-- The fixed rules for administration tools, which `skills.publish` must meet or the Host refuses to start: [POLICY.md](../OpenTail.Host/POLICY.md#administration-tools).
+- [`OpenTail.Orca/Runtime/SkillOutcomes.cs`](../OpenTail.Orca/Runtime/SkillOutcomes.cs) reads the `skill_served` audit and the decisions after it, for `--skill-outcomes`.
+- Contract members from [PACKAGING.md](../OpenTail.Orca/PACKAGING.md): `AuditResult`, `ServerInstructions`, `Administers`.
+- The fixed rules for administration tools, which `skills.publish` must meet or the Host refuses to start: [POLICY.md](../OpenTail.Orca/POLICY.md#administration-tools).
 
 ## Configuration
 
@@ -54,7 +54,7 @@ In `modules.json`:
 | `PolicyFolder` | none | Folder of the live policy files that skills read. Must exist, or startup fails. Setting it turns on the drift warning. |
 | `AllowPublish` | `true` | `false` does not register `skills.publish`, so the deployment only serves skills. |
 
-Use the id `skills`. The factory's notes say why: skill text and the server instructions refer to `skills.find` by that name. [MODULES.md](../OpenTail.Host/MODULES.md) describes the rest of the file format.
+Use the id `skills`. The factory's notes say why: skill text and the server instructions refer to `skills.find` by that name. [MODULES.md](../OpenTail.Orca/MODULES.md) describes the rest of the file format.
 
 **The suggested policy** (`--adopt-policy skills` writes it to `policy.d/skills.json`):
 
@@ -195,7 +195,7 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 Found by reading the code while writing this. Fixed since: a metadata-only change is refused at request time, and `find` names a broken label (`1464f70`); the format is checked, and a publish is locked across processes (see the invariants). The rest are open. Each open one is a candidate for a decision.
 
 1. **The store lock is a file lock on the store folder.** It holds across processes on a local disk. On a network share, file locks may not be enforced, so keep one publishing Host per store there.
-2. **The store is not in the SQLite backup.** [OPERATIONS.md](../OpenTail.Host/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) covers the database file only. The [runbook](../docs/guides/skills.md#backups-and-recovery) covers the store.
+2. **The store is not in the SQLite backup.** [OPERATIONS.md](../OpenTail.Orca/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) covers the database file only. The [runbook](../docs/guides/skills.md#backups-and-recovery) covers the store.
 3. **A cosmetic change to a stored version is accepted and changes nothing.** The stored text stays as it was first published, while the approval still moves the label. This is intended. It is listed so that it is not a surprise.
 4. **The report is read from its first 40 lines only**, so a binding line further down does not count. The change request shows only the first 20,000 characters of a report.
 5. **Matching is loose.** It is substring matching on words of three or more characters, so it can find skills the situation does not really concern. Every skill is listed anyway, and the agent decides.
@@ -204,10 +204,10 @@ Found by reading the code while writing this. Fixed since: a metadata-only chang
 
 ## Tests
 
-- `OpenTail.Host.Tests/SkillsModuleTests.cs`: 20 test methods for the tools, approval, rollback, drift, configuration, the report binding, metadata changes, broken labels, the format check, the store lock and a failing audit line after a call.
-- `OpenTail.Host.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`: the standard form.
-- `OpenTail.Host.Tests/SkillOutcomesTests.cs`: the tests for `SkillOutcomes.cs`.
-- To run the Skills tests: `dotnet test OpenTail.Host.Tests --filter "FullyQualifiedName~Skill|FullyQualifiedName~Standard"`. On 2026-11-10 that gave 66 passing, and the whole `OpenTail.Host.Tests` project gave 1040 passing.
+- `OpenTail.Orca.Tests/SkillsModuleTests.cs`: 20 test methods for the tools, approval, rollback, drift, configuration, the report binding, metadata changes, broken labels, the format check, the store lock and a failing audit line after a call.
+- `OpenTail.Orca.Tests/StandardSkillTests.cs` and `StandardPublishTests.cs`: the standard form.
+- `OpenTail.Orca.Tests/SkillOutcomesTests.cs`: the tests for `SkillOutcomes.cs`.
+- To run the Skills tests: `dotnet test OpenTail.Orca.Tests --filter "FullyQualifiedName~Skill|FullyQualifiedName~Standard"`. On 2026-11-10 that gave 66 passing, and the whole `OpenTail.Orca.Tests` project gave 1040 passing.
 - **Restoring the test project needs the GitHub package feed.** `nuget.config` reads `GITHUB_PACKAGES_TOKEN` for the `OpenTail.Connectivity.*` packages. Set it for the command; the comment in `nuget.config` says how to get a token. On 2026-11-10, `gh auth token` gave one that worked. Do not write the token to a file.
 
 ## Related

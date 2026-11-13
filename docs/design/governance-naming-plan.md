@@ -21,11 +21,11 @@ that a later migration is a package swap plus a small mapping, without taking th
 
 ## Constraints
 
-- **The audit hash covers event names.** `OpenTail.Host/Storage/AuditChain.cs` builds the hash from `seq`, timestamp, event, action,
+- **The audit hash covers event names.** `OpenTail.Orca/Storage/AuditChain.cs` builds the hash from `seq`, timestamp, event, action,
   tool, actor, detail and previous hash (lines 35-36, 58). Renaming an event changes the hash that a verifier computes for an old row,
   so any existing chain would fail verification. This only matters where a chain already exists.
 - **Who holds chains today.** The owner's development databases (`host-dev`, per project memory). Discard them rather than migrate.
-  Project memory also records that Host 0.0.1 packages and a container image (`ghcr.io/opentail-net/opentail-host`) were published on
+  Project memory also records that Host 0.0.1 packages and a container image (`ghcr.io/opentail-net/opentail-orca`) were published on
   2026-10-20. Whether anyone pulled the image cannot be seen from here. Check the registry's pull counts before the freeze, if the
   image is public.
 - **No customer deployment is recorded.** The design documents describe one ("when the first customer runs Entra ID") as future work.
@@ -108,7 +108,7 @@ name and keeping the old one.
 
 ### Phase 1: the binding and its digest
 
-- Add an `ActionBinding` record in `OpenTail.Host.Abstractions`, with the canonical keys above.
+- Add an `ActionBinding` record in `OpenTail.Orca.Abstractions`, with the canonical keys above.
 - `tool_schema_version`: a hash of the tool's parameter schema. The Host does not store this today, so it has to be computed when the
   catalogue is built.
 - Canonicalise with RFC 8785 rules. Check the canonicaliser against the reference test data before using it. Where the
@@ -119,7 +119,7 @@ name and keeping the old one.
 
 ### Phase 2: the re-check at claim (closes the gap)
 
-- At `ActionExecutor` claim (`OpenTail.Host/Runtime/ActionExecutor.cs`, around line 385), recompute the digest from the stored
+- At `ActionExecutor` claim (`OpenTail.Orca/Runtime/ActionExecutor.cs`, around line 385), recompute the digest from the stored
   binding and compare it. Compare `PolicyHash` with the running policy. Check the expiry and the status.
 - A refusal writes `execution_denied` with `action_digest_mismatch`, `policy_version_mismatch` or `approval_expired`, and the action
   is not run.
@@ -174,7 +174,7 @@ Proposed defaults, for the owner to change:
 
 Step 1, done 2026-11-11 (commits `d6b10f3` and `89caf47`, on main): the audit event names on the approval path.
 
-- New `OpenTail.Host/Runtime/AuditEvents.cs` with `ApprovalRequested`, `ApprovalAllowed`, `ApprovalDenied`, `ApprovalExpired` and
+- New `OpenTail.Orca/Runtime/AuditEvents.cs` with `ApprovalRequested`, `ApprovalAllowed`, `ApprovalDenied`, `ApprovalExpired` and
   `ApprovalCancelled`.
 - Renamed (old names as on `main`): `queued` to `approval_requested`; `approved` to `approval_allowed`; `rejected` to
   `approval_denied`; `expired` to `approval_expired`; `cancelled` to `approval_cancelled`. Writers: `ActionQueue`, `OpenTailHost`
@@ -185,7 +185,7 @@ Step 1, done 2026-11-11 (commits `d6b10f3` and `89caf47`, on main): the audit ev
   the outcome vocabulary (`Allow`, `Deny`) of the Microsoft protocol.
 - Tests updated where they assert these names: `AuditAtomicityTests`, `DurabilityTests`, `InboxTriageScenarioTests`,
   `ResumableTests`, `SopGapTests`, `TelemetryRecorderTests`.
-- Result: `OpenTail.Host.Abstractions.Tests` 33 of 33 and `OpenTail.Host.Tests` 1179 of 1179, the same counts as before the change.
+- Result: `OpenTail.Orca.Abstractions.Tests` 33 of 33 and `OpenTail.Orca.Tests` 1179 of 1179, the same counts as before the change.
 
 **Deliberately not changed:**
 
@@ -220,8 +220,8 @@ Step 1, done 2026-11-11 (commits `d6b10f3` and `89caf47`, on main): the audit ev
 
 ## Phase 1: the binding and its digest (done 2026-11-12, in the working tree, not committed)
 
-- `ActionBinding` in `OpenTail.Host.Abstractions`, with the canonical keys above plus `policy_version`. `Digest()` is `sha256:` over the
-  RFC 8785 form. `Jcs` is the canonicaliser; it passes the six reference vectors (`OpenTail.Host.Abstractions.Tests/Rfc8785/`).
+- `ActionBinding` in `OpenTail.Orca.Abstractions`, with the canonical keys above plus `policy_version`. `Digest()` is `sha256:` over the
+  RFC 8785 form. `Jcs` is the canonicaliser; it passes the six reference vectors (`OpenTail.Orca.Abstractions.Tests/Rfc8785/`).
 - Verified: `ArgumentsHash` is over the raw argument text, not canonical JSON. It is unchanged.
 - `tool_schema_version` comes from `ToolCatalog.SchemaVersionOf`. `ActionRecord.BindingDigest` is set when an action is created; it is
   null for an unknown tool and for arguments that are not JSON.

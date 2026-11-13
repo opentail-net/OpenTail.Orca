@@ -1,7 +1,7 @@
 # Design: queued actions as MCP Tasks
 
 **Status:** proposed 2026-10-18. Steps 1 (the SDK upgrade), 2 (tasks for queued and delayed actions) and 3 (long-running calls) built 2026-10-18; step 4
-waits on its prerequisites. Written from reading [`opentail-host`](https://github.com/opentail-net/opentail-host)
+waits on its prerequisites. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
 at `8d87b95`, the Tasks extension ([SEP-2663](https://modelcontextprotocol.io/seps/2663-tasks-extension.md), Final), the
 2026-07-28 MCP specification it depends on, and the C# SDK v2 documentation. Facts about the protocol and SDK were checked on
 2026-10-18; re-check before building.
@@ -124,7 +124,7 @@ shorter variant for clients that opted in, since the client now does the trackin
 
 - **Upgrade the SDK first,** 1.4.1 to 2.x, as its own step with the full test suite. The Host already runs Streamable HTTP
   stateless and keeps its own session handles, which is what the 2026-07-28 revision moves everyone towards, so the upgrade should
-  be mostly mechanical. Only `OpenTail.Host` and `OpenTail.Host.Http` reference the SDK; `OpenTail.Host.Abstractions` does not, so
+  be mostly mechanical. Only `OpenTail.Orca` and `OpenTail.Orca.Http` reference the SDK; `OpenTail.Orca.Abstractions` does not, so
   module authors and the frozen contract are unaffected. Note the licence change to MIT in SDK 2.0 for the notices file.
 - **Use the SDK's alternate-result handler, not its task store.** `WithTasks` would run every tool call in its own background task
   with its own store, beside ours. Instead, `CallToolWithAlternateHandler` (which replaces our `CallToolHandler`) returns either the

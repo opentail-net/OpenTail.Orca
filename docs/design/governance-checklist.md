@@ -63,8 +63,8 @@ A.2 Whole-action binding (the naming plan's phase 1; done 2026-11-12, committed 
 - [x] Binding over the whole action (`ActionBinding`): `schema_version`, `operation` (`tool_call`), `agent_id` (the requester's id),
   `subject_id` (null until delegation exists), `target` (`tool_name`, `tool_schema_version`, `resource`: null), `parameters`,
   `policy_version`. One digest, `sha256:` over the canonical form.
-- [x] Canonical JSON per RFC 8785 (`Jcs` in `OpenTail.Host.Abstractions`). It passes all six reference vectors, vendored unchanged in
-  `OpenTail.Host.Abstractions.Tests/Rfc8785/` (Apache-2.0, source commit `32a4819`). The reference repository's 100-million-number file
+- [x] Canonical JSON per RFC 8785 (`Jcs` in `OpenTail.Orca.Abstractions`). It passes all six reference vectors, vendored unchanged in
+  `OpenTail.Orca.Abstractions.Tests/Rfc8785/` (Apache-2.0, source commit `32a4819`). The reference repository's 100-million-number file
   is generated, not shipped, and was not run.
 - [x] Number formatting follows ECMAScript (`1e+30`, `1e-7`, `1e+21`, `0.000001`), tested at the edges. It does not use the .NET
   writer's format.
@@ -82,7 +82,7 @@ A.2 Whole-action binding (the naming plan's phase 1; done 2026-11-12, committed 
   stored digest cleared, requester changed); the edit test still passed, as it does not depend on the check. Restored, all pass.
 - Tests: `JcsTests` (28), `ActionBindingTests` (8), `RecheckAtClaimTests` 16 (11 before, 5 for the claim check). `DurabilityTests`
   fixtures for interrupted records now carry a real binding (they are refused without one, as intended).
-  Abstractions 70 of 70; Host 1204 of 1204 (`dotnet test OpenTail.Host.Tests/OpenTail.Host.Tests.csproj`).
+  Abstractions 70 of 70; Host 1204 of 1204 (`dotnet test OpenTail.Orca.Tests/OpenTail.Orca.Tests.csproj`).
 
 A.3 Resolution record (scope reduced 2026-11-12; committed in `15b9e8b`):
 
@@ -112,7 +112,7 @@ Go-ahead given 2026-11-12. Committed in `f24f8c5` (batch 01) unless a line says 
   the partner identity in section 2, the versions in sections 1 and 11, the authenticated card in section 8, the skill-selection
   extension and ListTasks in section 4, `a2a_tasks` in section 10, the build order). Committed in `15b9e8b` (2026-11-12). The
   correction 6 A2A-Version question is still open for the owner.
-- [x] The role and scope `a2a:call` (`Roles` in `OpenTail.Host.Admin/AdminServer.cs`), accepted by the API key scope validation
+- [x] The role and scope `a2a:call` (`Roles` in `OpenTail.Orca.Admin/AdminServer.cs`), accepted by the API key scope validation
   (`HostHttpOptions.cs`, which refuses only review, admin and group scopes today). Committed in `f24f8c5`. The validation
   needed no change: it already accepts `a2a:call`. Tests: `A2aPhase0Tests` (2): the key passes validation; a key with only `a2a:call`
   gets 403 on `/mcp` and on `/api/actions`, with controls for a tools key and a reviewer.
@@ -233,7 +233,7 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
 - [ ] Run the toolkit's own tests. The local copy is at `C:\Git\split\examples\agent-governance-toolkit\`. Re-check its file hashes before
   relying on it (`agt-comparison.md`); the copy has no git history of its own.
 - [ ] Workbench contracts: the review-outcome values (`approved`, `rejected`, `changes_requested`) and the action status strings the
-  workbench reads (`denied`, `failed`, `error`). Keep, or version them in a coordinated change in `opentail-host` and
+  workbench reads (`denied`, `failed`, `error`). Keep, or version them in a coordinated change in `opentail-orca` and
   `opentail-workbench`. The workbench reads them in `ShadowRunner.cs`, `GradingQueue.cs`, `Formats/Candidates.cs` and `Reports/TextReport.cs`.
 - [ ] Revisit triggers from the comparison: third-party MCP servers (`McpSecurityScanner`, not read); OPA or Cedar backends.
 
@@ -242,11 +242,11 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
 - [ ] Freeze trigger for public names: the first deployment that keeps audit data, or Host 1.0. The default is recorded; confirm it.
 - [ ] Write the freeze point into the Host's README, as the naming plan asks.
 - [ ] Check the published packages. `host-v0.0.1` (25 packages, 2026-10-20) carries the old audit names. Who consumes them?
-- [ ] Check GHCR pull counts for `ghcr.io/opentail-net/opentail-host:0.0.1`. Is the image public, and was it pulled?
+- [ ] Check GHCR pull counts for `ghcr.io/opentail-net/opentail-orca:0.0.1`. Is the image public, and was it pulled?
 - [ ] Check whether anyone kept an old audit database, or consumes the webhook event names on `audit_entry` routes. Tell them.
 - [ ] Discard the development databases written before the event rename. Their audit chains fail verification.
 - [ ] Update documents that still quote old event names (for example `audit-and-evidence.md`, which lists `approved`).
-- [ ] Remove the eight extra worktrees before deleting their branches: `C:\Git\split\opentail-host-attr`, `-golden`, `-hash`, `-main`,
+- [ ] Remove the eight extra worktrees before deleting their branches: `C:\Git\split\opentail-orca-attr`, `-golden`, `-hash`, `-main`,
   `-s1`, `-s9`, `-skills` and `-store`.
 - [ ] Delete the merged local branches: the eleven skills branches (`standard-skill-files`, `feat/agentskills-library`,
   `feat/agentskills-names`, `feat/agentskills-preserve`, `feat/hash-v2`, `skills-plan`, `test/skill-identity-golden`,
@@ -255,8 +255,8 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
 - [ ] The OpenTail tool recreates `.opentail-shadow.git/` in the repo. It is excluded locally. Turn shadow off in the tool's config, or accept
   the folder.
 - [ ] The C# rename tool fails in this session with a missing-assembly error. A `restart_server` would rebuild it.
-- [ ] Tests not run here: `OpenTail.Host.Tests.SqlServers` (skips without `OTAIL_SQL_*`); `OpenTail.Host.Tests.Snowflake` and
-  `OpenTail.Host.Tests.Worker`. They name none of the changed events in source.
+- [ ] Tests not run here: `OpenTail.Orca.Tests.SqlServers` (skips without `OTAIL_SQL_*`); `OpenTail.Orca.Tests.Snowflake` and
+  `OpenTail.Orca.Tests.Worker`. They name none of the changed events in source.
 - [x] All eleven skills branches are ancestors of `main`. `skills-plan` was merged in `6f6ec88`; the rest were already there.
 - [x] Architecture rule allows `OpenTail.AgentSkills` for modules, as a leaf library (`90b34ea`).
 

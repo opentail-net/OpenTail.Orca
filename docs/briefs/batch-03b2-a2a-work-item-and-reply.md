@@ -1,7 +1,7 @@
 # Batch 03b-2: A2A thin slice, second half (work item, reply, completion)
 
 From the planning session (git-fa). Batch 03b-1 is accepted and pushed (fae2725). Read `docs/design/a2a.md` sections 4, 5, 6 and 10,
-`OpenTail.Host/Work/WorkItems.cs` (WorkService) and `OpenTail.Host.A2A/` first. The design below is fixed by the planner; where it
+`OpenTail.Orca/Work/WorkItems.cs` (WorkService) and `OpenTail.Orca.A2A/` first. The design below is fixed by the planner; where it
 differs from a2a.md this brief wins and you list the difference. Same rules: no commit/push/git state; no public renames;
 `contract-v1.txt` unchanged (additive public members are allowed if the contract test allows them; if it does not, STOP that part);
 follow the code where the brief is wrong and say so; STOP a part and write options when it needs a design decision not made here.

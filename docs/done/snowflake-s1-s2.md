@@ -15,8 +15,8 @@ There is no separate Snowflake project. Snowflake is a provider of the Sql modul
 | Provider name, key-pair credentials, writes refused, secret checks | `OpenTail.Modules.Sql/SqlModuleFactory.cs` |
 | `AddRowLimit`, `PositionalParameters`, `TagQueries`, `SnowflakeSchemaQuery` | `OpenTail.Modules.Sql/SqlModule.cs` |
 | `SqlDialect.Snowflake`, `ToPositional`, `HasOuterLimit` | `OpenTail.Modules.Sql/SqlGuard.cs` |
-| Tests with a recording connection (no driver) | `OpenTail.Host.Tests/SnowflakeTests.cs` |
-| Tests with the real driver, a test project of their own (the real-server workflow fails on skipped tests); account tests skip without `OTAIL_SNOWFLAKE_*` | `OpenTail.Host.Tests.Snowflake/SnowflakeAccountTests.cs` |
+| Tests with a recording connection (no driver) | `OpenTail.Orca.Tests/SnowflakeTests.cs` |
+| Tests with the real driver, a test project of their own (the real-server workflow fails on skipped tests); account tests skip without `OTAIL_SNOWFLAKE_*` | `OpenTail.Orca.Tests.Snowflake/SnowflakeAccountTests.cs` |
 
 The module does not reference the driver. A deployment that uses Snowflake references `Snowflake.Data`; the test project pins
 6.3.0 (`Directory.Packages.props`).

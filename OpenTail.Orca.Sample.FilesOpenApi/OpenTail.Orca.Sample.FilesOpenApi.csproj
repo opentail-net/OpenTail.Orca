@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>opentail-orca-files-api</AssemblyName>
+    <Description>Sample deployment: an MCP server with a files folder and one third-party API imported from its OpenAPI document. Reads run; writes are queued; deletes are denied.</Description>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\OpenTail.Orca.Admin\OpenTail.Orca.Admin.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.Files\OpenTail.Modules.Files.csproj" />
+    <ProjectReference Include="..\OpenTail.Modules.OpenApi\OpenTail.Modules.OpenApi.csproj" />
+    <None Include="policy.files-api.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

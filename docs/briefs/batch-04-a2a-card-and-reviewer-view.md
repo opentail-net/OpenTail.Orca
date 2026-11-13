@@ -10,7 +10,7 @@ Baseline: 1372 passed, 0 failed, 32 skipped across the solution.
 
 ## Part A: the agent card (build)
 
-A1. `GET /.well-known/agent-card.json`, mapped with the SDK's `MapWellKnownAgentCard` from `OpenTail.Host.A2A`, only when A2A is
+A1. `GET /.well-known/agent-card.json`, mapped with the SDK's `MapWellKnownAgentCard` from `OpenTail.Orca.A2A`, only when A2A is
     enabled (otherwise 404), behind the same requirement as `/a2a` (authenticated, role `a2a:call`). No credential: 401. A key
     without `a2a:call`: 403. An anonymous caller must not be able to tell that the Host speaks A2A.
 A2. Content: name, description and version from a new optional config section `A2A.Card { Name, Description, Version }` (defaults:

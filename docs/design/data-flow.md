@@ -5,7 +5,7 @@ labels on sessions and callers (persisted), the flow check at `ExternalEffect` t
 or enforced), the reviewer line on the review page and the Teams card, `--explain --labels`, module labels per instance, argument
 conditions (`Destinations` with a `When`), and value matching with `RelaxWithoutMatch` (fingerprints in memory, per process). Not
 built: telemetry by label. First written 2026-10-17. Written from reading
-[`opentail-host`](https://github.com/opentail-net/opentail-host) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
+[`opentail-orca`](https://github.com/opentail-net/opentail-orca) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
 
 **Where it fits:** Host work, alongside [roles and permissions](roles-and-permissions.md) (who may call a tool) and
 [adaptive limits](adaptive-limits.md) (how much). This one decides **where data may go**. It is the other half of taint.

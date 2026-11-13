@@ -1,0 +1,128 @@
+type OpenTail.Orca.Abstractions.Credential : class
+  CredentialKind Kind { get; }
+  Nullable<DateTimeOffset> ExpiresAt { get; set; }
+  String HeaderName { get; set; }
+  String Secret { get; }
+  String UserName { get; set; }
+  ctor(CredentialKind, String)
+type OpenTail.Orca.Abstractions.CredentialKind : enum
+  Bearer = 0
+  Basic = 1
+  Header = 2
+  Secret = 3
+type OpenTail.Orca.Abstractions.CredentialRequirement : class
+  Boolean Optional { get; set; }
+  CredentialKind Kind { get; set; }
+  String Description { get; set; }
+  String Name { get; set; }
+  ctor(String, CredentialKind, String)
+type OpenTail.Orca.Abstractions.HostContract : class
+  const Int32 ActionSchemaVersion = 1
+  const Int32 MinSupportedVersion = 1
+  const Int32 Version = 1
+  const String ActionIdContextKey = opentail.action_id
+  const String IdempotencyContextKey = opentail.idempotency_key
+  const String RequesterContextKey = opentail.requester
+type OpenTail.Orca.Abstractions.HostContractVersionAttribute : class
+  Int32 Version { get; }
+  ctor(Int32)
+type OpenTail.Orca.Abstractions.HostModuleFactoryAttribute : class
+  Type FactoryType { get; }
+  ctor(Type)
+type OpenTail.Orca.Abstractions.ICredentialProvider : interface
+  IReadOnlyCollection<String> Names { get; }
+  ValueTask<Credential> GetAsync(String, CancellationToken?)
+  Void Invalidate(String)
+type OpenTail.Orca.Abstractions.IHostModule : interface
+  ModuleManifest Manifest { get; }
+  String Id { get; }
+  Void Register(IToolRegistry)
+type OpenTail.Orca.Abstractions.IHostModuleFactory : interface
+  ModuleManifest Describe(String, JsonElement)
+  ModuleManifest Describe(String, JsonElement, String)
+  String Type { get; }
+  ValueTask<IHostModule> CreateAsync(ModuleContext, CancellationToken?)
+type OpenTail.Orca.Abstractions.IModuleHttpClientFactory : interface
+  HttpClient Create(String?)
+type OpenTail.Orca.Abstractions.IPreviewableTool : interface
+  Task<PreviewResult> PreviewAsync(String, CancellationToken?)
+type OpenTail.Orca.Abstractions.IToolRegistry : interface
+  Void Add(ToolDescriptor, AIFunction, IPreviewableTool?)
+type OpenTail.Orca.Abstractions.ModuleContext : class
+  Action<String> Warn { get; set; }
+  ICredentialProvider Credentials { get; set; }
+  IModuleHttpClientFactory Http { get; set; }
+  JsonElement Config { get; set; }
+  String BaseDirectory { get; set; }
+  String Id { get; set; }
+  T Bind()
+  TimeProvider Clock { get; set; }
+  ctor()
+type OpenTail.Orca.Abstractions.ModuleManifest : class
+  IReadOnlyList<CredentialRequirement> Credentials { get; set; }
+  IReadOnlyList<String> NetworkHosts { get; set; }
+  IReadOnlyList<String> Notes { get; set; }
+  Int32 Format { get; set; }
+  String Description { get; set; }
+  String DisplayName { get; set; }
+  String Id { get; set; }
+  String Publisher { get; set; }
+  String ServerInstructions { get; set; }
+  String SuggestedPolicyJson { get; set; }
+  const Int32 CurrentFormat = 1
+  ctor()
+  static ModuleManifest Minimal(String)
+type OpenTail.Orca.Abstractions.NetworkRules : class
+  static Boolean Covers(String, String)
+  static Boolean IsPublic(IPAddress)
+  static Boolean Matches(String, Uri)
+type OpenTail.Orca.Abstractions.PreviewResult : class
+  String DiffJson { get; set; }
+  String Summary { get; set; }
+  ctor(String, String?)
+type OpenTail.Orca.Abstractions.RootedPath : class
+  String Relative(String)
+  String Resolve(String)
+  String Root { get; }
+  ctor(String)
+  static Boolean IsReparsePoint(String)
+type OpenTail.Orca.Abstractions.ToolDescriptor : class
+  Boolean Administers { get; set; }
+  Boolean IdempotentByKey { get; set; }
+  Boolean IsHighImpact { get; }
+  Boolean NoPreview { get; set; }
+  Boolean ReadsUntrusted { get; set; }
+  IReadOnlyList<String> Labels { get; set; }
+  ResultAudit AuditResult { get; set; }
+  ResultCounts Counts { get; set; }
+  String Description { get; set; }
+  String ModuleId { get; set; }
+  String Name { get; set; }
+  ToolRisk Risk { get; set; }
+  ctor(String, String, ToolRisk, String)
+type OpenTail.Orca.Abstractions.ToolFailureException : class
+  Nullable<TimeSpan> RetryAfter { get; }
+  String Code { get; }
+  ToolFailureKind Kind { get; }
+  ctor(ToolFailureKind, String, String?, Nullable<TimeSpan>?)
+type OpenTail.Orca.Abstractions.ToolFailureKind : enum
+  Transient = 0
+  Environment = 1
+  Contract = 2
+  Auth = 3
+  Policy = 4
+  UnknownOutcome = 5
+  Bug = 6
+type OpenTail.Orca.Abstractions.ToolRegistration : class
+  AIFunction Function { get; set; }
+  IPreviewableTool Preview { get; set; }
+  ToolDescriptor Descriptor { get; set; }
+  ctor(ToolDescriptor, AIFunction, IPreviewableTool?)
+type OpenTail.Orca.Abstractions.ToolRisk : enum
+  Read = 0
+  Write = 1
+  Destructive = 2
+  ExternalEffect = 3
+type OpenTail.Orca.Abstractions.ToolTransientException : class
+  Nullable<TimeSpan> RetryAfter { get; }
+  ctor(String, Nullable<TimeSpan>?)
