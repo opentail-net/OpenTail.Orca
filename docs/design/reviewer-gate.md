@@ -495,6 +495,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | Undo window | 2026-10-18 | Execute with a delay, Stop, run-now and hold. `docs/design/undo-window.md`. |
 | Gate plan | 2026-11-13 | First written as a separate proposal, without reading V6. Merged with V6 the same day, with V6 kept as a pointer. |
 | Gate plan, version 2 | 2026-11-13 | Revised after the first external review. No code changed. |
+| P0 characterisation (branch `p0-characterise`) | 2026-11-13 | `CharacterisationTests`: 16 tests pin table A (ReviewAuthority, rows A1 to A7 and the Ai/Either behaviour, F15) and table B (AiReviewRules, rows B1 to B8) as the code is today. Tables C and D are covered by the existing suites (`ApprovalControlTests`, `AiReviewLimitsTests`, `DurabilityTests`) and have no new pins; adding them is a later task. Full Orca test project: 1358 passed, 0 failed. |
 | P0 (branch `p0-gate-hardening`) | 2026-11-13 | Retry rule for everyone (D-32); the A2A submit pin (F7); AI review refused without a snapshot (D-34); the recheck decision (D-33). Tests: `P0GateTests` (10 cases). Full Orca test project: 1342 passed, 0 failed. |
 | Gate plan, version 3 | 2026-11-13 | Revised after the second external review; moved into `OpenTail.Orca`. Teams sentence in `OPERATIONS.md` corrected. No code changed. |
 
