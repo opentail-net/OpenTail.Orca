@@ -381,6 +381,12 @@ public sealed class ActionQueue(
         }
         if (review.Subject is { } reviewer && Subjects.IsAi(reviewer))
         {
+            // D-20: a named AI reviewer decides only the tools assigned to it, whatever it asks and however it reaches the queue.
+            if (!AiReviewRules.Assigned(existing, reviewer))
+            {
+                await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", existing.Id, existing.ToolName, reviewer, "not assigned to this tool"), ct);
+                throw new UnauthorizedAccessException("This AI reviewer is not assigned to this tool.");
+            }
             var ai = await AiVerdictAsync(existing, review.Decision, review.EditedArgumentsJson is not null, ct);
             if (!ai.Allowed)
             {

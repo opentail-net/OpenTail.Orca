@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace OpenTail.Orca.Abstractions;
 
 public enum ToolMode
@@ -94,6 +96,12 @@ public sealed record ToolPolicy
 
     /// <summary>A ceiling on approvals by AI reviewers for this tool, per requester (or across everyone); past it, people decide.</summary>
     public RuleBudget? AiBudget { get; init; }
+
+    /// <summary>The AI reviewers assigned to this tool, by name (D-20): the part after <c>ai:</c> that an in-process reviewer runs under. When
+    /// set, only these may decide the tool, and the runner offers them nothing else. Null: any AI reviewer may decide it, as before named
+    /// reviewers existed (D-36). Left out of the canonical policy text when null, so a policy without assignments keeps its hash.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AiReviewers { get; init; }
 
     /// <summary>Conditional refinements (see <see cref="PolicyRule"/>). Not copied into the per-action policy snapshot.</summary>
     public IReadOnlyList<PolicyRule>? Rules { get; init; }

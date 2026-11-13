@@ -32,6 +32,8 @@ public sealed class ReviewerRunner(OpenTailHost host)
         foreach (var action in pending)
         {
             var allowed = action.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either;
+            // D-20: a reviewer is offered only the actions assigned to it. An unassigned action is never shown to it, so no packet is built for it.
+            if (!AiReviewRules.Assigned(action, Subjects.Ai(reviewer.Name))) { skipped++; continue; }
             // Beyond the policy's say-so, the AI limits (risk ceiling, taint, repeated refusals): what an AI may not decide, it never sees.
             if (!allowed || !(await host.Queue.AiVerdictAsync(action, ReviewDecision.Reject, ct: ct)).Allowed) { skipped++; continue; }
 

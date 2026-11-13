@@ -256,6 +256,15 @@ public sealed class PolicyConfig
             if (p.AiMaxRejections < 0) errors.Add($"Tool '{name}': AiMaxRejections cannot be negative.");
             if (p.AiBudget is { } ab && (ab.Per <= TimeSpan.Zero || ab.MaxCount <= 0))
                 errors.Add($"Tool '{name}': AiBudget needs a positive Per and MaxCount.");
+            if (p.AiReviewers is { } assigned)
+            {
+                if (assigned.Count == 0)
+                    errors.Add($"Tool '{name}': AiReviewers needs at least one reviewer name; leave it out to let any AI reviewer decide.");
+                foreach (var reviewer in assigned.Where(n => !AiReviewRules.IsValidReviewerName(n)))
+                    errors.Add($"Tool '{name}': '{reviewer}' is not a valid AI reviewer name (letters, digits, '.', '_' and '-', starting with a letter or digit, at most 64 characters).");
+                if (p.Mode != ToolMode.Queue || p.Reviewer == ReviewerKind.Human)
+                    errors.Add($"Tool '{name}': AiReviewers only applies to Mode Queue with Reviewer Ai or Either.");
+            }
         }
         var seenSubjects = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (person, subjects) in People)

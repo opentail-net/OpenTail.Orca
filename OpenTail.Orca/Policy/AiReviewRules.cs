@@ -17,6 +17,20 @@ public static class AiReviewRules
 
     public static ToolRisk Ceiling(ToolPolicy? policy) => policy?.AiMaxRisk ?? DefaultCeiling;
 
+    private static readonly System.Text.RegularExpressions.Regex ReviewerNamePattern =
+        new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>A name an AI reviewer may be assigned under (D-20): letters, digits, '.', '_' and '-', starting with a letter or digit.</summary>
+    public static bool IsValidReviewerName(string name) => ReviewerNamePattern.IsMatch(name);
+
+    /// <summary>May this AI subject decide this action's tool at all (D-20, D-36)? With no assignment list, any AI reviewer may, as before. With
+    /// one, only the names on it. The queue checks this at the decision, and the runner before the reviewer is shown the action.</summary>
+    public static bool Assigned(ActionRecord r, string aiSubject)
+    {
+        if (r.PolicySnapshot?.AiReviewers is not { } names) return true;
+        return Subjects.IsAi(aiSubject) && names.Contains(aiSubject[3..], StringComparer.Ordinal);
+    }
+
     /// <summary>May an AI reviewer make this decision? <paramref name="risk"/> is null when the tool is no longer loaded (treated as
     /// destructive). <paramref name="history"/> may be null when only the action itself is being judged (whether to offer it at all).</summary>
     public static ReviewVerdict Check(ActionRecord r, ReviewDecision decision, ToolRisk? risk, bool editsArguments, AiReviewHistory? history)

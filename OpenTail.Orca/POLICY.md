@@ -63,6 +63,7 @@ anything; all accept `--modules modules.json`.
 | `AiMaxRisk` | The highest risk an AI reviewer may decide for this tool: `Read`, `Write` (the default) or `ExternalEffect`. `Destructive` is refused: an AI never decides those. |
 | `AiMaxRejections` | After this many AI rejections or change requests along one resubmission chain, the AI may not decide it again (default 2; 0 turns it off). See *AI reviewers* for who may decide then. |
 | `AiBudget` | `{ "Per": "01:00:00", "MaxCount": n, "Scope": "Requester" }`: at most n AI approvals of this tool per requester (or `Global`) in the window; past it, the AI may not approve more in that window. |
+| `AiReviewers` | `["bot", "second"]`: the AI reviewers, by name (the part after `ai:`), that may decide this tool. A reviewer not named may not decide it, and is never shown it. Left out: any AI reviewer may decide it. Needs Mode `Queue` and Reviewer `Ai` or `Either`. |
 | `ExpireAfter` | A pending action that nobody decides in this time expires. It can no longer be approved, even before the sweep notices. |
 | `ReviewerGroup` | Only reviewers carrying this group may decide it. |
 | `RequiredApprovals` | 1-5 distinct approvers. An edit of the arguments voids approvals given before it; one eligible rejection ends the action. |
@@ -403,7 +404,8 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 * approve with edited arguments (it may reject, or ask for changes with a reason);
 * be the second pair of eyes: with `SelfApproval: Forbid` only a person approves;
 * keep deciding a request it has turned down `AiMaxRejections` times along its resubmission chain;
-* approve more than `AiBudget` allows.
+* approve more than `AiBudget` allows;
+* decide a tool it is not named for in `AiReviewers`, when the tool has that list. Such an action is never shown to that reviewer.
 
 The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits.
 Who may decide it then depends on the policy: with `Either` a person may approve it. With `Ai` a person may refuse it but not approve or
