@@ -27,6 +27,8 @@ public sealed class ReviewerRunner(OpenTailHost host)
 {
     public async Task<ReviewerRunReport> RunOnceAsync(IReviewer reviewer, CancellationToken ct = default)
     {
+        // The kill switch (section 5.13): a suspended AI reviewer is offered nothing, so it does not even see the queue.
+        if (host.Levels.Effective(Subjects.Ai(reviewer.Name)) == IdentityLevel.Suspended) return new ReviewerRunReport(0, 0, 0);
         int offered = 0, decided = 0, skipped = 0;
         var pending = await host.Store.QueryAsync(new ActionQuery { Status = ActionStatus.Pending, Limit = int.MaxValue }, ct);
         foreach (var action in pending)

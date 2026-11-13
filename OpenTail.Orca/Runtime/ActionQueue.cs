@@ -403,6 +403,14 @@ public sealed class ActionQueue(
         };
         Func<ActionRecord, ActionRecord> addReview = r => r with { Reviews = [.. r.Reviews, recorded] };
 
+        // The overseer's kill switch for an AI reviewer (D-30, section 5.13): a suspended ai: subject decides nothing, not even a refusal, until a person
+        // clears it. Its suspension is the same as a requester's, set with --suspend.
+        if (review.Subject is { } suspect && Subjects.IsAi(suspect) && levels?.Effective(suspect) == IdentityLevel.Suspended)
+        {
+            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", existing.Id, existing.ToolName, suspect, "reviewer suspended"), ct);
+            throw new UnauthorizedAccessException("This AI reviewer is suspended. A person must clear it before it decides anything.");
+        }
+
         var verdict = ReviewAuthority.Check(existing, review.Decision, review.Subject, review.Groups, policy.People);
         if (!verdict.Allowed)
         {
