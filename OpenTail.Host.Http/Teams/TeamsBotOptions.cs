@@ -22,6 +22,11 @@ public sealed class TeamsBotOptions
     /// <summary>The highest risk that may be decided from Teams; anything above shows only "Open" (decide on the review page).</summary>
     public ToolRisk ChatMaxRisk { get; init; } = ToolRisk.ExternalEffect;
 
+    /// <summary>Whether a partner's reply (<c>a2a.reply</c>) may be approved from Teams. When false, its card has no Approve or Approve with
+    /// changes, an approve click for it is refused with a note that partner replies are approved on the review page, and Reject and request
+    /// changes still work from chat. Other tools are not affected.</summary>
+    public bool ApprovePartnerRepliesInChat { get; init; } = true;
+
     /// <summary>More waiting actions than this for one chat or channel are shown as one digest card.</summary>
     public int DigestThreshold { get; init; } = 3;
 
@@ -47,7 +52,7 @@ public sealed class TeamsBotOptions
     public static string SubjectOf(string objectId) => "teams:" + objectId.ToLowerInvariant();
 
     /// <summary>One line for the startup output: how the bot is set up. It names no secret (the secret is only ever read from the environment).</summary>
-    public string Describe() => $"Teams bot: app {AppId}, tenant {TenantId}, ChatMaxRisk {ChatMaxRisk}, {Reviewers.Count} reviewer(s).";
+    public string Describe() => $"Teams bot: app {AppId}, tenant {TenantId}, ChatMaxRisk {ChatMaxRisk}, ApprovePartnerRepliesInChat {(ApprovePartnerRepliesInChat ? "true" : "false")}, {Reviewers.Count} reviewer(s).";
 }
 
 public sealed class TeamsReviewer

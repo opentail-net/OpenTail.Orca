@@ -25,6 +25,12 @@ public sealed class TeamsBot
     /// <summary>The digest scope a signed <c>back</c> button names (it is not an action id).</summary>
     private const string DigestScope = "digest";
 
+    /// <summary>The A2A reply tool's name, as <c>OpenTail.Host.A2A</c> names it (this project does not reference that one).</summary>
+    private const string PartnerReplyTool = "a2a.reply";
+
+    /// <summary>What a reviewer is told when a partner's reply is not approved from chat.</summary>
+    private const string PartnerReplyNote = "Partner replies are approved on the review page.";
+
     /// <summary>The audit event written when a card cannot be refreshed in chat.</summary>
     internal const string RefreshFailedEvent = "teams_refresh_failed";
 
@@ -225,6 +231,10 @@ public sealed class TeamsBot
                 ? $"{rk} actions are decided on the review page."
                 : "This tool is not loaded, so its risk is unknown: decide it on the review page."));
 
+        // A partner's reply is approved on the review page when the operator has turned chat approval off. Reject and request changes stay.
+        if (verb is "approve" or "edit" && !ChatMayApprove(record))
+            return CardResponse(FullCard(record, convKey, note: PartnerReplyNote));
+
         // B3, on the click as well as on the card: a preview cut on the card cannot be approved, or changed, from it, whatever the button sent.
         if (verb is "approve" or "edit" && PreviewCut(record))
             return CardResponse(FullCard(record, convKey, note: CutNote(_publicBaseUrl is not null)));
@@ -365,6 +375,9 @@ public sealed class TeamsBot
     /// decidable from chat (it counts as the highest).</summary>
     internal static bool ChatMayDecide(ToolRisk? risk, ToolRisk chatMax) => risk is { } r && ChatRank(r) <= ChatRank(chatMax);
 
+    /// <summary>Whether this action may be approved, or edited and approved, from chat. A partner's reply may not, when the switch is off.</summary>
+    private bool ChatMayApprove(ActionRecord r) => _o.ApprovePartnerRepliesInChat || r.ToolName != PartnerReplyTool;
+
     internal static int ChatRank(ToolRisk risk) => risk switch
     {
         ToolRisk.Read => 0,
@@ -445,7 +458,7 @@ public sealed class TeamsBot
         if (delayed) actions.Add(Execute("Stop", "stop", r.Id, convKey, "destructive"));
         var canDecide = r.Status == ActionStatus.Pending && ChatMayDecide(risk, _o.ChatMaxRisk);
         // B3: a preview cut on this card cannot be approved, or changed, from it. Reject and request changes stay: neither sends text out.
-        var approvable = canDecide && !cut;
+        var approvable = canDecide && !cut && ChatMayApprove(r);
         if (approvable && delayed) actions.Add(Execute("Run now", "approve", r.Id, convKey, "positive"));
         else if (canDecide)
         {
@@ -457,6 +470,7 @@ public sealed class TeamsBot
                     ["isMultiline"] = value.Length > 80, ["maxLength"] = 20_000,
                 });
             body.Add(new JsonObject { ["type"] = "Input.Text", ["id"] = "reason", ["label"] = "Reason (needed to reject or request changes)", ["maxLength"] = 1000 });
+            if (!ChatMayApprove(r)) body.Add(Text(PartnerReplyNote, subtle: true));
             if (approvable) actions.Add(Execute("Approve", "approve", r.Id, convKey, "positive"));
             if (approvable && editable.Count > 0)
             {

@@ -93,7 +93,8 @@ public class TeamsBotTests : IAsyncLifetime
 
     private async Task StartAsync(ToolRisk chatMaxRisk = ToolRisk.ExternalEffect, int digest = 3, bool aliceMayDecide = true,
         string mailPolicy = """{ "Mode": "Queue" }""", string route = DefaultRoute, string target = "requester",
-        string aliceTeamsId = Alice, string extraTools = "", IHostModule? extra = null, string reviewerKey = Alice, bool work = false)
+        string aliceTeamsId = Alice, string extraTools = "", IHostModule? extra = null, string reviewerKey = Alice, bool work = false,
+        bool approvePartnerRepliesInChat = true)
     {
         Environment.SetEnvironmentVariable("OTAIL_TEST_BOT_SECRET", "bot-client-secret-value");
         var workSection = work ? "\"Work\": { \"Enabled\": true }," : "";
@@ -102,7 +103,7 @@ public class TeamsBotTests : IAsyncLifetime
         _bot = new TeamsBot(new TeamsBotOptions
         {
             AppId = AppId, TenantId = Tenant, AppPasswordEnv = "OTAIL_TEST_BOT_SECRET", TokenEndpoint = _connector.Server.Origin + "/token",
-            ChatMaxRisk = chatMaxRisk, DigestThreshold = digest,
+            ChatMaxRisk = chatMaxRisk, DigestThreshold = digest, ApprovePartnerRepliesInChat = approvePartnerRepliesInChat,
             // The JSON loader builds this dictionary with the default comparer, so the harness does too.
             Reviewers = aliceMayDecide ? new() { [reviewerKey] = new TeamsReviewer { Name = "alice" } } : new(),
             ConfigureValidation = p => { p.IssuerSigningKey = Key; p.ValidAlgorithms = [SecurityAlgorithms.HmacSha256]; },
@@ -740,5 +741,109 @@ public class TeamsBotTests : IAsyncLifetime
         await Post(Activity("message", Alice, text: "help"));
         Assert.Contains("tasks (a test command)", LastText(), StringComparison.Ordinal);
         Assert.Contains("work (the work items", LastText(), StringComparison.Ordinal);
+    }
+
+    // ---- C1: ApprovePartnerRepliesInChat. A partner's reply (a2a.reply) is approved on the review page when the switch is off ----
+
+    /// <summary>The A2A reply tool's name and risk, with no preview: the switch is about the name, not about what the tool does.</summary>
+    private sealed class PartnerReplyModule : IHostModule
+    {
+        public string Id => "partner-replies";
+        public List<string> Sent { get; } = [];
+
+        public void Register(IToolRegistry registry) =>
+            registry.Add(
+                new ToolDescriptor("a2a.reply", "Reply to a partner.", ToolRisk.ExternalEffect, Id),
+                AIFunctionFactory.Create((string text) => { lock (Sent) Sent.Add(text); return "replied"; }, "a2a.reply", "Reply to a partner."));
+    }
+
+    private const string PartnerReplyPolicy = ", \"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false }";
+
+    private static string[] VerbsOf(JsonNode card) =>
+        card["actions"]!.AsArray().Where(a => a!["verb"] is not null).Select(a => a!["verb"]!.GetValue<string>()).ToArray();
+
+    [Fact]
+    public async Task Partner_replies_keep_their_approve_button_by_default()
+    {
+        var replies = new PartnerReplyModule();
+        await StartAsync(extra: replies, extraTools: PartnerReplyPolicy);
+        await InstallForAlice();
+        var reply = await QueueTool("a2a.reply", "{\"text\":\"Done.\"}");
+        var card = _connector.LastCard();
+        Assert.Equal(["approve", "edit", "request_changes", "reject"], VerbsOf(card));
+
+        var response = await Click(card, "approve");
+        Assert.Contains("Approve by alice", response["value"]!.ToJsonString());
+        Assert.Equal(ActionStatus.Succeeded, (await _host.Store.GetAsync(reply.Id))!.Status);
+        Assert.Equal("Done.", Assert.Single(replies.Sent));
+    }
+
+    [Fact]
+    public async Task With_the_switch_off_a_partner_reply_has_no_approve_button_and_says_where_it_is_approved()
+    {
+        var replies = new PartnerReplyModule();
+        await StartAsync(extra: replies, extraTools: PartnerReplyPolicy, approvePartnerRepliesInChat: false);
+        await InstallForAlice();
+        await QueueTool("a2a.reply", "{\"text\":\"Done.\"}");
+        var card = _connector.LastCard();
+
+        Assert.Equal(["request_changes", "reject"], VerbsOf(card));
+        Assert.Contains("Partner replies are approved on the review page.", card.ToJsonString());
+        Assert.Empty(replies.Sent);
+    }
+
+    [Fact]
+    public async Task With_the_switch_off_an_approve_click_on_a_partner_reply_is_refused_and_nothing_is_sent()
+    {
+        var replies = new PartnerReplyModule();
+        await StartAsync(extra: replies, extraTools: PartnerReplyPolicy, approvePartnerRepliesInChat: false);
+        await InstallForAlice();
+        var reply = await QueueTool("a2a.reply", "{\"text\":\"Done.\"}");
+
+        // Clicks that send approve, or approve with changes, anyway: as a card posted before the switch was turned off would.
+        foreach (var (title, verb) in new[] { ("Approve", "approve"), ("Approve with changes", "edit") })
+        {
+            var stale = new JsonObject { ["actions"] = new JsonArray { _bot.Execute(title, verb, reply.Id, "user:" + Alice) } };
+            var refused = await Click(stale, verb, inputs: d => d["edit.text"] = "Changed text.");
+            Assert.Contains("Partner replies are approved on the review page.", refused.ToJsonString());
+        }
+        Assert.Equal(ActionStatus.Pending, (await _host.Store.GetAsync(reply.Id))!.Status);
+        Assert.Empty(replies.Sent);
+    }
+
+    [Fact]
+    public async Task With_the_switch_off_a_partner_reply_can_still_be_rejected_from_chat()
+    {
+        var replies = new PartnerReplyModule();
+        await StartAsync(extra: replies, extraTools: PartnerReplyPolicy, approvePartnerRepliesInChat: false);
+        await InstallForAlice();
+        var reply = await QueueTool("a2a.reply", "{\"text\":\"Done.\"}");
+
+        var response = await Click(_connector.LastCard(), "reject", inputs: d => d["reason"] = "Not for this partner");
+        Assert.Contains("Reject by alice", response["value"]!.ToJsonString());
+        Assert.Equal(ActionStatus.Rejected, (await _host.Store.GetAsync(reply.Id))!.Status);
+        Assert.Empty(replies.Sent);
+    }
+
+    [Fact]
+    public async Task With_the_switch_off_other_tools_are_still_approved_from_chat()
+    {
+        await StartAsync(extra: new PartnerReplyModule(), extraTools: PartnerReplyPolicy, approvePartnerRepliesInChat: false);
+        await InstallForAlice();
+        var pending = await QueueMail();
+
+        var response = await Click(_connector.LastCard(), "approve");
+        Assert.Contains("Approve by alice", response["value"]!.ToJsonString());
+        Assert.Equal(ActionStatus.Succeeded, (await _host.Store.GetAsync(pending.Id))!.Status);
+        Assert.Single(_mail.Sent);
+    }
+
+    [Fact]
+    public void The_startup_line_names_the_partner_reply_switch_and_the_switch_is_on_by_default()
+    {
+        Assert.True(new TeamsBotOptions { AppId = AppId, TenantId = Tenant }.ApprovePartnerRepliesInChat);
+        Assert.Contains("ApprovePartnerRepliesInChat true", new TeamsBotOptions { AppId = AppId, TenantId = Tenant }.Describe());
+        Assert.Contains("ApprovePartnerRepliesInChat false",
+            new TeamsBotOptions { AppId = AppId, TenantId = Tenant, ApprovePartnerRepliesInChat = false }.Describe());
     }
 }

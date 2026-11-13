@@ -69,6 +69,7 @@ In the HTTP config file:
   "AppPasswordEnv": "TEAMS_BOT_SECRET",
   "TenantId": "<your tenant id>",
   "ChatMaxRisk": "ExternalEffect",
+  "ApprovePartnerRepliesInChat": true,
   "DigestThreshold": 3,
   "Reviewers": {
     "<entra object id of Alice>": { "Name": "alice", "Groups": [ "finance" ] }
@@ -80,6 +81,9 @@ In the HTTP config file:
 * `ChatMaxRisk`: the highest risk Teams may decide. The order is Read, Write, ExternalEffect, Destructive. `ExternalEffect` lets people
   send prepared emails from Teams; `Destructive` actions (deleting, closing) then show only **Open**. A tool the Host does not have loaded
   counts as Destructive. Use `Write` to allow nothing that reaches other people from Teams. **Stop** works on delayed actions at any risk.
+* `ApprovePartnerRepliesInChat` (default `true`): set it to `false` to approve a partner's reply (an `a2a.reply`, the answer to an A2A
+  request) only on the review page. Its card then has no **Approve** or **Approve with changes**, an approve click for it is refused, and
+  **Reject** and **Request changes** still work from Teams. Other tools are not affected.
 
 In the policy file, link each reviewer's Teams identity to their AI agent, so the agent's actions arrive in their chat:
 
@@ -102,7 +106,7 @@ stop made on the review page would leave the card in Teams as it was. A card is 
 Use `"Target": "conversation:channel:<conversation id>"` instead to post to one channel where the app is installed (for a central AI
 whose actions a team reviews).
 
-Restart the Host. On start it prints one line: the app id, the tenant, `ChatMaxRisk` and the number of reviewers (no secrets). A missing
+Restart the Host. On start it prints one line: the app id, the tenant, `ChatMaxRisk`, `ApprovePartnerRepliesInChat` and the number of reviewers (no secrets). A missing
 secret or a malformed section stops it with the reason.
 
 ## 6. Check it works
@@ -148,6 +152,7 @@ secret or a malformed section stops it with the reason.
 | "This card is not valid here." | The card was clicked in another chat than the one it was sent to, or by another person in a personal chat. |
 | "You are not set up to decide from Teams." | The person is not under `Reviewers`. |
 | "… actions are decided on the review page." | The tool's risk is above `ChatMaxRisk`. |
+| No **Approve** on a partner's reply, and "Partner replies are approved on the review page." | `ApprovePartnerRepliesInChat` is `false`. Approve the reply on the review page; Reject works from Teams. |
 | The bot does not answer at all | The messaging endpoint is not reachable over HTTPS, or `AppId` / `TenantId` do not match the Azure Bot. |
 | Buttons stopped working after a change | The bot secret was rotated (see section 7): use the **Open** link to the review page, or wait for new cards. |
 
@@ -156,7 +161,7 @@ secret or a malformed section stops it with the reason.
 The bot is tested against a fake Bot Framework service. The tokens are signed with a **test key** (HS256), not with the keys Bot Framework
 publishes, so the code that fetches and checks those keys is not exercised by the tests. Covered: card delivery, approve, approve with
 changes, request changes, reject, digest, typed `waiting` and `help`, a conversation target, Run now, edits checked by a preview,
-refusals of forged, replayed, foreign and unlisted clicks, the risk limit, a missing secret at start, cards updating after a decision on
+refusals of forged, replayed, foreign and unlisted clicks, the risk limit, the partner-reply switch, a missing secret at start, cards updating after a decision on
 the page, and a failed card update recorded in the audit trail.
 It has **not yet been run in a live Teams tenant**; expect the first live setup to surface details (card rendering on desktop and mobile,
 token specifics). Report them, and they will be fixed.

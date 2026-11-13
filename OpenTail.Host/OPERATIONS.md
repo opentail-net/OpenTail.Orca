@@ -211,7 +211,8 @@ with UnsupportedOperation); no file parts; no continuation of a task.
   up to 400 characters: a longer one is cut, the card says so, and it offers no approve, run now or change from that card. Reject and
   request changes stay. Open shows the whole text on the review page; Open needs `PublicBaseUrl`. The digest and the Teams notification card
   mark a cut line the same way. By default Teams may decide actions up to `ExternalEffect`, so a partner's reply can be approved from Teams;
-  set `ChatMaxRisk` to `Write` to keep replies on the review page.
+  set `ApprovePartnerRepliesInChat` to `false` to approve replies on the review page only (Teams still rejects them and asks for changes).
+  `ChatMaxRisk` set to `Write` also keeps replies off Teams, but it keeps every other ExternalEffect action off Teams too.
 * **Policy example.** The entries an A2A deployment needs; the rest of the policy is unchanged. The inbox profile (here `clerk`) lists
   `work.*` so that it can claim the item it is sent.
 
@@ -293,7 +294,7 @@ step-by-step guide for IT, with the app package script (`scripts/make-teams-app.
 
    ```json
    "Teams": { "AppId": "<bot app id>", "AppPasswordEnv": "TEAMS_BOT_SECRET", "TenantId": "<tenant id>",
-              "ChatMaxRisk": "ExternalEffect", "DigestThreshold": 3,
+              "ChatMaxRisk": "ExternalEffect", "DigestThreshold": 3, "ApprovePartnerRepliesInChat": true,
               "Reviewers": { "<entra object id>": { "Name": "alice", "Groups": [ "finance" ] } } }
    ```
 
@@ -309,6 +310,10 @@ token is valid for this bot and service, the tenant is yours, the user is listed
 action and that chat; then the same rules as on the page apply (groups, required approvals, `SelfApproval`, expiry), and tools above
 `ChatMaxRisk` show only Open. Cards update in place after a decision, wherever it was made. The bot's card signatures derive from its
 secret: rotating the secret invalidates the buttons on older cards (Open still works).
+
+The switch `ApprovePartnerRepliesInChat` (default `true`) takes **Approve** and **Approve with changes** off a partner's reply
+(`a2a.reply`) when set to `false`: its card says the reply is approved on the review page, and an approve click for it is refused.
+Reject and request changes still work from Teams, and other tools are unchanged.
 
 Each waiting action arrives as a card: what will happen, its risk, whether it was held after outside content, and an **Open** button to
 the review page at `PublicBaseUrl/#<action id>`. Nothing can be approved from the card: approving happens on the page, after sign-in, so
