@@ -227,9 +227,14 @@ signing; HTTP+JSON; push and `INPUT_REQUIRED`; outbound calls; partners authenti
 
 Waiting for the owner (the decisions the planner made, and where each is recorded, are in [`docs/briefs/README.md`](../docs/briefs/README.md)):
 
-- Whether `OpenTail.Host.A2A` ships as a package.
-- Whether Teams may approve an `a2a.reply` by default (`ChatMaxRisk` is `ExternalEffect` today).
-- Whether 400 characters is the right limit for a card preview.
+Decided by the owner on 2026-11-13:
+
+- A2A ships inside `OpenTail.Host.Server` (one server for A2A and MCP), not as its own package.
+- Teams may approve a partner reply by default. The switch `ApprovePartnerRepliesInChat` (default `true`) turns that off; it is built and tested (2026-11-13).
+- The 400-character card preview limit is kept.
+
+Waiting for the owner:
+
 - A live check in a real Teams tenant, including whether a bare `@name` in a card becomes a mention.
 - The missing-header rule of `A2A-Version`, and which profiles may use an inbox skill.
 

@@ -39,13 +39,15 @@ Each line gives the decision, where it is recorded, and how to change it.
 7. **An anonymous caller gets 401 for the card with A2A on, and 404 with it off.** Recorded: `a2a.md` section 8 (option c). Change: option
    (a) in `docs/briefs/a2a-reviewer-view.md`. The 401 comes from the default challenge scheme in `HostHttp.cs`.
 8. **A cut Teams preview (over 400 characters) cannot be approved from chat, on the card or on the click.** Recorded: the batch 04 brief,
-   B3; `OPERATIONS.md`. Change: `TeamsBot.CardPreviewMax` and the check in `TeamsBot.InvokeAsync`.
+   B3; `OPERATIONS.md`. Change: `TeamsBot.CardPreviewMax` and the check in `TeamsBot.InvokeAsync`. **Owner accepted 400 on 2026-11-13.**
+9. **A2A ships inside `OpenTail.Host.Server`, not as its own package.** One server hosts A2A and MCP; the server already references
+   `OpenTail.Host.A2A`. Decided by the owner on 2026-11-13. Change: remove that project reference and pack the A2A project separately.
+10. **Teams may approve a partner reply by default.** The switch `ApprovePartnerRepliesInChat` (Teams options, default `true`) turns this
+    off: a reply then waits for the review page. Decided by the owner on 2026-11-13 (default yes). Change: the setting in
+    `TeamsBotOptions.cs`. Status: built and tested on 2026-11-13 (full suite: 1441 total, 0 failed, 32 skipped).
 
 ## Waiting for the owner
 
-- Whether `OpenTail.Host.A2A` ships as a package. The deployment script does not pack it (`scripts/check-host-deployments.ps1`).
-- Whether the default `ChatMaxRisk` (`ExternalEffect`) should let Teams approve `a2a.reply`. It does today; `ChatMaxRisk: Write` stops it.
-- Whether 400 characters is the right card preview limit (`TeamsBot.CardPreviewMax`).
 - A live check in a real Teams tenant: whether a bare `@name` in a card text becomes a mention. The report on B2 is from reading the code.
 - The missing-header rule of `A2A-Version` (checklist C.1: recommended 1.0, owner to confirm).
 - Which profiles may use an inbox skill (checklist C.3).
