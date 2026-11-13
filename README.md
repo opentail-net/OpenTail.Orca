@@ -34,8 +34,7 @@ Releases: tag `host-v<version>`; see [`OpenTail.Orca/PACKAGING.md`](OpenTail.Orc
 
 ## Licence
 
-PolyForm Strict 1.0.0, see [LICENSE-HOST.md](LICENSE-HOST.md), for everything in this repository: noncommercial use only;
-commercial use needs a commercial licence. The Connectivity libraries are under the same licence.
+Proprietary and commercial. Use, copying, modification and distribution need a written commercial licence from OpenTail; see [LICENSE.md](LICENSE.md).
 
 Repository history was restarted on 2026-10-20 and versions reset to 0.0.1. Commit hashes and version numbers in older
 documents refer to the earlier history.

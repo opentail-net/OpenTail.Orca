@@ -133,7 +133,7 @@ The package version and the contract version are separate: packages stay 0.x for
 
 ## Licence
 
-Every package built here carries `LICENSE-HOST.md` (PolyForm Strict 1.0.0) and sets `requireLicenseAcceptance`, set once in
+Every package built here carries `LICENSE.md` (proprietary commercial licence) and sets `requireLicenseAcceptance`, set once in
 `Directory.Build.props`. The Connectivity packages are under the same licence.
 
 ## Before this is usable by someone else

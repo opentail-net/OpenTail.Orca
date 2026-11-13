@@ -29,8 +29,8 @@ This page describes what is implemented today (v4 P1 to P4b). Planned additions 
 
 ## Licence
 
-Profiles in `opentail/profiles`, like Orca and its modules, are licensed under PolyForm Strict 1.0.0 (`opentail/LICENSE-HOST.md`):
-noncommercial use only; commercial use needs a commercial licence. A profile you write yourself is yours to license as you like.
+Profiles in `opentail/profiles`, like Orca and its modules, are licensed under proprietary commercial licence (`opentail/LICENSE.md`):
+a written commercial licence is needed for any use. A profile you write yourself is yours to license as you like.
 
 ## Why profiles
 

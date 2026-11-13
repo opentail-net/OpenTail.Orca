@@ -28,14 +28,14 @@
     <MinVerTagPrefix>host-v</MinVerTagPrefix>
     <MinVerMinimumMajorMinor>0.0</MinVerMinimumMajorMinor>
   </PropertyGroup>
-  <!-- Everything here is licensed under PolyForm Strict 1.0.0 (LICENSE-HOST.md): noncommercial use only, commercial use needs a
-       commercial licence. So are the Connectivity libraries. -->
+  <!-- Everything here is licensed under proprietary commercial licence (LICENSE.md): a written commercial licence from OpenTail is needed for any use.
+       -->
   <PropertyGroup>
-    <PackageLicenseFile>LICENSE-HOST.md</PackageLicenseFile>
+    <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
     <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
   </PropertyGroup>
   <ItemGroup Condition="'$(IsPackable)' != 'false'">
-    <None Include="$(MSBuildThisFileDirectory)LICENSE-HOST.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="$(MSBuildThisFileDirectory)LICENSE.md" Pack="true" PackagePath="\" Visible="false" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="MinVer" PrivateAssets="All" />

@@ -38,7 +38,7 @@ The version is from `Directory.Build.props` (line 3). The upstream README says "
 
 | | |
 |---|---|
-| Repository | `C:\Git\split\opentail-orca` (private, PolyForm Strict) |
+| Repository | `C:\Git\split\opentail-orca` (private, proprietary commercial licence) |
 | Branch and commit | `standard-skill-files`, commit `4b8a8b7`. Uncommitted changes at the time were `docs/design/README.md` and `docs/design/a2a.md` only; no code had changed. |
 
 Line numbers below refer to that commit.
