@@ -25,25 +25,42 @@ public class CharacterisationTests
     };
 
     private static ToolPolicy P(ReviewerKind reviewer = ReviewerKind.Human, SelfApproval self = SelfApproval.Allow,
-        RuleBudget? budget = null, ToolRisk? ceiling = null) =>
-        new() { Mode = ToolMode.Queue, Reviewer = reviewer, SelfApproval = self, AiBudget = budget, AiMaxRisk = ceiling };
+        RuleBudget? budget = null, ToolRisk? ceiling = null, bool refuse = false) =>
+        new() { Mode = ToolMode.Queue, Reviewer = reviewer, SelfApproval = self, AiBudget = budget, AiMaxRisk = ceiling, AiMayRefuse = refuse };
 
     // ---- Table A: ReviewAuthority.Check ----
 
     [Fact]
-    public void A1_an_ai_is_refused_a_human_only_action_whatever_the_decision()
+    public void A1_an_ai_is_refused_an_approval_of_a_human_only_action()
     {
-        var v = ReviewAuthority.Check(Rec(P(ReviewerKind.Human)), ReviewDecision.Reject, "ai:bot", [], NoPeople);
+        var v = ReviewAuthority.Check(Rec(P(ReviewerKind.Human)), ReviewDecision.Approve, "ai:bot", [], NoPeople);
         Assert.False(v.Allowed);
         Assert.Contains("needs a human reviewer", v.Reason);
     }
 
+    // P2 (D-21, D-26): an AI refuses a human-only action only where AiMayRefuse says so. An approval is never allowed.
     [Fact]
-    public void A2_an_ai_is_refused_a_reviewer_group_action_whatever_the_decision()
+    public void A1_an_ai_may_refuse_a_human_only_action_only_where_aimayrefuse_says_so()
     {
-        var v = ReviewAuthority.Check(Rec(P(ReviewerKind.Ai), group: "finance"), ReviewDecision.Reject, "ai:bot", [], NoPeople);
+        Assert.Contains("may not refuse", ReviewAuthority.Check(Rec(P(ReviewerKind.Human)), ReviewDecision.Reject, "ai:bot", [], NoPeople).Reason);
+        Assert.True(ReviewAuthority.Check(Rec(P(ReviewerKind.Human, refuse: true)), ReviewDecision.Reject, "ai:bot", [], NoPeople).Allowed);
+        Assert.True(ReviewAuthority.Check(Rec(P(ReviewerKind.Human, refuse: true)), ReviewDecision.RequestChanges, "ai:bot", [], NoPeople).Allowed);
+        Assert.False(ReviewAuthority.Check(Rec(P(ReviewerKind.Human, refuse: true)), ReviewDecision.Approve, "ai:bot", [], NoPeople).Allowed);
+    }
+
+    [Fact]
+    public void A2_an_ai_is_refused_an_approval_of_a_reviewer_group_action()
+    {
+        var v = ReviewAuthority.Check(Rec(P(ReviewerKind.Ai), group: "finance"), ReviewDecision.Approve, "ai:bot", [], NoPeople);
         Assert.False(v.Allowed);
         Assert.Contains("an AI reviewer cannot stand in", v.Reason);
+    }
+
+    [Fact]
+    public void A2_an_ai_may_refuse_a_reviewer_group_action_where_aimayrefuse_says_so()
+    {
+        Assert.Contains("may not refuse", ReviewAuthority.Check(Rec(P(ReviewerKind.Ai), group: "finance"), ReviewDecision.Reject, "ai:bot", [], NoPeople).Reason);
+        Assert.True(ReviewAuthority.Check(Rec(P(ReviewerKind.Ai, refuse: true), group: "finance"), ReviewDecision.Reject, "ai:bot", [], NoPeople).Allowed);
     }
 
     [Fact]
@@ -119,28 +136,28 @@ public class CharacterisationTests
     // ---- Table B: AiReviewRules.Check ----
 
     [Fact]
-    public void B1_an_ai_never_decides_a_destructive_action_even_to_reject()
+    public void B1_an_ai_never_approves_a_destructive_action_but_may_refuse_it()
     {
-        Assert.Contains("Destructive", AiReviewRules.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Reject, ToolRisk.Destructive, false, null).Reason);
-        Assert.False(AiReviewRules.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Approve, ToolRisk.Destructive, false, null).Allowed);
+        Assert.Contains("Destructive", AiReviewRules.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Approve, ToolRisk.Destructive, false, null).Reason);
+        Assert.True(AiReviewRules.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Reject, ToolRisk.Destructive, false, null).Allowed);
     }
 
     [Fact]
-    public void B2_above_the_default_ceiling_an_ai_may_not_decide_even_to_reject()
+    public void B2_above_the_default_ceiling_an_ai_may_not_approve_but_may_refuse()
     {
         var rec = Rec(P(ReviewerKind.Ai));
-        Assert.False(AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null).Allowed);
-        var reject = AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null);
-        Assert.False(reject.Allowed);
-        Assert.Contains("above what an AI reviewer may decide", reject.Reason);
+        var approve = AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null);
+        Assert.False(approve.Allowed);
+        Assert.Contains("above what an AI reviewer may approve", approve.Reason);
+        Assert.True(AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null).Allowed);
     }
 
     [Fact]
-    public void B3_a_tainted_external_action_is_a_persons_decision_even_when_the_ceiling_allows_it()
+    public void B3_a_tainted_external_action_is_not_approved_by_an_ai_but_may_be_refused()
     {
         var rec = Rec(P(ReviewerKind.Ai, ceiling: ToolRisk.ExternalEffect), tainted: true);
         Assert.Contains("may not decide this", AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null).Reason);
-        Assert.Contains("may not decide this", AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null).Reason);
+        Assert.True(AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null).Allowed);
     }
 
     [Fact]

@@ -60,7 +60,9 @@ anything; all accept `--modules modules.json`.
 |---|---|
 | `Mode` | `Execute` (run now, audited), `Queue` (wait for a reviewer), `Deny`. |
 | `Reviewer` | `Human` (a person decides), `Ai` (an AI decides within its limits; a person may refuse the action but not approve or retry it) or `Either` (an AI or a person may approve). An AI reviewer only ever sees actions handed to it, and can never satisfy a group or count towards several approvals. Its limits are under *AI reviewers* below. |
-| `AiMaxRisk` | The highest risk an AI reviewer may decide for this tool: `Read`, `Write` (the default) or `ExternalEffect`. `Destructive` is refused: an AI never decides those. |
+| `AiMaxRisk` | The highest risk an AI reviewer may approve for this tool: `Read`, `Write` (the default) or `ExternalEffect`. `Destructive` is never approved by an AI. An AI may still refuse a tool above the ceiling, when `AiMayRefuse` says so. |
+| `AiMayRefuse` | `true` lets an AI reviewer refuse this tool's actions: reject, or ask for changes. Off by default. A refusal runs nothing, so it may cross the Human-only and reviewer-group boundaries, and ignores the risk ceiling and taint. An AI never approves across those lines. Needs Mode `Queue`. |
+| `AiRefusalBudget` | `{ "Per": "01:00:00", "MaxCount": n }`: at most n AI refusals of this tool per requester in the window; past it, the AI may not refuse more. Needs `AiMayRefuse`. |
 | `AiMaxRejections` | After this many AI rejections or change requests along one resubmission chain, the AI may not decide it again (default 2; 0 turns it off). See *AI reviewers* for who may decide then. |
 | `AiBudget` | `{ "Per": "01:00:00", "MaxCount": n, "Scope": "Requester" }`: at most n AI approvals of this tool per requester (or `Global`) in the window; past it, the AI may not approve more in that window. |
 | `AiReviewers` | `["bot", "second"]`: the AI reviewers, by name (the part after `ai:`), that may decide this tool. A reviewer not named may not decide it, and is never shown it. Left out: any AI reviewer may decide it. Needs Mode `Queue` and Reviewer `Ai` or `Either`. |
@@ -399,8 +401,8 @@ them. The local stdio operator and in-process callers are never levelled.
 An AI reviewer can be talked into "yes" by the content it reviews (an email that says "approved by finance"). So whatever the policy says,
 an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `ReviewerRunner`) **cannot**:
 
-* decide a `Destructive` action, or anything above the tool's `AiMaxRisk` (default `Write`, so sending mail needs `"AiMaxRisk": "ExternalEffect"`);
-* decide an `ExternalEffect` action whose requester had read outside content (tainted); with `Either` a person may approve it;
+* approve a `Destructive` action, or anything above the tool's `AiMaxRisk` (default `Write`, so sending mail needs `"AiMaxRisk": "ExternalEffect"`). Refusing one is a different matter: see `AiMayRefuse`;
+* approve an `ExternalEffect` action whose requester had read outside content (tainted); with `Either` a person may approve it;
 * approve with edited arguments (it may reject, or ask for changes with a reason);
 * be the second pair of eyes: with `SelfApproval: Forbid` only a person approves;
 * keep deciding a request it has turned down `AiMaxRejections` times along its resubmission chain;

@@ -354,13 +354,31 @@ public sealed class ActionQueue(
         }
     }
 
+    /// <summary>One gate per requester and tool, for AI decisions: they count against the same budgets, so two of them must not both take the last unit
+    /// (F8, F23). It serializes decisions in this process only; sharing the counter across processes is P6.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _aiGates = new(StringComparer.Ordinal);
+
     public async Task<ActionRecord> ReviewAsync(string actionId, ActionReview review, CancellationToken ct = default)
     {
-        var result = await ReviewCoreAsync(actionId, review, ct);
-        // D-29: an AI decision is audited as one, through any channel (the page, the runner, a direct call): the ai: actor and an ai_review event.
-        if (review.Subject is { } ai && Subjects.IsAi(ai))
-            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "ai_review", actionId, result.ToolName, ai, AiReviewRules.AuditDetail(review)), ct);
-        return result;
+        var isAi = review.Subject is { } subject && Subjects.IsAi(subject);
+        SemaphoreSlim? gate = null;
+        if (isAi && await store.GetAsync(actionId, ct) is { } target)
+        {
+            gate = _aiGates.GetOrAdd($"{target.Requester.Id}|{target.ToolName}", _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+        }
+        try
+        {
+            var result = await ReviewCoreAsync(actionId, review, ct);
+            // D-29: an AI decision is audited as one, through any channel (the page, the runner, a direct call): the ai: actor and an ai_review event.
+            if (isAi)
+                await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "ai_review", actionId, result.ToolName, review.Subject, AiReviewRules.AuditDetail(review)), ct);
+            return result;
+        }
+        finally
+        {
+            gate?.Release();
+        }
     }
 
     /// <summary>The actor an approval is recorded under: an AI reviewer's <c>ai:</c> subject, never its bare name (which a person could share).</summary>
@@ -546,9 +564,13 @@ public sealed class ActionQueue(
                 LeftPending(done);
                 HostTelemetry.Count(done);
                 await Publish(next == ActionStatus.Rejected ? ActionEventKind.Rejected : ActionEventKind.ChangesRequested, done, null, ct);
-                if (trust is not null) await trust.DemoteIfFailedAsync(done, ct);
-                if (levels is not null && next == ActionStatus.Rejected && done.Requester.Kind == RequesterKind.AiSession)
-                    await levels.RejectedAsync(done.Requester.Id, done.Id, done.ToolName, ct);
+                // D-27 (P2): a refusal by an AI reviewer costs the requester nothing: no trust demotion, no identity level. A person's refusal is as before.
+                if (!(review.Subject is { } refuser && Subjects.IsAi(refuser)))
+                {
+                    if (trust is not null) await trust.DemoteIfFailedAsync(done, ct);
+                    if (levels is not null && next == ActionStatus.Rejected && done.Requester.Kind == RequesterKind.AiSession)
+                        await levels.RejectedAsync(done.Requester.Id, done.Id, done.ToolName, ct);
+                }
                 return done;
             }
             default:
@@ -593,7 +615,21 @@ public sealed class ActionQueue(
             }, ct);
             approvals = recent.Sum(a => a.Reviews.Count(v => AiReviewRules.IsAiApproval(v) && v.At >= since));
         }
-        return new AiReviewHistory(refusals, approvals);
+        // D-21 and D-31 (P2): this requester's refusals of this tool by AI reviewers within the refusal budget's window.
+        var refusedInWindow = 0;
+        if (r.PolicySnapshot?.AiRefusalBudget is { MaxCount: > 0 } refusalBudget)
+        {
+            var since = _clock.GetUtcNow() - refusalBudget.Per;
+            var recent = await store.QueryAsync(new ActionQuery
+            {
+                ToolName = r.ToolName,
+                RequesterId = r.Requester.Id,
+                UpdatedSince = since,
+                Limit = int.MaxValue,
+            }, ct);
+            refusedInWindow = recent.Sum(a => a.Reviews.Count(v => AiReviewRules.IsAiRefusal(v) && v.At >= since));
+        }
+        return new AiReviewHistory(refusals, approvals, refusedInWindow);
     }
 
     public async Task<ActionRecord> CancelAsync(string actionId, ActionRequester requester, CancellationToken ct = default)

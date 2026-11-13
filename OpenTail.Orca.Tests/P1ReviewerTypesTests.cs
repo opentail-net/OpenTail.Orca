@@ -65,8 +65,9 @@ public class P1ReviewerTypesTests
 
     // ---- D-20 and D-36: named AI reviewers and their assignments ----
 
-    private static string Assigned(string reviewer, string names) =>
-        "{ \"Tools\": { \"mail.send\": { \"Mode\": \"Queue\", \"Reviewer\": \"" + reviewer + "\", \"AiMaxRisk\": \"ExternalEffect\", \"AiReviewers\": [" + names + "] } } }";
+    private static string Assigned(string reviewer, string names, bool refuse = false) =>
+        "{ \"Tools\": { \"mail.send\": { \"Mode\": \"Queue\", \"Reviewer\": \"" + reviewer + "\", \"AiMaxRisk\": \"ExternalEffect\", " +
+        (refuse ? "\"AiMayRefuse\": true, " : "") + "\"AiReviewers\": [" + names + "] } } }";
 
     private static ActionReview AiDecides(string name, ReviewDecision d = ReviewDecision.Approve) =>
         new(name, d, d is ReviewDecision.Approve ? null : "not this one", DateTimeOffset.UtcNow) { Subject = Subjects.Ai(name) };
@@ -74,7 +75,7 @@ public class P1ReviewerTypesTests
     [Fact]
     public async Task An_ai_reviewer_not_assigned_to_the_tool_cannot_decide_it_even_to_reject()
     {
-        var (host, module, audit) = Hosts.Build(Assigned("Ai", "\"bot\""));
+        var (host, module, audit) = Hosts.Build(Assigned("Ai", "\"bot\"", refuse: true));
         var mail = await Submit(host);
 
         foreach (var d in new[] { ReviewDecision.Approve, ReviewDecision.Reject })
@@ -168,7 +169,7 @@ public class P1ReviewerTypesTests
     [Fact]
     public async Task An_ai_reviewer_may_not_approve_a_request_from_its_own_identity_or_person_but_may_refuse_it()
     {
-        var (host, module, _) = Hosts.Build("""{ "People": { "owner": ["ai:bot", "key:bot-agent"] }, "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" } } }""");
+        var (host, module, _) = Hosts.Build("""{ "People": { "owner": ["ai:bot", "key:bot-agent"] }, "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
         // A session is owned by whoever started it, so each requester starts its own.
         var fromItself = await host.Queue.SubmitAsync(new ActionRequest("mail.send", Mail,
             new ActionRequester(RequesterKind.AiSession, "ai:bot"), host.Sessions.Start("ai:bot")));

@@ -256,6 +256,12 @@ public sealed class PolicyConfig
             if (p.AiMaxRejections < 0) errors.Add($"Tool '{name}': AiMaxRejections cannot be negative.");
             if (p.AiBudget is { } ab && (ab.Per <= TimeSpan.Zero || ab.MaxCount <= 0))
                 errors.Add($"Tool '{name}': AiBudget needs a positive Per and MaxCount.");
+            if (p.AiMayRefuse && p.Mode != ToolMode.Queue)
+                errors.Add($"Tool '{name}': AiMayRefuse only applies to Mode Queue (a refusal is of a queued action).");
+            if (p.AiRefusalBudget is { } rb && (rb.Per <= TimeSpan.Zero || rb.MaxCount <= 0))
+                errors.Add($"Tool '{name}': AiRefusalBudget needs a positive Per and MaxCount.");
+            if (p.AiRefusalBudget is not null && !p.AiMayRefuse)
+                errors.Add($"Tool '{name}': AiRefusalBudget only applies with AiMayRefuse.");
             if (p.AiReviewers is { } assigned)
             {
                 if (assigned.Count == 0)

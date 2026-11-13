@@ -1,7 +1,7 @@
 namespace OpenTail.Orca;
 
 /// <summary>What an AI reviewer counts, gathered by the queue: the inputs to <see cref="AiReviewRules.Check"/> that need the store.</summary>
-public sealed record AiReviewHistory(int AiRejectionsInChain, int AiApprovalsInWindow);
+public sealed record AiReviewHistory(int AiRejectionsInChain, int AiApprovalsInWindow, int AiRefusalsInWindow = 0);
 
 /// <summary>
 /// The limits on an AI reviewer (v6 R1), on top of <see cref="ReviewAuthority"/>. An AI reviewer can be talked into "yes", so what it may
@@ -34,7 +34,7 @@ public static class AiReviewRules
     /// <summary>Is this action offered to this AI reviewer at all (D-20, D-30): its policy lets an AI decide, and the action is assigned to it?
     /// The runner, the list and the read all use this, so they agree on what an AI reviewer sees.</summary>
     public static bool Offered(ActionRecord r, string aiSubject) =>
-        (r.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either) && Assigned(r, aiSubject);
+        ((r.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either) || r.PolicySnapshot?.AiMayRefuse == true) && Assigned(r, aiSubject);
 
     /// <summary>The audit line for an AI decision (D-29): what decided and under which instructions. The checks themselves stay on the stored
     /// review: they are the model's words and may quote arguments, which the audit trail never holds.</summary>
@@ -49,17 +49,24 @@ public static class AiReviewRules
     {
         var policy = r.PolicySnapshot;
         var effective = risk ?? ToolRisk.Destructive;
+        // F20, D-2, D-3 (P2): the Destructive ban, the risk ceiling and the taint rule stop an AI approving. They do not stop it refusing,
+        // because a refusal runs nothing.
+        var approval = decision is ReviewDecision.Approve or ReviewDecision.Retry;
 
-        if (effective == ToolRisk.Destructive)
-            return ReviewVerdict.No("Destructive actions are never decided by an AI reviewer.");
-        if (Rank(effective) > Rank(Ceiling(policy)))
-            return ReviewVerdict.No($"{effective} actions of this tool are above what an AI reviewer may decide (AiMaxRisk {Ceiling(policy)}).");
-        if (r.Tainted && effective == ToolRisk.ExternalEffect)
+        if (approval && effective == ToolRisk.Destructive)
+            return ReviewVerdict.No("Destructive actions are never approved by an AI reviewer.");
+        if (approval && Rank(effective) > Rank(Ceiling(policy)))
+            return ReviewVerdict.No($"{effective} actions of this tool are above what an AI reviewer may approve (AiMaxRisk {Ceiling(policy)}).");
+        if (approval && r.Tainted && effective == ToolRisk.ExternalEffect)
             return ReviewVerdict.No("The requester had read outside content before asking, so an AI reviewer may not decide this.");
 
         var max = policy?.AiMaxRejections ?? 2;
         if (history is not null && max > 0 && history.AiRejectionsInChain >= max)
             return ReviewVerdict.No($"An AI reviewer has turned this request down {history.AiRejectionsInChain} times, so it may not decide it again.");
+
+        // D-21 and D-31 (P2): a refusal budget per requester and tool. Past it, the AI may not refuse more in the window; a person decides.
+        if (!approval && history is not null && policy?.AiRefusalBudget is { MaxCount: > 0 } refusals && history.AiRefusalsInWindow >= refusals.MaxCount)
+            return ReviewVerdict.No($"An AI reviewer has refused {history.AiRefusalsInWindow} of this requester's requests for this tool within {refusals.Per}; it may not refuse more in this window.");
 
         if (decision is ReviewDecision.Approve or ReviewDecision.Retry)
         {

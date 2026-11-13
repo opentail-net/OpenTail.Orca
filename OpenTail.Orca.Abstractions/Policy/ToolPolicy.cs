@@ -103,6 +103,17 @@ public sealed record ToolPolicy
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? AiReviewers { get; init; }
 
+    /// <summary>May an AI reviewer refuse this tool's actions (reject, or ask for changes)? Off by default (D-21). A refusal runs nothing, so it may
+    /// cross the Human-only and reviewer-group boundaries (D-26), and the risk ceiling and taint rules do not stop it (D-2, D-3). An approval never
+    /// does. Left out of the canonical policy text when false, so a policy without it keeps its hash.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AiMayRefuse { get; init; }
+
+    /// <summary>How many refusals an AI reviewer may make per requester and tool in the window (D-21, D-31). Past it, the AI may not refuse more; a
+    /// person decides. Needs <see cref="AiMayRefuse"/>. Left out of the canonical policy text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public RuleBudget? AiRefusalBudget { get; init; }
+
     /// <summary>Conditional refinements (see <see cref="PolicyRule"/>). Not copied into the per-action policy snapshot.</summary>
     public IReadOnlyList<PolicyRule>? Rules { get; init; }
 

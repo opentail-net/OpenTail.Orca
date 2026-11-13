@@ -33,13 +33,13 @@ public class AiReviewLimitsTests
             "files.delete": { "Mode": "Queue", "Reviewer": "Ai" }
             """));
         var mail = await Submit(host, "mail.send", Mail);
-        Assert.Contains("above what an AI reviewer may decide", await Refused(host, mail.Id, Ai()));
-        Assert.Contains("above what an AI reviewer may decide", await Refused(host, mail.Id, Ai(ReviewDecision.Reject)));  // not even to reject
+        Assert.Contains("above what an AI reviewer may approve", await Refused(host, mail.Id, Ai()));
+        Assert.Contains("may not refuse", await Refused(host, mail.Id, Ai(ReviewDecision.Reject)));  // and without AiMayRefuse, not even to reject (P2, D-21)
         Assert.Equal(0, module.SendCalls);
         Assert.Contains(audit.Entries, e => e.Event == "review_refused" && e.ActionId == mail.Id);
 
         var delete = await Submit(host, "files.delete", """{"path":"x"}""");
-        Assert.Contains("never decided by an AI", await Refused(host, delete.Id, Ai()));
+        Assert.Contains("never approved by an AI", await Refused(host, delete.Id, Ai()));
 
         var (host2, module2, _) = Hosts.Build(Policy("""
             "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" }
@@ -78,7 +78,7 @@ public class AiReviewLimitsTests
     public async Task An_ai_cannot_approve_with_edits_but_can_ask_for_changes()
     {
         var (host, module, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true }
             """));
         var a = await Submit(host, "mail.send", Mail);
         Assert.Contains("cannot change the arguments", await Refused(host, a.Id, Ai(edited: """{"to":"boss@y.z","body":"b"}""")));
@@ -90,7 +90,7 @@ public class AiReviewLimitsTests
     public async Task An_ai_is_never_the_second_pair_of_eyes()
     {
         var (host, _, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect", "SelfApproval": "Forbid" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect", "SelfApproval": "Forbid", "AiMayRefuse": true }
             """));
         var a = await Submit(host, "mail.send", Mail);
         Assert.Contains("four eyes", await Refused(host, a.Id, Ai()));
@@ -101,7 +101,7 @@ public class AiReviewLimitsTests
     public async Task After_two_ai_refusals_in_a_resubmission_chain_only_a_person_decides()
     {
         var (host, module, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true }
             """));
         var first = await Submit(host, "mail.send", Mail);
         await host.Queue.ReviewAsync(first.Id, Ai(ReviewDecision.RequestChanges));

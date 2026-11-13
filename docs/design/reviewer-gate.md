@@ -73,8 +73,8 @@ The first review asked three questions. Version 3 answers them, and the second r
 
 | Row | Condition | Result | Audit |
 |---|---|---|---|
-| A1 | AI subject, `Reviewer = Human` | Refused, **any decision** | `review_refused` |
-| A2 | `ReviewerGroup` set, AI subject | Refused, **any decision** | `review_refused` |
+| A1 | AI subject, `Reviewer = Human` | Approve or Retry refused. Reject or Request changes allowed only where `AiMayRefuse` is set (P2, D-21, D-26). | `review_refused` |
+| A2 | `ReviewerGroup` set, AI subject | Approve or Retry refused. Reject or Request changes allowed only where `AiMayRefuse` is set (P2, D-26). | `review_refused` |
 | A3 | `ReviewerGroup` set, subject not in the group | Refused | `review_refused` |
 | A4 | Approve or Retry, `SelfApproval = Forbid`, subject unknown | Refused | `review_refused` |
 | A5 | Approve or Retry, `Forbid`, subject is the requester's person (`People`) | Refused: cannot approve own | `review_refused` |
@@ -89,10 +89,11 @@ The first review asked three questions. Version 3 answers them, and the second r
 
 | Row | Condition | Result |
 |---|---|---|
-| B1 | Effective risk Destructive, or the tool is no longer loaded | Refused, **any decision** (the early check applies to refusals too; see F20) |
-| B2 | Risk above the ceiling (`AiMaxRisk`, default Write) | Refused, **any decision**, including reject (F3) |
-| B3 | Action tainted and risk ExternalEffect | Refused, **any decision**, including reject (F2) |
+| B1 | Effective risk Destructive, or the tool is no longer loaded | Approve or Retry refused (P2, F20). Refusals are not affected. |
+| B2 | Risk above the ceiling (`AiMaxRisk`, default Write) | Approve or Retry refused (P2, D-3). Refusals are not affected. |
+| B3 | Action tainted and risk ExternalEffect | Approve or Retry refused (P2, D-2 option B). Refusals are not affected. |
 | B4 | Refusals in the chain at or above `AiMaxRejections` (default 2; 0 turns it off) | Refused, **any decision**, including reject |
+| B9 (P2, D-21, D-31) | Refusals in the window at or above `AiRefusalBudget` for this requester and tool; refusals only | Refused. Built with a per-process gate (F23); the shared counter is P6. |
 | B5 | Approve or Retry with edited arguments | Refused |
 | B6 | Approve or Retry, `SelfApproval = Forbid` | Refused |
 | B7 | Approve or Retry, `AiBudget` used up in its window | Refused |
@@ -370,6 +371,7 @@ Order: the review's order, with V6's R5 and R2 placed where they depend on it. E
 - AI history on the review page, labelled as AI (5.2, D-29). Acceptance: the review page shows reviewer, model and prompt version on an AI decision (if not already true, this is a feature to build).
 
 **P2. Decision-aware refusals (blocking)**
+*Status, 2026-11-13: built on branch `p2-refusals` (one commit). Done: `AiMayRefuse` (per tool, default off) and `AiRefusalBudget` (per requester and tool); A1, A2, B1 to B3 made decision-aware; B9; the runner offers an AI what it may approve or refuse (F17); no penalty for an AI refusal (D-27, F19); the refusal budget and the approval budget are serialized per requester and tool by a gate in the queue (F23, in-process only). Tests: `P2RefusalTests` (10, including two concurrent refusals against one remaining unit) and changed pins in `CharacterisationTests` and `AiReviewLimitsTests`. **Not verified by test:** the A2A reply's startup check accepts an AI refusal (`A2AFrontDoor` refuses only a non-Human reply reviewer and does not look at `AiMayRefuse`, so it does not block it). The shared counter across processes is P6.*
 - `AiMayRefuse` and `AiRefusalBudget` (D-21). `ReviewAuthority` and `AiReviewRules` change together (5.4, F12). `ReviewerRunner` line 35 changes (F17).
 - Destructive ban scoped to approvals (F20). Acceptance: an AI refuses a Destructive action; an AI cannot approve it.
 - The refusal budget is atomic (5.8, F23). Acceptance: two concurrent refusals against one remaining unit yield exactly one refusal.
@@ -482,7 +484,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-36 | Who may decide an AI tool that has no assignment list (the D-20 migration) | (a) any AI reviewer, as before; (b) nobody until assigned | **(a), as built.** An `AiReviewers` list binds once set. A startup warning for an AI tool with no list is not built. |
 | D-37 | An AI reviewer approving a request from its own identity or its own person (four eyes for AI) | (a) refuse approval only, refusals unaffected; (b) refuse every decision; (c) allow | **(a), as built (A9).** A refusal runs nothing, so it is not restricted. |
 
-**Status of the other defaults (2026-11-13, autonomous loop).** D-19, D-28 and D-35 are implemented in P1 slice 1. D-20 and D-36 are implemented in P1 slice 2, boundaries 2 and 3. D-37 is implemented in P1 slice 3. D-30 and boundary 1 are implemented in P1 slice 4. D-29 (AI label on the review page) is implemented in P1 slice 5. D-26 and D-27 are accepted and built in P2 with `AiMayRefuse`. D-21 to D-25 and D-31 belong to later phases and are unchanged.
+**Status of the other defaults (2026-11-13, autonomous loop).** D-19, D-28 and D-35 are implemented in P1 slice 1. D-20 and D-36 are implemented in P1 slice 2, boundaries 2 and 3. D-37 is implemented in P1 slice 3. D-30 and boundary 1 are implemented in P1 slice 4. D-29 (AI label on the review page) is implemented in P1 slice 5. D-2, D-3, D-21, D-26, D-27, D-31 are implemented in P2 (branch `p2-refusals`). D-22 to D-25 belong to later phases and are unchanged.
 
 ## 10. Not verified
 
@@ -511,6 +513,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | P1 slice 4 (branch `p1-ai-credential`) | 2026-11-13 | Boundary 1 and D-30. `AiReviewRules.Offered` (the policy lets an AI decide, and the action is assigned to it), used by the runner, the list, the read and the decision. The standalone server and the hosted server accept an AI reviewer's secret, held as a hash (`AdminOptions.AiReviewers`; `HostHttpOptions.AiReviewers` in the HTTP config). The identity is `ai:<name>` with the review role only. `AdminEndpoints`: an endpoint filter refuses an AI identity every route but three (`AllowAiReviewer`); an unoffered action is not found. `--new-ai-reviewer <name>` issues a secret once. `AiReviewerCredentialTests`: eight tests (list and read, decision, not offered, refused routes, wrong secret and hash-as-secret, admin unchanged, startup validation, hosted role). Full Orca test project: 1384 passed, 0 failed. **Not done:** the list applies its row limit before the AI filter, so an AI may see fewer rows than the limit; the AI label on the review page (D-29). |
 | P1 slice 5 (branch `p1-ai-label`) | 2026-11-13 | D-29. `ActionQueue.ReviewAsync` is now a wrapper: it audits every AI decision as `ai_review` under its `ai:` subject, whichever channel brought it (the runner no longer writes its own copy). An approval, retry or rejection by an AI records `ai:<name>` as its actor detail, not the bare name. The review detail carries `byAi`, `aiModel`, `aiPromptVersion` and `aiChecks`; the review endpoint takes them from an AI reviewer's body (its claims, clipped). The page prints "AI decision by …" with the model, the prompt version and the checks. `P1ReviewerTypesTests`: queue audit and one runner line. `AiReviewerCredentialTests`: HTTP fields and the page label. Full Orca test project: 1387 passed, 0 failed. Not checked in a browser. |
 | P1 slice 6 (branch `p1-hosted-tests`) | 2026-11-13 | The two P1 acceptance tests that remained: `HttpTests.An_ai_reviewer_secret_cannot_call_tools_and_an_agent_key_cannot_review`. An AI secret gets 403 at `/mcp` (review role only); an agent key gets 403 or 401 at `/api` (tools only); the AI secret still reaches `/api/actions`. The fixture now carries one AI reviewer. Full Orca test project: 1388 passed, 0 failed. **P1 is complete against its acceptance criteria.** |
+| P2 (branch `p2-refusals`) | 2026-11-13 | Decision-aware refusals (D-21, D-26, D-27, D-31, F20, F23). `ToolPolicy.AiMayRefuse` (default off; serialized only when set) and `AiRefusalBudget` (per requester and tool; serialized only when set). `ReviewAuthority`: an AI refuses (Reject or Request changes) only with `AiMayRefuse`, across the Human-only and group boundaries; an approval never crosses them. `AiReviewRules`: the Destructive ban, the ceiling and the taint rule stop approvals only; the refusal budget is B9. `ActionQueue`: an AI refusal does not demote trust or raise the requester's level; AI decisions about one requester and tool are serialized in-process by a gate (the budgets are checked and written under it). `ReviewerRunner` offers an AI only what it may approve or refuse. Validation: AiMayRefuse only on Queue tools; AiRefusalBudget needs positive values and AiMayRefuse. Changed pins: `CharacterisationTests` A1, A2, B1 to B3 (new expectations, plus refusal cases); `AiReviewLimitsTests` (refusal messages, policies that refuse). New: `P2RefusalTests` (10). Full Orca test project: 1402 passed, 0 failed. **Not done:** the A2A reply's startup check is not tested against `AiMayRefuse`; the cross-process counter is P6. |
 | Gate plan, version 3 | 2026-11-13 | Revised after the second external review; moved into `OpenTail.Orca`. Teams sentence in `OPERATIONS.md` corrected. No code changed. |
 
 ## 12. Self-review of this revision

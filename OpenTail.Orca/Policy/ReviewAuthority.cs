@@ -53,10 +53,20 @@ public static class ReviewAuthority
     {
         var policy = r.PolicySnapshot;
         var isAi = subject is not null && Subjects.IsAi(subject);
+        var refusal = IsRefusal(decision);
 
-        // A non-human reviewer only ever decides what the policy handed to it.
-        if (isAi && policy is not null && policy.Reviewer == ReviewerKind.Human)
-            return ReviewVerdict.No("This action needs a human reviewer.");
+        // A non-human reviewer decides what the policy hands it: approvals under the rules below, and refusals where AiMayRefuse says so.
+        if (isAi)
+        {
+            // D-21 (P2): an AI refuses only where the policy says AiMayRefuse. Without a snapshot the AI limits refuse it anyway (D-34).
+            if (refusal && policy is not null && !policy.AiMayRefuse)
+                return ReviewVerdict.No("An AI reviewer may not refuse this action: its policy does not say AiMayRefuse.");
+            // D-26 (P2): a refusal may cross the Human-only and reviewer-group boundaries; an approval never does (rows A1 and A2).
+            if (!refusal && policy is not null && policy.Reviewer == ReviewerKind.Human)
+                return ReviewVerdict.No("This action needs a human reviewer.");
+            if (!refusal && r.ReviewerGroup is { } reviewerGroup)
+                return ReviewVerdict.No($"This action needs a reviewer in the '{reviewerGroup}' group; an AI reviewer cannot stand in.");
+        }
 
         // D-19 (P1): an `Ai` action is decided by an AI reviewer. A person may refuse it (reject or ask for changes) but not approve or retry
         // it; `Either` is the policy that lets a person approve. An unknown identity counts as a person here: it is refused.
@@ -69,11 +79,9 @@ public static class ReviewAuthority
             && (subject == r.Requester.Id || people.Same(subject, r.Requester.Id)))
             return ReviewVerdict.No("An AI reviewer may not approve a request from its own identity or its own person.");
 
-        if (r.ReviewerGroup is { } group)
-        {
-            if (isAi) return ReviewVerdict.No($"This action needs a reviewer in the '{group}' group; an AI reviewer cannot stand in.");
-            if (!groups.Contains(group, StringComparer.Ordinal)) return ReviewVerdict.No($"Only reviewers in the '{group}' group may decide this action.");
-        }
+        // A person outside the group is refused, whatever the decision. (An AI never stands in a group for an approval: above.)
+        if (!isAi && r.ReviewerGroup is { } group && !groups.Contains(group, StringComparer.Ordinal))
+            return ReviewVerdict.No($"Only reviewers in the '{group}' group may decide this action.");
 
         if (decision is ReviewDecision.Approve or ReviewDecision.Retry)
         {
@@ -89,6 +97,9 @@ public static class ReviewAuthority
 
         return ReviewVerdict.Yes;
     }
+
+    /// <summary>Is this decision a refusal (reject or ask for changes) rather than an approval? Refusals run nothing (D-21, D-26).</summary>
+    public static bool IsRefusal(ReviewDecision decision) => decision is ReviewDecision.Reject or ReviewDecision.RequestChanges;
 
     /// <summary>Distinct approvals the action has right now (since the last edit of its arguments).</summary>
     public static int Approvals(ActionRecord r, PeopleMap people)

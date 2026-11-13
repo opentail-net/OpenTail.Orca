@@ -34,8 +34,13 @@ public sealed class ReviewerRunner(OpenTailHost host)
             // D-20 and D-30: a reviewer is offered only the actions its policy lets an AI decide and that are assigned to it. An action it is not
             // offered is never shown to it, so no packet is built for it.
             if (!AiReviewRules.Offered(action, Subjects.Ai(reviewer.Name))) { skipped++; continue; }
-            // Beyond the policy's say-so, the AI limits (risk ceiling, taint, repeated refusals): what an AI may not decide, it never sees.
-            if (!(await host.Queue.AiVerdictAsync(action, ReviewDecision.Reject, ct: ct)).Allowed) { skipped++; continue; }
+            // Beyond the policy's say-so, the AI limits decide what it may do: an approval (the AI-decided policy, and the limits on approvals) or a
+            // refusal (AiMayRefuse, and the refusal limits). An action it may do neither is never shown to it (D-21, F17).
+            var approvable = action.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either
+                && (await host.Queue.AiVerdictAsync(action, ReviewDecision.Approve, ct: ct)).Allowed;
+            var refusable = action.PolicySnapshot?.AiMayRefuse == true
+                && (await host.Queue.AiVerdictAsync(action, ReviewDecision.Reject, ct: ct)).Allowed;
+            if (!approvable && !refusable) { skipped++; continue; }
 
             offered++;
             ActionReview? decision;
