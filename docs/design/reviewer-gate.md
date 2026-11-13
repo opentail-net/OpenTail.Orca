@@ -88,7 +88,7 @@ under a gate per requester and tool, inside one process. Across processes they c
 | Approve, enough approvals, no `ApproveDelay` | Approved and run at once |
 | Approve, enough approvals, `ApproveDelay` set | Stays pending with a run time (`approval_scheduled`); the sweep runs it |
 | Approve of a run already scheduled by an approval | Refused. Stop it to cancel the run. |
-| Retry | Runs again only if `RetryRules` allows: the failure is retryable; an AI only on a tool idempotent by key; an unknown outcome on other tools only by a person who gives a reason (D-32) |
+| Retry | Runs again only if `RetryRules` allows: the failure is retryable; an AI only on a tool idempotent by key; an unknown outcome on other tools only by a person who gives a reason. Nothing limits how many times (D-32). |
 | Reject, Request changes | Rejected or sent back. A person's rejection can demote trust and raise the requester's level. An AI's does neither (D-27). |
 
 Every AI decision is audited as `ai_review` under its `ai:` subject, whichever channel brought it.
@@ -181,8 +181,18 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 ### Open: needs a decision first (section 4)
 
 - [ ] **G2.** AI refusals on `Ai` and `Either` tools: keep the one switch, or allow them without it.
-- [ ] **D-36.** Make a missing reviewer list an error once more than one AI reviewer is configured.
-- [ ] **D-32.** Replace "any reason" with a named confirmation for retrying an unknown outcome.
+- [ ] **D-36. A default reviewer list** (owner's direction, 2026-11-13; the details below wait for a yes).
+  - [ ] `DefaultAiReviewers` at the top of the policy: the reviewers for every AI-decidable tool that has no `AiReviewers` of its own. Part of the policy hash.
+  - [ ] A tool's own list replaces the default; it does not add to it.
+  - [ ] With no default and no list: nobody, and startup refuses the policy when two or more AI reviewers are configured. With exactly one configured reviewer, it is the default (so today's single-reviewer policies keep working).
+  - [ ] The no-list warning goes away; `--explain` shows which list applied.
+  - [ ] Tests: default applies; tool list overrides; two reviewers and no default is refused at startup.
+- [ ] **D-32. Retry of an unknown outcome becomes a setting** (owner's direction, 2026-11-13; the details below wait for a yes).
+  - [ ] `UnknownOutcomeRetry` per tool, with a policy-wide default: `Never` (the failures design), `Once`, or `WithReason` (as built).
+  - [ ] `Once`: a person may retry it one time, with a reason; a second unknown outcome on the same action is final.
+  - [ ] It applies to people. An AI still retries only a tool that is idempotent by key, and a tool that is idempotent by key is not limited by the setting.
+  - [ ] `failures-and-inspection.md` and `POLICY.md` say the same thing as the code.
+  - [ ] Tests: each value, by a person, by an AI and through HTTP.
 - [ ] **G4.** An audited "run now" for a scheduled approval, or strike it from the design.
 - [ ] **G7 / D-12.** Whether `ApproveDelay` is allowed on irreversible tools.
 - [ ] **D-28.** Give `Ai` and `Either` different meanings, or drop one.
@@ -217,8 +227,8 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 
 - [ ] **G2.** Before P2 an AI could reject what it could approve. Now it needs `AiMayRefuse`. Keep, or change?
 - [ ] **D-28.** What `Ai` and `Either` should mean, now that a person may decide both.
-- [ ] **D-36.** Open by default when a tool has no reviewer list. Recommended: an error once there are two or more reviewers.
-- [ ] **D-32.** Is a free-text reason enough to retry an unknown outcome? The failures design says never.
+- [ ] **D-36.** The owner's direction (2026-11-13): a default reviewer is specified, so a tool with no list is not open to every reviewer. To confirm: the shape in section 3 (`DefaultAiReviewers`; a tool's list replaces it; a single configured reviewer is the default; otherwise a missing default is a startup error).
+- [ ] **D-32.** The owner's direction (2026-11-13): make it a setting, with "never" as one option. To confirm: the default. **As built there is no limit on the number of retries**: a person may retry an unknown outcome every time it happens, with any reason. "Once" would be a new, stricter default. Recommended: `Once` as the default, `Never` for Destructive tools.
 - [ ] **D-39.** Which AI approvals need a person, and when. Must be written down before any live use.
 - [ ] **D-12.** "Yes, with undo" on irreversible actions. Recommended: reversible only.
 - [ ] **D-9.** Measurement before authority. Recommended: decide directly for named low-risk tools, with sampling and demotion
