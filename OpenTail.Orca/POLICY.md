@@ -59,7 +59,7 @@ anything; all accept `--modules modules.json`.
 | Setting | Meaning |
 |---|---|
 | `Mode` | `Execute` (run now, audited), `Queue` (wait for a reviewer), `Deny`. |
-| `Reviewer` | `Human` (a person decides), `Ai` (an AI decides within its limits; a person may refuse the action but not approve or retry it) or `Either` (an AI or a person may approve). An AI reviewer only ever sees actions handed to it, and can never satisfy a group or count towards several approvals. Its limits are under *AI reviewers* below. |
+| `Reviewer` | `Human` (a person decides), `Ai` (an AI decides within its limits; a person may decide it too) or `Either` (an AI or a person may approve; the same decisions as `Ai` today). An AI reviewer only ever sees actions handed to it, and can never satisfy a group or count towards several approvals. Its limits are under *AI reviewers* below. |
 | `AiMaxRisk` | The highest risk an AI reviewer may approve for this tool: `Read`, `Write` (the default) or `ExternalEffect`. `Destructive` is never approved by an AI. An AI may still refuse a tool above the ceiling, when `AiMayRefuse` says so. |
 | `AiMayRefuse` | `true` lets an AI reviewer refuse this tool's actions: reject, or ask for changes. Off by default. A refusal runs nothing, so it may cross the Human-only and reviewer-group boundaries, and ignores the risk ceiling and taint. An AI never approves across those lines. Needs Mode `Queue`. |
 | `AiRefusalBudget` | `{ "Per": "01:00:00", "MaxCount": n }`: at most n AI refusals of this tool per requester in the window; past it, the AI may not refuse more. Needs `AiMayRefuse`. |
@@ -412,9 +412,7 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 * approve a request from its own identity, or from its own person in `People`: four eyes apply to an AI as well (a refusal is not restricted).
 
 The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits.
-Who may decide it then depends on the policy: with `Either` a person may approve it. With `Ai` a person may refuse it but not approve or
-retry it (D-19), so an action the AI may not approve waits until it expires or is refused. An operator who needs a person to be able to
-approve such an action sets `Either`. The runner does not offer an AI what it may not decide. Each AI decision, whichever channel brings it, is audited as `ai_review` under its `ai:` subject, and the review page labels it as an AI
+A person may decide such an action, as they can any action: the AI's limits bind the AI, not the people above it. The runner does not offer an AI what it may not decide. Each AI decision, whichever channel brings it, is audited as `ai_review` under its `ai:` subject, and the review page labels it as an AI
 decision. The audit and the page show the model and
 prompt version the reviewer reported; the checks it says it made are stored with the review (not in the audit trail, as they may
 quote arguments). The design and what comes next (a model-backed reviewer, shadow mode, sampling) are in

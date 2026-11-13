@@ -66,7 +66,7 @@ public class CharacterisationTests
     [Fact]
     public void A3_a_person_outside_the_reviewer_group_is_refused_and_a_member_is_allowed()
     {
-        // Either, not Ai: an Ai action refuses a person's approval before the group is looked at (A8, D-19).
+        // Either: the group check is what this test is about, and Either leaves a person's approval open.
         var outside = ReviewAuthority.Check(Rec(P(ReviewerKind.Either), group: "finance"), ReviewDecision.Approve, "admin:alice", [], NoPeople);
         Assert.False(outside.Allowed);
         Assert.Contains("'finance' group", outside.Reason);
@@ -105,18 +105,14 @@ public class CharacterisationTests
         Assert.True(ReviewAuthority.Check(Rec(P()), ReviewDecision.Approve, "admin:alice", [], NoPeople).Allowed);
     }
 
-    // A8 (D-19, D-28; P1): an Ai action is decided by an AI. A person may refuse it but not approve or retry it. Either lets a person approve.
-    // This row replaces the P0 pin that Ai and Either behaved the same for a person (F15).
+    // A8 (P1, reverted): an Ai action is decided by an AI, and a person may decide it like any other. The policy delegates the decision; it does
+    // not take people out of the loop. Either and Ai are both open to a person.
     [Fact]
-    public void A8_a_person_may_not_approve_or_retry_an_ai_action_but_may_refuse_it()
+    public void A8_a_person_may_decide_an_ai_action_like_any_other()
     {
         var ai = Rec(P(ReviewerKind.Ai));
-        var approve = ReviewAuthority.Check(ai, ReviewDecision.Approve, "admin:alice", [], NoPeople);
-        Assert.False(approve.Allowed);
-        Assert.Contains("decided by an AI reviewer", approve.Reason);
-        Assert.False(ReviewAuthority.Check(ai, ReviewDecision.Retry, "admin:alice", [], NoPeople).Allowed);
+        Assert.True(ReviewAuthority.Check(ai, ReviewDecision.Approve, "admin:alice", [], NoPeople).Allowed);
         Assert.True(ReviewAuthority.Check(ai, ReviewDecision.Reject, "admin:alice", [], NoPeople).Allowed);
-        Assert.True(ReviewAuthority.Check(ai, ReviewDecision.RequestChanges, "admin:alice", [], NoPeople).Allowed);
     }
 
     [Fact]
@@ -125,12 +121,6 @@ public class CharacterisationTests
         var either = Rec(P(ReviewerKind.Either));
         Assert.True(ReviewAuthority.Check(either, ReviewDecision.Approve, "admin:alice", [], NoPeople).Allowed);
         Assert.True(ReviewAuthority.Check(either, ReviewDecision.Approve, "ai:bot", [], NoPeople).Allowed);
-    }
-
-    [Fact]
-    public void A8_an_unknown_identity_is_a_person_for_an_ai_action_and_is_refused_an_approval()
-    {
-        Assert.False(ReviewAuthority.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Approve, null, [], NoPeople).Allowed);
     }
 
     // ---- Table B: AiReviewRules.Check ----

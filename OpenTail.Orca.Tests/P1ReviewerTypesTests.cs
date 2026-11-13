@@ -20,15 +20,15 @@ public class P1ReviewerTypesTests
         host.Queue.SubmitAsync(new ActionRequest("mail.send", Mail, Alice, host.Sessions.Start("key:alice-agent")));
 
     [Fact]
-    public async Task A_person_cannot_approve_an_ai_action_and_the_attempt_is_audited()
+    public async Task A_person_can_approve_an_ai_action_as_they_can_any_other()
     {
-        var (host, module, audit) = Hosts.Build(Policy("Ai"));
+        var (host, module, _) = Hosts.Build(Policy("Ai"));
         var mail = await Submit(host);
 
-        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() => host.Queue.ReviewAsync(mail.Id, PersonDecides(ReviewDecision.Approve)));
-        Assert.Contains("decided by an AI reviewer", ex.Message);
-        Assert.Equal(0, module.SendCalls);
-        Assert.Contains(audit.Entries, e => e.Event == "review_refused" && e.ActionId == mail.Id);
+        // A person may approve an action whose policy names an AI reviewer. The policy delegates the decision to the AI; it does not take the
+        // people above it out of the loop.
+        Assert.Equal(ActionStatus.Succeeded, (await host.Queue.ReviewAsync(mail.Id, PersonDecides(ReviewDecision.Approve))).Status);
+        Assert.Equal(1, module.SendCalls);
     }
 
     [Fact]
