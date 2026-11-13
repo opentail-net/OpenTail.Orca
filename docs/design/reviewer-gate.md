@@ -650,3 +650,18 @@ This section is the record of the version 3 revision, written before P0. Its las
 | G8 | **Tests the plan lists and the log does not show:** the tables C and D pins (P0); pairwise coverage and the channel-parity set (section 7); a restart during a scheduled window; an AI refusing an A2A reply (F16); the budgets across two processes (P6); a red-team side-door case (4.2, cheat 4). | Section 11 | Add them with the phase they belong to. Parity and the reply test need no new code. |
 
 **Open questions for the owner from this review.** G2 (keep or change). Which of D-1 to D-37 the owner has confirmed (section 9, "Who settled what"). D-28, now that D-19 is reverted.
+
+### 14.1 The decisions the implementer made (D-32 to D-37), checked against the code
+
+Checked on 2026-11-13 at `32848f5`. Each is built as recorded. None is wrong; three need the owner's eye.
+
+| # | Decision | In the code | Verdict |
+|---|---|---|---|
+| D-32 | Retry of an unknown outcome | `RetryRules.Refusal`. A person may retry when the review's reason is not blank. | **Weaker than its wording.** "Records the check that the effect did not happen" is enforced as "typed any reason". It is also looser than `failures-and-inspection.md`, which says an unknown outcome is never retried. Either accept it (the reason is audited, and a person is accountable), or require a distinct, named confirmation. An AI retrying a tool that is idempotent by key is allowed even after an unknown outcome, which is consistent with the recovery path. |
+| D-33 | The recheck stays before the claim | `PolicyResolver.PolicyHash` is computed once and kept. No reload or file watcher exists. | **Sound.** It must be reopened with hot reload of policy, which STATUS lists as later work. A note in that item would stop it being forgotten. |
+| D-34 | No AI decision without a policy snapshot | `AiVerdictAsync` refuses first. | **Sound.** Fails closed. |
+| D-35 | The AI limit messages reworded | `AiReviewRules.Check`. | **Sound, one message is now stale.** The taint message says an AI "may not decide this". Since P2 it may refuse it; it may not approve it. A wording fix. |
+| D-36 | With no `AiReviewers` list, any AI reviewer may decide the tool | `AiReviewRules.Assigned` returns true without a list. | **The one to decide.** It keeps old policies working, but it is open by default, against 5.7 ("default closed"): adding a second, narrowly meant reviewer gives it every unlisted tool. The hosted server warns; the standalone one does not (G6). Recommended: keep it for now, and make the missing list an error once more than one AI reviewer is configured. |
+| D-37 | An AI may not approve a request from its own identity or person | `ReviewAuthority.Check`, row A9. | **Sound, and narrow.** An `ai:` credential cannot call tools, so the identity case can hardly arise; the rule bites only when the operator puts the reviewer and a requester under one person in `People`. It does not catch the same model behind two identities; that is D-17, not built. |
+
+The decisions built on a recommended default without the owner's word (D-2, D-3, D-20, D-21, D-23, D-26, D-27, D-29 to D-31) were not re-argued here. They follow the second external review, and each is off unless a policy turns it on (`AiMayRefuse`, `ApproveDelay`, `AiReviewers`), except D-27 and G2, which changed behaviour for existing `Ai` and `Either` tools.
