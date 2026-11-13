@@ -30,7 +30,11 @@ public sealed class TeamsBot
 
     private const string PersonalReply = "I post here what your AI prepares for your approval. Approve, change or reject it from the card.";
 
-    private const string HelpText = "Commands: waiting (the actions waiting for you), help (this list). On a card: Approve; Approve with changes " +
+    /// <summary>The help a reviewer gets: the commands this bot has, then the extensions' commands (batch 05, B2), then the card actions.</summary>
+    private string HelpText() =>
+        "Commands: waiting (the actions waiting for you), work (the work items: counts and the oldest open or dead ones), " +
+        string.Concat(_commands.Select(c => c.Name + " (" + c.Help + "), ")) +
+        "help (this list). On a card: Approve; Approve with changes " +
         "(edit the text, then approve); Request changes and Reject (both need a reason); Stop and Run now (delayed actions only); " +
         "Open (the review page). Any other text gets the usual reply.";
 
@@ -38,6 +42,7 @@ public sealed class TeamsBot
     private readonly Dictionary<string, TeamsReviewer> _reviewers;
     private readonly BotConnector _bot;
     private readonly TeamsStore _store;
+    private IReadOnlyList<ChatCommand> _commands = [];
     private readonly string? _publicBaseUrl;
     private readonly Lazy<byte[]> _cardKey;
     private OpenTailHost? _host;
@@ -59,7 +64,13 @@ public sealed class TeamsBot
             : RandomNumberGenerator.GetBytes(32));
     }
 
-    public void Attach(OpenTailHost host) => _host = host;
+    /// <summary>Binds the bot to the Host, and the extensions' read-only commands (batch 05, B2) that a reviewer may type in a personal chat.
+    /// A call without commands keeps the ones already set: the HTTP host attaches again when it starts.</summary>
+    public void Attach(OpenTailHost host, IReadOnlyList<ChatCommand>? commands = null)
+    {
+        _host = host;
+        _commands = commands ?? _commands;
+    }
 
     private OpenTailHost Host => _host ?? throw new InvalidOperationException("The Teams bot is not attached to a host.");
 
@@ -122,9 +133,46 @@ public sealed class TeamsBot
         }
         var command = (Str(activity, "text") ?? "").Trim();
         if (command.Equals("waiting", StringComparison.OrdinalIgnoreCase)) await PostWaitingAsync(conv, from, ct);
-        else if (command.Equals("help", StringComparison.OrdinalIgnoreCase)) await _bot.SendAsync(conv, Message(HelpText), ct);
+        else if (command.Equals("help", StringComparison.OrdinalIgnoreCase)) await _bot.SendAsync(conv, Message(HelpText()), ct);
+        else if (command.Equals("work", StringComparison.OrdinalIgnoreCase)) await PostLinesAsync(conv, WorkLines(), ct);
+        else if (_commands.FirstOrDefault(c => c.Name.Equals(command, StringComparison.OrdinalIgnoreCase)) is { } chat)
+            await PostLinesAsync(conv, await chat.Lines(ct), ct);
         else await _bot.SendAsync(conv, Message(PersonalReply + " Type help to see the commands."), ct);
     }
+
+    /// <summary>Posts a read-only answer. Every line is escaped, the extensions' lines too (batch 05, B3): a chat is an exit.</summary>
+    private async Task PostLinesAsync(TeamsStore.Conversation conv, IReadOnlyList<string> lines, CancellationToken ct) =>
+        await _bot.SendAsync(conv, Message(string.Join("\n", lines.Select(line => TeamsChannel.Escape(line, 300)))), ct);
+
+    /// <summary>The <c>work</c> command (batch 05, B1): counts of work items by status, and the ten oldest open or dead ones, with their short
+    /// id, who they are for, the status and the age. No goal, summary or inputs: a work item's text may carry labelled data.</summary>
+    private IReadOnlyList<string> WorkLines()
+    {
+        if (!Host.Policy.Config.Work.Enabled) return ["Work items are not enabled on this Host."];
+        var now = DateTimeOffset.UtcNow;
+        const int all = 100_000;
+        var store = Host.Work.Store;
+        var open = store.Query(WorkStatus.Open, limit: all);
+        var claimed = store.Query(WorkStatus.Claimed, limit: all);
+        var dead = store.Query(WorkStatus.Dead, limit: all);
+        var expired = store.Query(WorkStatus.Expired, limit: all).Count(i => i.UpdatedAt >= now - TimeSpan.FromDays(7));
+        var lines = new List<string>
+        {
+            $"Work items: open {open.Count}, claimed {claimed.Count}, dead {dead.Count}, expired in the last 7 days {expired}.",
+        };
+        foreach (var item in open.Concat(dead).OrderBy(i => i.CreatedAt).Take(10))
+            // The id's hex part: the "wi_" prefix's underscore is a Markdown character the escape turns into a quote, so it is left out.
+            lines.Add($"work {item.Id.Replace("wi_", "", StringComparison.Ordinal)[..Math.Min(8, item.Id.Length - 3)]} for {item.For}: "
+                + $"{item.Status.ToString().ToLowerInvariant()}, {Age(now - item.CreatedAt)} old");
+        if (lines.Count == 1) lines.Add("No open or dead work item.");
+        return lines;
+    }
+
+    private static string Age(TimeSpan age) =>
+        age < TimeSpan.FromMinutes(1) ? "under a minute"
+        : age < TimeSpan.FromHours(1) ? $"{(int)age.TotalMinutes} min"
+        : age < TimeSpan.FromDays(1) ? $"{(int)age.TotalHours} h"
+        : $"{(int)age.TotalDays} d";
 
     /// <summary>The actions waiting that this reviewer may decide, oldest first, as the digest card (up to 20 shown). Decided with the same
     /// rules the queue enforces (<see cref="ReviewAuthority"/>, checked for Reject, the least restrictive decision).</summary>

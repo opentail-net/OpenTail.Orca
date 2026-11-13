@@ -7,7 +7,7 @@ There are two levels. Start with level 1; it needs no app installation and no in
 
 | | Level 1: notifications | Level 2: the approvals bot |
 |---|---|---|
-| In Teams | A card per waiting action with an **Open** button | Cards with **Approve**, **Approve with changes**, **Request changes**, **Reject** and **Open**; typed `waiting` and `help` |
+| In Teams | A card per waiting action with an **Open** button | Cards with **Approve**, **Approve with changes**, **Request changes**, **Reject** and **Open**; typed `waiting`, `work`, `help` (and `tasks` when A2A is on) |
 | Decisions | On the OpenTail review page (company sign-in) | In Teams, or on the review page |
 | Needs | A Teams Workflows webhook URL | An Azure Bot + app registration, the Teams app below, the Host on public HTTPS |
 | Inbound traffic to the Host | None from Microsoft (only reviewers' browsers) | Microsoft's Bot Framework posts to one endpoint |
@@ -116,6 +116,18 @@ secret or a malformed section stops it with the reason.
 5. On the review page (`https://approvals.contoso.com/`), the same action shows the decision and the audit trail shows "teams".
 6. In your own chat with the app, type `waiting` to get the actions you may decide, or `help` for the list of commands. Only those two
    exact words do anything (any capitals are fine); other text gets the usual reply and a pointer to `help`.
+
+   Two more typed commands only read. They change nothing, and they never show a request's goal, a summary or an answer, because a
+   chat is a place a request's text must not reach:
+
+   - `work`: how many work items are open, claimed, dead, and expired in the last 7 days, then the ten oldest open or dead ones (a short
+     id, who each is for, its status and its age). It says so when work items are not enabled on the Host.
+   - `tasks` (only when A2A is enabled): the A2A tasks in flight, newest first, up to ten: a short task id, the partner's name, the state
+     the partner sees, the age, and what the task waits for (a reviewer for the request, an agent, a reviewer for the reply, or the reply
+     to be queued).
+
+   Only the reviewers listed in the bot's configuration get these answers, and anyone else gets the usual reply. A message in a channel
+   gets no answer at all. The bot escapes every line it posts, the partner's names included.
 
 ## 7. Operations
 

@@ -1,0 +1,39 @@
+{
+  "Urls": [ "http://127.0.0.1:5600" ],
+  "PublicBaseUrl": "http://127.0.0.1:5600",
+  "ApiKeys": [
+    {
+      "Name": "example-partner",
+      "Hash": "sha256:d27fcb5f00f194d889d1ae1b56adbb627d714b7d24978b33c563680e3c2741ed",
+      "Scopes": [ "a2a:call" ],
+      "Profile": "partner-desk",
+      "Partner": "2b6c9f0e-5d1a-4c8e-9f3b-7a1d0e6c4b25"
+    },
+    {
+      "Name": "example-inbox",
+      "Hash": "sha256:c27fb4d58faa308b7b978a3e5654951d1e1f8013ce206249638da1187c8104ba",
+      "Scopes": [ "mcp:tools" ],
+      "Profile": "inbox"
+    }
+  ],
+  "A2A": {
+    "Enabled": true,
+    "Partners": [
+      { "Id": "2b6c9f0e-5d1a-4c8e-9f3b-7a1d0e6c4b25", "DisplayName": "Example partner" }
+    ],
+    "Skills": {
+      "draft-reply": {
+        "Name": "Draft a reply",
+        "Description": "A reply drafted by the inbox agent, for a person to approve before it is sent.",
+        "Inbox": "inbox"
+      }
+    },
+    "BlockingWait": "00:00:30",
+    "MaxBlockingWaitsPerPartner": 4,
+    "Card": {
+      "Name": "OpenTail sample",
+      "Description": "A sample host: partner requests wait for a person's review.",
+      "Version": "1.0"
+    }
+  }
+}

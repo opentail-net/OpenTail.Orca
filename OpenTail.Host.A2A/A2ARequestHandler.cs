@@ -341,7 +341,7 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
 
     /// <summary>The state, the status text and the answer (the only text that leaves). With a work item (E6), the reply decides first, then
     /// the item. Without one, the submit decides, as before the work item existed (D11).</summary>
-    private static (TaskState State, string Text, string? Answer) StateOf(ActionRecord? submit, WorkItem? item, ActionRecord? reply, string partnerSubject)
+    internal static (TaskState State, string Text, string? Answer) StateOf(ActionRecord? submit, WorkItem? item, ActionRecord? reply, string partnerSubject)
     {
         if (reply is not null)
         {
@@ -381,7 +381,7 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
     }
 
     /// <summary>The state of a task that has no work item yet (decision D11).</summary>
-    private static (TaskState State, string Text) SubmitStateOf(ActionRecord? action, string partnerSubject)
+    internal static (TaskState State, string Text) SubmitStateOf(ActionRecord? action, string partnerSubject)
     {
         if (action is null || action.Status == ActionStatus.Pending) return (TaskState.Submitted, "Received, not started.");
         switch (action.Status)

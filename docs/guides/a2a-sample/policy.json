@@ -1,0 +1,20 @@
+{
+  "DefaultReadMode": "Execute",
+  "TaintWindow": "00:30:00",
+  "DataFlowMode": "Enforce",
+  "Work": { "Enabled": true },
+  "DataFlow": {
+    "finance": {
+      "Destinations": [ { "Tool": "a2a.reply", "When": { "arg": "/partner", "equals": "2b6c9f0e-5d1a-4c8e-9f3b-7a1d0e6c4b25" } } ],
+      "Otherwise": "Deny"
+    }
+  },
+  "Tools": {
+    "a2a.submit": { "Mode": "Queue" },
+    "a2a.reply": { "Mode": "Queue", "AllowEdits": false }
+  },
+  "Agents": {
+    "partner-desk": { "Tools": [ "a2a.submit", "a2a.reply" ] },
+    "inbox": { "Tools": [ "work.*" ] }
+  }
+}

@@ -91,7 +91,7 @@ public static class HttpDeploymentRunner
             if (notifier is not null) host.Health.Add("notifications", () => notifier.DeliveryFailingRecently() ? HealthState.Degraded : HealthState.Ok);
             // Wake-up by URL (work design, step 3): ids only, to the agent platform's webhook.
             if (notifier is not null) host.Work.Ready += item => notifier.EnqueueWorkReady(item.Id, item.For, item.Kind.ToString().ToLowerInvariant());
-            options.TeamsBot?.Attach(host);
+            options.TeamsBot?.Attach(host, extensions.SelectMany(extension => extension.ChatCommands(host, options)).ToList());
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException or JsonException)
         {

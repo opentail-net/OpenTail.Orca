@@ -22,4 +22,14 @@ public interface IHttpDeploymentExtension
 
     /// <summary>Maps the extension's endpoints on the web app, after the Host's own routes.</summary>
     void MapEndpoints(IEndpointRouteBuilder app, OpenTailHost host, HostHttpOptions options);
+
+    /// <summary>Read-only commands a reviewer may type in a personal Teams chat (batch 05, B2). They never change state, and what they answer
+    /// is plain text, which the bot escapes. Empty by default; an extension whose section is off returns none, so its command does not exist.</summary>
+    IReadOnlyList<ChatCommand> ChatCommands(OpenTailHost host, HostHttpOptions options) => [];
 }
+
+/// <summary>A typed chat command: its exact word, one line of help for <c>help</c>, and the lines it answers with.</summary>
+/// <param name="Name">The word a reviewer types, exactly (compared without case).</param>
+/// <param name="Help">One line, shown by <c>help</c>.</param>
+/// <param name="Lines">Answers the command with plain lines. Each line is escaped before it is posted.</param>
+public sealed record ChatCommand(string Name, string Help, Func<CancellationToken, Task<IReadOnlyList<string>>> Lines);

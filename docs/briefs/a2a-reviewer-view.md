@@ -53,4 +53,5 @@ Every line is marked RUN (a test in the suite, named) or READ (from the code, fi
 - RUN: `The_card_read_is_audited_once_per_partner...`: two reads by A and one by B give two audits.
 - RUN: `GetExtendedAgentCard_stays_UnsupportedOperation`.
 - RUN: `An_anonymous_caller_gets_401_...`: 401 with A2A on, 404 with it off. So an anonymous caller can tell that A2A is on.
-- READ: OPEN, for the planner: the design (`a2a.md` section 8) says an anonymous caller learns nothing. Options: (a) answer 404 to any caller without a credential, on the card and on `/a2a`, in both states (recommended: it matches the decision; a bad credential still gets 403, and only the status of a missing one changes); (b) map the card with A2A off too, answering 401, which keeps the route in a disabled Host; (c) keep 401 and change the decision in `a2a.md` section 8.
+- READ: DECIDED (option c, keep 401): an anonymous caller can tell that A2A is on, and `a2a.md` section 8 records that and why it is accepted.
+  The options that were open (a: 404 to an anonymous caller; b: map the card with A2A off too) are not taken.

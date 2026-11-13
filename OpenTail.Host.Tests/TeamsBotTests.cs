@@ -93,9 +93,10 @@ public class TeamsBotTests : IAsyncLifetime
 
     private async Task StartAsync(ToolRisk chatMaxRisk = ToolRisk.ExternalEffect, int digest = 3, bool aliceMayDecide = true,
         string mailPolicy = """{ "Mode": "Queue" }""", string route = DefaultRoute, string target = "requester",
-        string aliceTeamsId = Alice, string extraTools = "", IHostModule? extra = null, string reviewerKey = Alice)
+        string aliceTeamsId = Alice, string extraTools = "", IHostModule? extra = null, string reviewerKey = Alice, bool work = false)
     {
         Environment.SetEnvironmentVariable("OTAIL_TEST_BOT_SECRET", "bot-client-secret-value");
+        var workSection = work ? "\"Work\": { \"Enabled\": true }," : "";
         _connector = await FakeConnector.StartAsync();
         _db = new TempDb();
         _bot = new TeamsBot(new TeamsBotOptions
@@ -113,7 +114,7 @@ public class TeamsBotTests : IAsyncLifetime
         _mail = new FakeInboxModule();
         var builder = new OpenTailHostBuilder().AddModule(_mail).UseHttpSignIn().UseSqlite(_db.Path).UseEventSink(_notifier)
             .UsePolicy(PolicyConfig.Parse($$"""
-                { "People": { "alice": [ "key:alice-agent", "teams:{{aliceTeamsId}}" ] }, "SessionlessTainted": false, "Tools": { "mail.send": {{mailPolicy}}{{extraTools}} } }
+                { "People": { "alice": [ "key:alice-agent", "teams:{{aliceTeamsId}}" ] }, "SessionlessTainted": false, {{workSection}} "Tools": { "mail.send": {{mailPolicy}}{{extraTools}} } }
                 """));
         if (extra is not null) builder.AddModule(extra);
         _host = builder.Build();
@@ -668,5 +669,76 @@ public class TeamsBotTests : IAsyncLifetime
 
         Assert.Contains("cannot be approved or changed here", refused.ToJsonString());
         Assert.Equal(ActionStatus.Pending, (await _host.Store.GetAsync(pending.Id))!.Status);
+    }
+
+    /// <summary>The text of the last message the bot posted.</summary>
+    private string LastText() => _connector.Calls.Last().Body["text"]?.GetValue<string>() ?? "";
+
+    [Fact]
+    public async Task The_work_command_counts_the_work_items_and_names_the_oldest_with_no_goal_or_summary_text()
+    {
+        // Batch 05, B1: a work item's text may carry labelled data, and a chat is an exit. The markers must not be in the answer.
+        await StartAsync(work: true);
+        await InstallForAlice();
+        var agent = new CallerIdentity("key:bot", "bot", CallerKind.Agent) { Profile = "clerk" };
+        var answered = await _host.Work.CreateAsync("GOAL-MARKER-WORK: the goal stays in the store.", WorkService.ForProfile("clerk"), "test");
+        var waiting = await _host.Work.CreateAsync("second goal", WorkService.ForProfile("clerk"), "test");
+        var session = _host.Sessions.Start(agent.Subject);
+        await _host.Work.ClaimNextAsync(agent, session);
+        await _host.Work.CompleteAsync(answered.Id, agent, "SUMMARY-MARKER-WORK: the answer.", session);
+
+        await Post(Activity("message", Alice, text: "work"));
+
+        var text = LastText();
+        Assert.Contains("Work items: open 1, claimed 0, dead 0, expired in the last 7 days 0.", text);
+        Assert.Contains("work " + waiting.Id[3..11] + " for profile:clerk: open", text, StringComparison.Ordinal);
+        Assert.Contains("profile:clerk: open", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("GOAL-MARKER-WORK", text);
+        Assert.DoesNotContain("SUMMARY-MARKER-WORK", text);
+        Assert.DoesNotContain("second goal", text);
+    }
+
+    [Fact]
+    public async Task The_work_command_says_so_when_work_items_are_not_enabled()
+    {
+        await StartAsync();
+        await InstallForAlice();
+
+        await Post(Activity("message", Alice, text: "work"));
+
+        Assert.Equal("Work items are not enabled on this Host.", LastText());
+    }
+
+    [Fact]
+    public async Task A_listed_reviewer_is_the_only_one_who_gets_the_commands_others_get_the_usual_reply_and_channels_get_nothing()
+    {
+        await StartAsync(work: true);
+        await InstallForAlice();
+
+        await Post(Activity("message", Carol, conversation: "a:conv-carol", text: "work"));
+        Assert.StartsWith("I post here what your AI prepares", LastText(), StringComparison.Ordinal);
+
+        var before = _connector.Calls.Count;
+        await Post(Activity("message", Alice, conversation: "19:channel-one;messageid=5", conversationType: "channel", text: "work"));
+        Assert.Equal(before, _connector.Calls.Count);
+    }
+
+    [Fact]
+    public async Task An_extension_command_is_escaped_and_listed_in_help_and_without_the_extension_tasks_is_just_an_unknown_word()
+    {
+        await StartAsync();
+        await InstallForAlice();
+
+        await Post(Activity("message", Alice, text: "tasks"));
+        Assert.Contains("Type help to see the commands.", LastText(), StringComparison.Ordinal);
+
+        _bot.Attach(_host, [new ChatCommand("tasks", "a test command", _ => Task.FromResult<IReadOnlyList<string>>(["Line <b>one</b> [link](https://x.example)"]))]);
+        await Post(Activity("message", Alice, text: "tasks"));
+        Assert.Contains("Line ‹b›one‹/b› ‹link›", LastText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("<b>", LastText(), StringComparison.Ordinal);
+
+        await Post(Activity("message", Alice, text: "help"));
+        Assert.Contains("tasks (a test command)", LastText(), StringComparison.Ordinal);
+        Assert.Contains("work (the work items", LastText(), StringComparison.Ordinal);
     }
 }

@@ -1383,6 +1383,48 @@ public class A2aSliceTests
         Assert.Equal(TaskState.Submitted, (await b.SendMessageAsync(Send("m-cap-b", "Another partner's first."))).Task!.Status.State);
     }
 
+    // ---------------------------------------------------------------------------------------------------------- the tasks chat command (batch 05, B2)
+
+    [Fact]
+    public async Task The_tasks_command_shows_the_state_age_and_wait_and_never_the_goal_or_the_answer()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        var command = new A2AFrontDoor().ChatCommands(rig.Host, new HostHttpOptions { A2A = EnabledA2a }).Single();
+        using var client = rig.Client(TokenA);
+        _ = await client.SendMessageAsync(Send("m-tasks", "GOAL-MARKER-TASKS: the partner's goal."));
+
+        var waiting = await command.Lines(CancellationToken.None);
+        Assert.Contains(waiting, l => l.Contains("Acme", StringComparison.Ordinal) && l.Contains("· submitted ·", StringComparison.Ordinal)
+            && l.EndsWith("waits for a reviewer: request", StringComparison.Ordinal));
+
+        var submit = await SubmitOfAsync(rig, PartnerA, TaskIdOf(rig, PartnerA));
+        await rig.Host.Queue.ReviewAsync(submit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        var inFlight = await command.Lines(CancellationToken.None);
+        Assert.True(inFlight.Any(l => l.Contains("· working ·", StringComparison.Ordinal) && l.EndsWith("waits for an agent", StringComparison.Ordinal)),
+            string.Join(" | ", inFlight));
+
+        await CompleteAsInboxAsync(rig, "ANSWER-MARKER-TASKS: the answer.");
+        // The command is read-only: until something reads the task (as the partner's GetTask does) the reply is still to be queued.
+        Assert.Contains(await command.Lines(CancellationToken.None), l => l.EndsWith("waits for the reply to be queued", StringComparison.Ordinal));
+        _ = await client.GetTaskAsync(new GetTaskRequest { Id = TaskIdOf(rig, PartnerA) });
+        var reviewing = await command.Lines(CancellationToken.None);
+        Assert.Contains(reviewing, l => l.EndsWith("waits for a reviewer: reply", StringComparison.Ordinal));
+
+        var everything = string.Join("\n", waiting.Concat(inFlight).Concat(reviewing));
+        Assert.DoesNotContain("GOAL-MARKER-TASKS", everything, StringComparison.Ordinal);
+        Assert.DoesNotContain("ANSWER-MARKER-TASKS", everything, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void The_tasks_command_does_not_exist_when_A2A_is_off()
+    {
+        using var db = new TempDb();
+        var host = new OpenTailHostBuilder().AddModule(new FakeInboxModule()).UsePolicy(PolicyConfig.Parse(PolicyWithoutA2a)).UseSqlite(db.Path, SqliteSynchronous.Full).Build();
+
+        Assert.Empty(new A2AFrontDoor().ChatCommands(host, new HostHttpOptions { A2A = new A2aOptions { Enabled = false } }));
+    }
+
     /// <summary>Builds the options and the Host, and starts the extension's startup checks; it must throw.</summary>
     private static void StartIsRefusedWith(TempDb db, string? policy = null, A2aOptions? a2a = null, ApiKeyEntry[]? keys = null)
     {

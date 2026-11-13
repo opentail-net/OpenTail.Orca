@@ -114,6 +114,18 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
         || (System.Net.IPAddress.TryParse(host.Trim('[', ']'), out var ip) && System.Net.IPAddress.IsLoopback(ip));
 
+    /// <summary>The operator's <c>tasks</c> command in Teams (batch 05, B2). With A2A off there is no command at all.</summary>
+    public IReadOnlyList<ChatCommand> ChatCommands(OpenTailHost host, HostHttpOptions options)
+    {
+        if (options.A2A is not { Enabled: true } config || host.Store is not SqliteActionStore store) return [];
+        return
+        [
+            new ChatCommand(A2ATasksView.Command,
+                "A2A tasks in flight, newest first: the state a partner sees, the age, and what each waits for. No text.",
+                ct => A2ATasksView.LinesAsync(host, config, new A2ATaskTable(store.DatabasePath, store.Synchronous), DateTimeOffset.UtcNow, ct)),
+        ];
+    }
+
     public IReadOnlyList<string> Warnings(OpenTailHost host, HostHttpOptions options)
     {
         var warnings = new List<string>();

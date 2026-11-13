@@ -150,6 +150,21 @@ internal sealed class A2ATaskTable
         return rows;
     }
 
+    /// <summary>The newest tasks of every partner, for the operator's <c>tasks</c> chat command (batch 05, B2). Reads ids, partners, times and
+    /// links only; the message and content hash columns are read too, but nothing here shows them.</summary>
+    public IReadOnlyList<Row> ListRecent(int limit)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT task_id, partner_id, context_id, message_id, content_hash, skill_id, submit_action_id, created_at, updated_at, " +
+                          "work_item_id, reply_action_id FROM a2a_tasks ORDER BY created_at DESC, task_id DESC LIMIT $n";
+        cmd.Parameters.AddWithValue("$n", limit);
+        var rows = new List<Row>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) rows.Add(ReadRow(r));
+        return rows;
+    }
+
     /// <summary>How many tasks this partner has, under the same context filter as <see cref="ListPage"/>.</summary>
     public int PartnerCount(string partnerId, string? contextId)
     {
