@@ -20,7 +20,7 @@ Apache-2.0 licence requires its licence text to be kept, and any NOTICE file to 
 - Source: https://github.com/microsoft/agent-governance-toolkit
 - Licence: MIT (`LICENSE`); the project also ships a `NOTICE` file, which lists its own third-party components.
 - Copyright, as stated in its licence: Copyright (c) Microsoft Corporation.
-- Used for: `docs/design/examples-review.md` and `docs/design/reviewer-gate.md`. The action-bound approval protocol (ADR-0030), its
+- Used for: `docs/design/examples-review.md`, `docs/design/reviewer-gate.md` and `docs/design/reviewer-gate-history.md`. The action-bound approval protocol (ADR-0030), its
   execution-time revalidation, its position on LLM output, and the MCP security gateway specification (evaluation order, response scanning,
   tool fingerprints).
 

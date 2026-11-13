@@ -168,7 +168,7 @@ export, a Postgres store, a hosted deployment, per-team policies, reviewer deleg
 
 ## v6: AI reviewers (active)
 
-Plan: [`design/reviewer-gate.md`](../docs/design/reviewer-gate.md), which merges V6 (now a pointer). R1 done 2026-10-16; the gate phases P0 to P3 and what followed were built on 2026-11-13. The plan's section 11 is the log, and its section 14 lists the gaps between the plan and the code.
+Plan: [`design/reviewer-gate.md`](../docs/design/reviewer-gate.md), which merges V6 (now a pointer). R1 done 2026-10-16; the gate phases P0 to P3 and what followed were built on 2026-11-13. The plan is the current design with a checkbox list of what is done and open. The log, the findings and the reviews are in [`design/reviewer-gate-history.md`](../docs/design/reviewer-gate-history.md).
 
 Built on 2026-11-13 (the gate plan):
 
@@ -195,7 +195,7 @@ Open:
 - **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). It can be built against a fake model first. The plan has Orca
   build the packet, and detect and escalate reviewer-directed text in the content.
 - **R3 and R4** start only after the v5 pilot produces human decisions to compare against.
-- **Not built from the gate plan:** the shared budget counter across processes (P6), an AI block proposal (P5), relaxing the human-only A2A pins (P7). Delayed rejection (P4) is dropped. The gaps G1 to G8 in the plan's section 14, of which the first is that an AI refusal on a Human-only tool cannot be limited to named reviewers.
+- **Not built from the gate plan:** the shared budget counter across processes (P6), an AI block proposal (P5), relaxing the human-only A2A pins (P7). Delayed rejection (P4) is dropped. The gaps G1 to G8 in the plan's section 3, of which the first is that an AI refusal on a Human-only tool cannot be limited to named reviewers.
 - **Owner decisions.** Settled by the owner on 2026-11-13: people keep their authority over every policy (D-38), an AI approval may run with no person involved, for experimentation only (D-39), and audit retention (D-41). Still recommendations, not logged decisions: the first provider (OpenAI-compatible first), the
   default AI ceiling (`Write`), whether AI suggestions show during shadow measurement (no), sampling in decide mode (10%), a warning when
   the reviewer is the same model family as the requester, and reasons given in full with attempts counted.
