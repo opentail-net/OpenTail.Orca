@@ -59,9 +59,9 @@ public sealed class ReviewerRunner(OpenTailHost host)
             };
             try
             {
+                // The queue audits every AI decision as ai_review, whichever channel it came by (D-29).
                 await host.Queue.ReviewAsync(action.Id, stamped, ct);
                 decided++;
-                await host.Audit.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow, "ai_review", action.Id, action.ToolName, stamped.Subject!, Describe(stamped)), ct);
             }
             catch (InvalidOperationException) { /* someone else decided first */ }
             catch (UnauthorizedAccessException) { /* past an AI limit (audited by the queue as review_refused): left for a person */ }
@@ -69,10 +69,4 @@ public sealed class ReviewerRunner(OpenTailHost host)
         return new ReviewerRunReport(offered, decided, skipped);
     }
 
-    /// <summary>The audit line for an AI decision: what decided and under which instructions. The checks themselves stay on the stored
-    /// review (they are the model's words and may quote arguments, which the audit trail never holds).</summary>
-    private static string Describe(ActionReview r) =>
-        $"{r.Decision}; model {Short(r.AiModel)}; prompt {Short(r.AiPromptVersion)}; {r.AiChecks?.Count ?? 0} check(s) reported";
-
-    private static string Short(string? s) => s is null ? "unknown" : s.Length <= 100 ? s : s[..100] + "...";
 }

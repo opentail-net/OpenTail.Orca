@@ -195,7 +195,13 @@ internal static class AdminPage
             }
             if (a.reviews.length) {
               d.append(el('h3', 'Reviews'));
-              for (const r of a.reviews) d.append(el('p', r.reviewer + ' → ' + r.decision + (r.reason ? ': ' + r.reason : '') + (r.edited ? ' (edited arguments)' : '')));
+              for (const r of a.reviews) {
+                d.append(el('p', (r.byAi ? 'AI decision by ' : '') + r.reviewer + ' → ' + r.decision + (r.reason ? ': ' + r.reason : '') + (r.edited ? ' (edited arguments)' : '')));
+                if (r.byAi) {
+                  d.append(el('p', 'Reported by the AI reviewer: model ' + (r.aiModel || 'not reported') + ', prompt ' + (r.aiPromptVersion || 'not reported') + '.', 'muted'));
+                  for (const c of (r.aiChecks || [])) d.append(el('p', '· ' + c, 'muted'));
+                }
+              }
             }
             const open = a.status === 'Pending' || (a.status === 'Failed' && a.error && a.error.retryable);
             const canDecide = open && a.canDecide !== false;

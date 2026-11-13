@@ -136,4 +136,28 @@ public class AiReviewerCredentialTests
         Assert.Equal(Roles.Review, Assert.Single(found.Roles));
         Assert.Null(table.Find(HashOf(BotSecret)));
     }
+
+    [Fact]
+    public async Task An_ai_decision_over_http_keeps_what_it_reported_and_is_labelled_on_the_page()
+    {
+        var (host, _, audit) = Hosts.Build(Policy("bot"));
+        var mail = await Submit(host);
+        await using var admin = await AdminServer.StartAsync(host, Options());
+        using var bot = Client(admin, BotSecret);
+
+        var resp = await bot.PostAsync($"/api/actions/{mail.Id}/review", JsonContent.Create(new
+        {
+            decision = "approve", aiModel = "model-x", aiPromptVersion = "prompt-1", aiChecks = new[] { "checked the recipient" },
+        }));
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Single(audit.Entries, e => e.Event == "ai_review" && e.ActionId == mail.Id && e.Actor == "ai:bot");
+
+        using var ops = Client(admin, AdminToken);
+        var review = JsonNode.Parse(await ops.GetStringAsync($"/api/actions/{mail.Id}"))!["reviews"]!.AsArray().Single()!;
+        Assert.True(review["byAi"]!.GetValue<bool>());
+        Assert.Equal("model-x", review["aiModel"]!.GetValue<string>());
+        Assert.Equal("prompt-1", review["aiPromptVersion"]!.GetValue<string>());
+        Assert.Equal("checked the recipient", review["aiChecks"]!.AsArray()[0]!.GetValue<string>());
+        Assert.Contains("AI decision by", await ops.GetStringAsync("/"));
+    }
 }

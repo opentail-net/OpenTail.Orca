@@ -411,7 +411,8 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits.
 Who may decide it then depends on the policy: with `Either` a person may approve it. With `Ai` a person may refuse it but not approve or
 retry it (D-19), so an action the AI may not approve waits until it expires or is refused. An operator who needs a person to be able to
-approve such an action sets `Either`. The runner does not offer an AI what it may not decide. Each AI decision is audited as `ai_review` with the model and
+approve such an action sets `Either`. The runner does not offer an AI what it may not decide. Each AI decision, whichever channel brings it, is audited as `ai_review` under its `ai:` subject, and the review page labels it as an AI
+decision. The audit and the page show the model and
 prompt version the reviewer reported; the checks it says it made are stored with the review (not in the audit trail, as they may
 quote arguments). The design and what comes next (a model-backed reviewer, shadow mode, sampling) are in
 [`../docs/MCP-HOST-V6-PLAN.md`](../docs/MCP-HOST-V6-PLAN.md).

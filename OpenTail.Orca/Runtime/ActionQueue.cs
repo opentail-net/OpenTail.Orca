@@ -356,6 +356,18 @@ public sealed class ActionQueue(
 
     public async Task<ActionRecord> ReviewAsync(string actionId, ActionReview review, CancellationToken ct = default)
     {
+        var result = await ReviewCoreAsync(actionId, review, ct);
+        // D-29: an AI decision is audited as one, through any channel (the page, the runner, a direct call): the ai: actor and an ai_review event.
+        if (review.Subject is { } ai && Subjects.IsAi(ai))
+            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "ai_review", actionId, result.ToolName, ai, AiReviewRules.AuditDetail(review)), ct);
+        return result;
+    }
+
+    /// <summary>The actor an approval is recorded under: an AI reviewer's <c>ai:</c> subject, never its bare name (which a person could share).</summary>
+    private static string ActorName(ActionReview review) => review.Subject is { } s && Subjects.IsAi(s) ? s : review.Reviewer;
+
+    private async Task<ActionRecord> ReviewCoreAsync(string actionId, ActionReview review, CancellationToken ct)
+    {
         using var activity = HostTelemetry.Source.StartActivity("action.review");
         activity?.SetTag("opentail.action_id", actionId);
         activity?.SetTag("opentail.decision", review.Decision.ToString());
@@ -500,7 +512,7 @@ public sealed class ActionQueue(
                 // The entry says which of the two happened, and is written in the same transaction as the decision.
                 Func<ActionRecord, AuditEntry> decisionEntry = d => d.Status == ActionStatus.Pending
                     ? Entry("approval_recorded", d, $"{ReviewAuthority.Tally(d with { Reviews = d.Reviews.Take(d.Reviews.Count - 1).ToList() }, review, policy.People).Count} of {d.RequiredApprovals}")
-                    : Entry(AuditEvents.ApprovalAllowed, d, review.Reviewer);
+                    : Entry(AuditEvents.ApprovalAllowed, d, ActorName(review));
                 var approved = await DecideAudited(actionId, ActionStatus.Pending, Decide, decisionEntry, ct);
                 if (approved is null)
                 {
@@ -517,7 +529,7 @@ public sealed class ActionQueue(
             case ReviewDecision.Retry:
             {
                 var retry = await ChangeAudited(actionId, ActionStatus.Failed, ActionStatus.Approved,
-                    r => addReview(r) with { Attempts = r.Attempts + 1, Error = null, ResultJson = null }, EntryOf("retry_approved", review.Reviewer), ct);
+                    r => addReview(r) with { Attempts = r.Attempts + 1, Error = null, ResultJson = null }, EntryOf("retry_approved", ActorName(review)), ct);
                 if (retry is null) return await Conflict(actionId, ActionStatus.Failed, ct);
                 return await executor.ExecuteAsync(actionId, ct);
             }
@@ -529,7 +541,7 @@ public sealed class ActionQueue(
                     r => next == ActionStatus.Rejected
                         ? addReview(r).WithResolution(ResolutionOutcomes.Denied, ResolverOf(review), null, _clock.GetUtcNow())
                         : addReview(r),
-                    EntryOf(next == ActionStatus.Rejected ? AuditEvents.ApprovalDenied : "changes_requested", review.Reviewer), ct);
+                    EntryOf(next == ActionStatus.Rejected ? AuditEvents.ApprovalDenied : "changes_requested", ActorName(review)), ct);
                 if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
                 LeftPending(done);
                 HostTelemetry.Count(done);

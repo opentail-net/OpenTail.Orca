@@ -186,4 +186,37 @@ public class P1ReviewerTypesTests
         Assert.Equal(ActionStatus.Succeeded, (await host.Queue.ReviewAsync(stranger.Id, AiDecides("bot"))).Status);
         Assert.Equal(1, module.SendCalls);
     }
+
+    // ---- D-29: an AI decision is audited, and labelled, as one ----
+
+    [Fact]
+    public async Task An_ai_decision_is_audited_as_an_ai_decision_under_its_ai_actor()
+    {
+        var (host, _, audit) = Hosts.Build(Policy("Ai"));
+        var mail = await Submit(host);
+        var ai = new ActionReview("bot", ReviewDecision.Approve, null, DateTimeOffset.UtcNow)
+        {
+            Subject = Subjects.Ai("bot"), AiModel = "model-x", AiPromptVersion = "prompt-1", AiChecks = ["the recipient is a known contact"],
+        };
+        await host.Queue.ReviewAsync(mail.Id, ai);
+
+        var labelled = Assert.Single(audit.Entries, e => e.Event == "ai_review" && e.ActionId == mail.Id);
+        Assert.Equal("ai:bot", labelled.Actor);
+        Assert.Contains("model model-x", labelled.Detail);
+        Assert.Contains("1 check(s) reported", labelled.Detail);
+        // The approval itself is recorded under the ai: subject, never the bare name a person could share.
+        Assert.Equal("ai:bot", Assert.Single(audit.Entries, e => e.Event == AuditEvents.ApprovalAllowed && e.ActionId == mail.Id).Detail);
+    }
+
+    [Fact]
+    public async Task The_runner_writes_one_ai_review_line_per_decision()
+    {
+        var (host, _, audit) = Hosts.Build(Policy("Ai"));
+        var mail = await Submit(host);
+        var bot = new DelegateReviewer("bot", (action, ct) => Task.FromResult<ActionReview?>(
+            new ActionReview("bot", ReviewDecision.Approve, null, DateTimeOffset.UtcNow)));
+
+        await new ReviewerRunner(host).RunOnceAsync(bot);
+        Assert.Single(audit.Entries, e => e.Event == "ai_review" && e.ActionId == mail.Id);
+    }
 }

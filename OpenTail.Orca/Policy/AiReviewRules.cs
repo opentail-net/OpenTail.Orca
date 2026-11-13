@@ -36,6 +36,13 @@ public static class AiReviewRules
     public static bool Offered(ActionRecord r, string aiSubject) =>
         (r.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either) && Assigned(r, aiSubject);
 
+    /// <summary>The audit line for an AI decision (D-29): what decided and under which instructions. The checks themselves stay on the stored
+    /// review: they are the model's words and may quote arguments, which the audit trail never holds.</summary>
+    public static string AuditDetail(ActionReview r) =>
+        $"{r.Decision}; model {Short(r.AiModel)}; prompt {Short(r.AiPromptVersion)}; {r.AiChecks?.Count ?? 0} check(s) reported";
+
+    private static string Short(string? s) => s is null ? "unknown" : s.Length <= 100 ? s : s[..100] + "...";
+
     /// <summary>May an AI reviewer make this decision? <paramref name="risk"/> is null when the tool is no longer loaded (treated as
     /// destructive). <paramref name="history"/> may be null when only the action itself is being judged (whether to offer it at all).</summary>
     public static ReviewVerdict Check(ActionRecord r, ReviewDecision decision, ToolRisk? risk, bool editsArguments, AiReviewHistory? history)

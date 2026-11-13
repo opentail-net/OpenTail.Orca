@@ -199,6 +199,16 @@ public static class AdminEndpoints
 
     private static RouteHandlerBuilder AllowAiReviewer(this RouteHandlerBuilder builder) => builder.WithMetadata(new AiReviewerAllowed());
 
+    private static string? AiText(JsonElement body, string name) =>
+        body.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? Clip(v.GetString()!, 200) : null;
+
+    private static IReadOnlyList<string>? AiChecksOf(JsonElement body) =>
+        body.TryGetProperty("aiChecks", out var v) && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Take(20).Select(e => Clip(e.GetString()!, 500)).ToList()
+            : null;
+
+    private static string Clip(string s, int max) => s.Length <= max ? s : s[..max];
+
     private static readonly JsonSerializerOptions EnumsAsText = new(JsonSerializerDefaults.Web)
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
@@ -306,6 +316,10 @@ public static class AdminEndpoints
             if (reason is { Length: > 1000 }) return Results.BadRequest(new { error = "reason is limited to 1000 characters." });
             if (decision is ReviewDecision.Reject or ReviewDecision.RequestChanges && string.IsNullOrWhiteSpace(reason))
                 return Results.BadRequest(new { error = "A reason is required so the AI can act on it." });
+            // What an AI reviewer says about itself (D-29): its model, prompt version and the checks it named. Shown as its report, never as fact.
+            var aiModel = reviewer.IsAi ? AiText(body, "aiModel") : null;
+            var aiPromptVersion = reviewer.IsAi ? AiText(body, "aiPromptVersion") : null;
+            var aiChecks = reviewer.IsAi ? AiChecksOf(body) : null;
 
             string? edited = null;
             if (body.TryGetProperty("editedArguments", out var ea) && ea.ValueKind != JsonValueKind.Null)
@@ -335,6 +349,9 @@ public static class AdminEndpoints
                         EditedArgumentsJson = edited,
                         Subject = reviewer.Subject,
                         Groups = reviewer.Groups,
+                        AiModel = aiModel,
+                        AiPromptVersion = aiPromptVersion,
+                        AiChecks = aiChecks,
                     });
                 return Results.Text(Detail(result, host, reviewer).ToJsonString(), "application/json");
             }
@@ -468,7 +485,15 @@ public static class AdminEndpoints
                 ["kind"] = FailureKinds.Name(r.Error.EffectiveKind) };
         var reviews = new JsonArray();
         foreach (var rv in r.Reviews)
-            reviews.Add(new JsonObject { ["reviewer"] = rv.Reviewer, ["decision"] = rv.Decision.ToString(), ["reason"] = rv.Reason, ["at"] = rv.At, ["edited"] = rv.EditedArgumentsJson is not null });
+            reviews.Add(new JsonObject
+            {
+                ["reviewer"] = rv.Reviewer, ["decision"] = rv.Decision.ToString(), ["reason"] = rv.Reason, ["at"] = rv.At, ["edited"] = rv.EditedArgumentsJson is not null,
+                // D-29: an AI decision is labelled as one, with what the reviewer reported about itself: its model, prompt version and the checks it named.
+                ["byAi"] = rv.Subject is { } subject && Subjects.IsAi(subject),
+                ["aiModel"] = rv.AiModel,
+                ["aiPromptVersion"] = rv.AiPromptVersion,
+                ["aiChecks"] = rv.AiChecks is null ? null : new JsonArray(rv.AiChecks.Select(c => (JsonNode?)JsonValue.Create(c)).ToArray()),
+            });
         o["reviews"] = reviews;
 
         var audit = new JsonArray();
