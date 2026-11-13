@@ -26,6 +26,21 @@ An AI approval is **delegated authority, not human oversight**. Records, screens
 One authority model serves every channel. Every decision goes through `ActionQueue`; MCP, A2A, Teams, HTTP and the in-process
 runner add no rules of their own.
 
+## 1a. The rule for settings
+
+The owner's direction (2026-11-13): we do not know how someone else will want to run the system, so a rule that is a judgement
+call should be a setting, not a constant. To keep that from weakening the gate:
+
+- **The default is the strict value.** A new deployment is safe without reading anything.
+- **Tightening is free. Loosening is explicit:** the looser value is written in the policy file, so it is part of the policy hash,
+  it changes through a policy proposal (two admins), `--explain` shows it, and startup prints a warning naming it.
+- **A few rules are not settings**, because without them the gate is not a gate: an AI never approves a Destructive action, never
+  approves with edits, never changes policy, credentials or suspensions; every decision goes through the queue and is audited; an
+  agent's own credential never reviews.
+- A setting is per tool where the risk differs by tool, with a policy-wide default.
+
+Settings proposed under this rule so far: `UnknownOutcomeRetry` (D-32), `DefaultAiReviewers` (D-36), `AiOwnRequest` (D-37).
+
 ## 2. What is true now
 
 ### 2.1 Policy settings (per tool)
@@ -193,6 +208,10 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
   - [ ] It applies to people. An AI still retries only a tool that is idempotent by key, and a tool that is idempotent by key is not limited by the setting.
   - [ ] `failures-and-inspection.md` and `POLICY.md` say the same thing as the code.
   - [ ] Tests: each value, by a person, by an AI and through HTTP.
+- [ ] **D-37. An AI deciding its own person's request becomes a setting** (owner's direction, 2026-11-13; details wait for a yes).
+  - [ ] `AiOwnRequest` per tool, with a policy-wide default: `ForbidApproval` (as built, the default), `ForbidAll` (it may not refuse either), `Allow`.
+  - [ ] `Allow` follows the loosening rule in section 1a (in the policy hash, a startup warning, shown by `--explain`).
+  - [ ] Tests: each value, for the same identity and for the same person in `People`.
 - [ ] **G4.** An audited "run now" for a scheduled approval, or strike it from the design.
 - [ ] **G7 / D-12.** Whether `ApproveDelay` is allowed on irreversible tools.
 - [ ] **D-28.** Give `Ai` and `Either` different meanings, or drop one.
@@ -229,6 +248,8 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 - [ ] **D-28.** What `Ai` and `Either` should mean, now that a person may decide both.
 - [ ] **D-36.** The owner's direction (2026-11-13): a default reviewer is specified, so a tool with no list is not open to every reviewer. To confirm: the shape in section 3 (`DefaultAiReviewers`; a tool's list replaces it; a single configured reviewer is the default; otherwise a missing default is a startup error).
 - [ ] **D-32.** The owner's direction (2026-11-13): make it a setting, with "never" as one option. To confirm: the default. **As built there is no limit on the number of retries**: a person may retry an unknown outcome every time it happens, with any reason. "Once" would be a new, stricter default. Recommended: `Once` as the default, `Never` for Destructive tools.
+- [ ] **D-37.** The owner's direction (2026-11-13): a setting. To confirm: the three values in section 3, with today's rule as the default. It still does not catch one model behind two identities: Orca does not know which model a requester runs on, so D-17 can only compare what each side declares.
+- [ ] **Section 1a.** Confirm the rule for settings, and the list of rules that are not settings.
 - [ ] **D-39.** Which AI approvals need a person, and when. Must be written down before any live use.
 - [ ] **D-12.** "Yes, with undo" on irreversible actions. Recommended: reversible only.
 - [ ] **D-9.** Measurement before authority. Recommended: decide directly for named low-risk tools, with sampling and demotion
