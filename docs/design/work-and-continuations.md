@@ -1,6 +1,6 @@
 # Design: work items and continuations
 
-**Status:** proposed 2026-10-18. Steps 1 (continuations), 2 (work items) and 3 (wake-up) built 2026-10-18; steps 4 and 5 in part. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
+**Status:** proposed 2026-10-18. Steps 1 (continuations), 2 (work items) and 3 (wake-up) built 2026-10-18; steps 4 and 5 in part. Written from reading [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca)
 at `2537674` and from the state of the protocols in October 2026 (MCP Tasks extension, A2A). The owner's position of 2026-10-18 is
 under [decisions](#decisions); the rest is open for discussion.
 

@@ -1,6 +1,6 @@
 # Design: A2A as a second front door
 
-**Status:** proposed 2026-11-11; the phase 0 work and the thin slice are built (2026-11-13; see "What is built" at the end). Phases 2 to 4 are not built. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
+**Status:** proposed 2026-11-11; the phase 0 work and the thin slice are built (2026-11-13; see "What is built" at the end). Phases 2 to 4 are not built. Written from reading [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca)
 at `4b8a8b7` (branch `standard-skill-files`; the approval naming and the re-check changed some lines it cites, see the corrections below), the A2A v1.0 specification and the official .NET SDK as published in November 2026.
 Protocol and SDK facts were checked on 2026-11-11. The SDK is a preview: re-check the facts marked *verify* before building.
 

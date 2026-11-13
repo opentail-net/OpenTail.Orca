@@ -1,6 +1,6 @@
 # OpenTail Host v7: administration and telemetry on the review page (plan)
 
-> **Archived 2026-11-12.** Read [`OpenTail.Orca/STATUS.md`](../../OpenTail.Orca/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
+> **Archived 2026-11-12.** Read [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
 
 Status: A1-A4 built 2026-10-19 (local commits, not pushed). Tested with the admin API and the page script syntax-checked; not walked through in a real browser. Follows v6 ([`MCP-HOST-V6-PLAN.md`](../MCP-HOST-V6-PLAN.md)).
 
@@ -13,7 +13,7 @@ Host is doing and how it decided, and a way to change an agent's profile that is
 
 ## 2. Decisions (taken with the owner on 2026-10-19)
 
-* **Where:** the existing review page (`OpenTail.Orca.Admin`), not a separate app and not a Teams-only surface. It already has
+* **Where:** the existing review page (`OpenTail.Host.Admin`), not a separate app and not a Teams-only surface. It already has
   company sign-in, the `opentail.review` and `opentail.admin` roles, a strict CSP and no cookies, and it ships inside the Host.
 * **Teams:** nothing in this plan works only in Teams. A Teams tab can show the same page later (it needs a `frame-ancestors`
   exception for Teams and Teams single sign-on; see 6).
@@ -55,9 +55,9 @@ already carries (tool, module, mode, risk, taint, status) plus the action id.
 
 ### A2. Telemetry and traces on the page
 
-* `HostTelemetryRecorder` in `OpenTail.Orca`: a `MeterListener` that keeps totals per instrument and tag set (counters, up-down
+* `HostTelemetryRecorder` in `OpenTail.Host`: a `MeterListener` that keeps totals per instrument and tag set (counters, up-down
   counters, histograms as count, sum, min, max and fixed buckets), and an `ActivityListener` that keeps the last 500 finished
-  spans of the `OpenTail.Orca` source in a ring buffer. Bounded memory (at most 2,000 tag sets; older spans drop). Off with
+  spans of the `OpenTail.Host` source in a ring buffer. Bounded memory (at most 2,000 tag sets; older spans drop). Off with
   `"Telemetry": { "Recorder": false }` in the HTTP config; on by default when the page is served.
 * More spans where there were none: `action.review`, `maintenance.sweep`, `notification.deliver`, and the action id
   (`opentail.action_id`) on the existing ones so a span links to its action.

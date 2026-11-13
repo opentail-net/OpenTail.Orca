@@ -17,8 +17,8 @@
     <Authors Condition="'$(Authors)'==''">OpenTail</Authors>
     <Company Condition="'$(Company)'==''">OpenTail</Company>
     <Description Condition="'$(Description)'==''">$(MSBuildProjectName) component of OpenTail. Please set a more specific Description in the project file if required.</Description>
-    <PackageProjectUrl Condition="'$(PackageProjectUrl)'==''">https://github.com/opentail-net/opentail-orca</PackageProjectUrl>
-    <RepositoryUrl Condition="'$(RepositoryUrl)'==''">https://github.com/opentail-net/opentail-orca</RepositoryUrl>
+    <PackageProjectUrl Condition="'$(PackageProjectUrl)'==''">https://github.com/opentail-net/OpenTail.Orca</PackageProjectUrl>
+    <RepositoryUrl Condition="'$(RepositoryUrl)'==''">https://github.com/opentail-net/OpenTail.Orca</RepositoryUrl>
     <RepositoryType Condition="'$(RepositoryType)'==''">git</RepositoryType>
     <PackageTags Condition="'$(PackageTags)'==''">opentail;ai;agent;workspace</PackageTags>
   </PropertyGroup>

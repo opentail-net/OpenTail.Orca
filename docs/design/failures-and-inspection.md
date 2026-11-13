@@ -1,6 +1,6 @@
 # Design: failures, retries and inspection
 
-**Status:** proposed 2026-10-18. Steps 1 to 4 built 2026-10-18 (step 4 in part). Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
+**Status:** proposed 2026-10-18. Steps 1 to 4 built 2026-10-18 (step 4 in part). Written from reading [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca)
 at `bef5add` and from discussion with the owner on 2026-10-18. The owner's positions are under [decisions](#decisions); the rest is
 open for discussion.
 

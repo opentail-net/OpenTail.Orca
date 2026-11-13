@@ -144,7 +144,7 @@ jobs:
           image=ghcr.io/opentail-net/opentail-orca
           docker build -f OpenTail.Orca.Server/Dockerfile --secret id=github_packages_token,env=GITHUB_PACKAGES_TOKEN \
             --build-arg VERSION="$VERSION" \
-            --label org.opencontainers.image.source=https://github.com/opentail-net/opentail-orca \
+            --label org.opencontainers.image.source=https://github.com/opentail-net/OpenTail.Orca \
             --label org.opencontainers.image.version="$VERSION" \
             -t "$image:$VERSION" .
           docker push "$image:$VERSION"

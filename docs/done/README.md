@@ -1,7 +1,7 @@
 # Done plans
 
 Plans whose work is built. Each file keeps its design, its reviews and its implementation log. The status of the Host, and what is still
-open, is in [`OpenTail.Orca/STATUS.md`](../../OpenTail.Orca/STATUS.md).
+open, is in [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md).
 
 | File | What it was | State at archive |
 |---|---|---|
@@ -17,16 +17,16 @@ Still active, in `docs/`: `MCP-HOST-V5-PLAN.md`. V6 is superseded by `design/rev
 ## Commit hashes in these logs
 
 The logs cite commits from the repository's earlier history. The Host was developed inside the outer `OpenTail` repository, on branch
-`host/modular-mcp`, before the split of 2026-10-20. None of those hashes are in `opentail-orca`, and `opentail-orca` does not contain the
+`host/modular-mcp`, before the split of 2026-10-20. None of those hashes are in `opentail-host`, and `opentail-host` does not contain the
 earlier history.
 
 Where to look, from spot checks (I did not check every hash):
 
 - v1 to v5 hashes: the outer repository, `C:\Git\OpenTail`, branch `host/modular-mcp`. Checked there: `81b8a54`, `552dfd0`, `9bb652b`,
   `4bd34a6`, `a9e436c`, `9dae9b6`, `f927911`, `377ffa9`, `69b1031`, `16bb496`, `3266100`, `560619c`.
-- v7 hashes (`4fb53ee`, `78e55f9`, `e56ceca`, `cf2e074`, `5aa5ab5`): the backup bundle `C:\Git\split-backup-2026-10-20\opentail-orca.bundle`.
+- v7 hashes (`4fb53ee`, `78e55f9`, `e56ceca`, `cf2e074`, `5aa5ab5`): the backup bundle `C:\Git\split-backup-2026-10-20\opentail-host.bundle`.
   Checked there: all five.
-- The Snowflake commit `4625a04` is in `opentail-orca` itself.
+- The Snowflake commit `4625a04` is in `opentail-host` itself.
 
 Rows that say "(this commit)" or "and the next commit" have no hash.
 

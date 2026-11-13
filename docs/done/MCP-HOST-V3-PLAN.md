@@ -1,6 +1,6 @@
 # OpenTail Host v3: modules as bricks (plan)
 
-> **Archived 2026-11-12.** Read [`OpenTail.Orca/STATUS.md`](../../OpenTail.Orca/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
+> **Archived 2026-11-12.** Read [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md) for what is built and what is still open. The status line below was written when this was a draft and is not kept up to date; the implementation log at the end is the record.
 
 Status: plan only, nothing implemented. Written 2026-10-16 on branch `host/modular-mcp`.
 Builds on [MCP-HOST-PLAN.md](MCP-HOST-PLAN.md) and [MCP-HOST-V2-PLAN.md](MCP-HOST-V2-PLAN.md).
@@ -183,7 +183,7 @@ needs it, then freeze.
 
 The Host and modules (about 4% of the C# lines) sit beside a much larger engine-and-apps stack that the outer repo's Pro editions, Bench and
 slow tests build on (29 `opentail/` projects are reachable from the outer repo). Nothing in the Host or modules references `OpenTail.Core`, but
-`OpenTail.Core` references `OpenTail.Orca.Abstractions`, so Abstractions must stay a leaf. Eleven projects with no source (four dummy or scratch
+`OpenTail.Core` references `OpenTail.Host.Abstractions`, so Abstractions must stay a leaf. Eleven projects with no source (four dummy or scratch
 projects and seven empty leftovers) were moved to `opentail/_to_delete/`; both solutions still build with 0 warnings and 0 errors. The rest of the
 sorting is a decision for the owner and is listed in the conversation that produced this plan, not acted on here.
 

@@ -1,7 +1,7 @@
 # Design: queued actions as MCP Tasks
 
 **Status:** proposed 2026-10-18. Steps 1 (the SDK upgrade), 2 (tasks for queued and delayed actions) and 3 (long-running calls) built 2026-10-18; step 4
-waits on its prerequisites. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
+waits on its prerequisites. Written from reading [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca)
 at `8d87b95`, the Tasks extension ([SEP-2663](https://modelcontextprotocol.io/seps/2663-tasks-extension.md), Final), the
 2026-07-28 MCP specification it depends on, and the C# SDK v2 documentation. Facts about the protocol and SDK were checked on
 2026-10-18; re-check before building.

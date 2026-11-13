@@ -25,7 +25,7 @@ that a later migration is a package swap plus a small mapping, without taking th
   tool, actor, detail and previous hash (lines 35-36, 58). Renaming an event changes the hash that a verifier computes for an old row,
   so any existing chain would fail verification. This only matters where a chain already exists.
 - **Who holds chains today.** The owner's development databases (`host-dev`, per project memory). Discard them rather than migrate.
-  Project memory also records that Host 0.0.1 packages and a container image (`ghcr.io/opentail-net/opentail-orca`) were published on
+  Project memory also records that Host 0.0.1 packages and a container image (`ghcr.io/opentail-net/opentail-host`) were published on
   2026-10-20. Whether anyone pulled the image cannot be seen from here. Check the registry's pull counts before the freeze, if the
   image is public.
 - **No customer deployment is recorded.** The design documents describe one ("when the first customer runs Entra ID") as future work.

@@ -242,7 +242,7 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
 - [ ] Freeze trigger for public names: the first deployment that keeps audit data, or Host 1.0. The default is recorded; confirm it.
 - [ ] Write the freeze point into the Host's README, as the naming plan asks.
 - [ ] Check the published packages. `host-v0.0.1` (25 packages, 2026-10-20) carries the old audit names. Who consumes them?
-- [ ] Check GHCR pull counts for `ghcr.io/opentail-net/opentail-orca:0.0.1`. Is the image public, and was it pulled?
+- [ ] Check GHCR pull counts for `ghcr.io/opentail-net/opentail-host:0.0.1`. Is the image public, and was it pulled?
 - [ ] Check whether anyone kept an old audit database, or consumes the webhook event names on `audit_entry` routes. Tell them.
 - [ ] Discard the development databases written before the event rename. Their audit chains fail verification.
 - [ ] Update documents that still quote old event names (for example `audit-and-evidence.md`, which lists `approved`).

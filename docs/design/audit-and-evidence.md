@@ -1,6 +1,6 @@
 # Design: audit and evidence
 
-**Status:** proposed 2026-10-18. D1 to D7 and D10 built 2026-10-18, D8 and D9 in part. Written from reading [`opentail-orca`](https://github.com/opentail-net/opentail-orca)
+**Status:** proposed 2026-10-18. D1 to D7 and D10 built 2026-10-18, D8 and D9 in part. Written from reading [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca)
 at `ef471f1`. Regulatory facts were checked on 2026-10-18 from secondary sources; re-check the official texts before telling a
 customer what a regulation requires.
 
