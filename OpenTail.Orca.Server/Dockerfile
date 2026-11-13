@@ -16,7 +16,7 @@ RUN --mount=type=secret,id=github_packages_token,env=GITHUB_PACKAGES_TOKEN \
  && sed 's/\r$//' OpenTail.Orca.Server/docker-entrypoint.sh > /app/docker-entrypoint.sh \
  && chmod 755 /app/docker-entrypoint.sh
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:11.0
 WORKDIR /app
 COPY --from=build /app .
 # The database (actions, audit, notification outbox, Teams conversations) lives on /data; configuration is mounted read-only at /config.
