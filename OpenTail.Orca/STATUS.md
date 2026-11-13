@@ -122,7 +122,8 @@ Built (log of 2026-10-16 and after):
 - **P4b, packaging.** `package:Assembly/name` profiles, the `OpenTail.Profiles.YouTube` and `OpenTail.Profiles.X` packages, and a
   conformance check that runs at startup and in `--lint`.
 - **Licence.** Orca, its modules and profiles are under proprietary commercial licence (`LICENSE.md`). The shared `OpenTail.Connectivity.*`
-  libraries keep MIT.
+  packages published before 2026-11-13 stay under MIT for those who received them. The Connectivity code now lives in the Dolphin
+  repository, under the same commercial licence as Orca.
 
 Open:
 
