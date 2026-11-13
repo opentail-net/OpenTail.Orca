@@ -2,7 +2,7 @@
 
 Read-only. No repo code or package changed. Labels: **RUN** = executed in the probe; **SOURCE** = read in the package (surface dump) or the SDK source at commit `bc49650b` (named in the nuspec); **DOCS** = package README only.
 
-Scratch project, outside the repo: `C:\Users\Dmitri\AppData\Local\Temp\claude\5f386a44675f1b66\86a40605-5834-43df-ad24-8ea04d03eb0e\scratchpad\a2a-sdk-probe`. Probe `A2aProbe\Program.cs`; transcript `out\probe-results.txt` (RUN); surface dump `out\surface.txt` (SOURCE); SDK source `src\a2a-dotnet-bc49650b09711d2bdadbdbdca7aca3e86a872780\` (SOURCE); pin test `pins\`.
+Scratch project, outside the repo, in the session scratchpad folder: `a2a-sdk-probe`. Probe `A2aProbe\Program.cs`; transcript `out\probe-results.txt` (RUN); surface dump `out\surface.txt` (SOURCE); SDK source `src\a2a-dotnet-bc49650b09711d2bdadbdbdca7aca3e86a872780\` (SOURCE); pin test `pins\`.
 
 ## 1. Packages
 
