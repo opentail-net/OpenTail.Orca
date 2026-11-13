@@ -22,7 +22,7 @@ A skill is a folder with a plain-language instruction file (`SKILL.md`) and some
 
 ## What is only planned
 
-- **A standalone library** that reads and writes skill folders without OpenTail, so other apps could use them. For now it uses Orca's own licence, PolyForm Strict, so the owner can reuse it in other projects. A more permissive licence can come later.
+- **A standalone library** that reads and writes skill folders without OpenTail, so other apps could use them. For now it uses Orca's own licence, the proprietary commercial one (PolyForm Strict until 2026-11-13), so the owner can reuse it in other projects. A more permissive licence can come later.
 - **Hash improvements.** A hash is a fingerprint of a skill's text. The plan makes it stricter, so indentation counts, and keeps the old fingerprints valid so existing evidence still checks out.
 - **Store fixes.** One data-loss risk, found by reading the code and not yet reproduced by a test: a damaged label file can make Orca overwrite good data when it publishes. That is the first thing to fix. The rest: one damaged skill must not hide the others, a failed publish must leave no debris, and the backup must be one tested procedure.
 - **Measuring outcomes.** Counting how often people approve or reject actions after a skill version is served, to spot a bad version. The hard part is crediting each decision to the right version.
