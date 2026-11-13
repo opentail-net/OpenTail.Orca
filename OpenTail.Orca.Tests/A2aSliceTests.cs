@@ -1229,7 +1229,7 @@ public class A2aSliceTests
         var card = JsonSerializer.Deserialize<AgentCard>(body, A2AJsonUtilities.DefaultOptions)!;
 
         Assert.Equal(HttpStatusCode.OK, status);
-        Assert.Equal(("OpenTail Host", "1.0"), (card.Name, card.Version));
+        Assert.Equal(("OpenTail Orca", "1.0"), (card.Name, card.Version));
         var iface = Assert.Single(card.SupportedInterfaces);
         Assert.Equal(("JSONRPC", "1.0", "http://127.0.0.1/a2a"), (iface.ProtocolBinding, iface.ProtocolVersion, iface.Url));
         Assert.Equal((false, false, false), (card.Capabilities!.Streaming, card.Capabilities.PushNotifications, card.Capabilities.ExtendedAgentCard));

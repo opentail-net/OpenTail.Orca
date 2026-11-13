@@ -192,6 +192,41 @@ public class AuditArchiveTests
     }
 
     [Fact]
+    public async Task A_crash_after_the_record_leaves_a_file_the_next_pass_removes()
+    {
+        using var rig = new Rig();
+        await FillOld(rig.Sink);
+        await FillRecent(rig.Sink);
+        var cut = rig.Archiver.Cut(Now, rig.Dir, Live)!;
+        Assert.Equal(1, rig.Archiver.ExpireArchives(Now.AddDays(2600), TimeSpan.FromDays(2555)));
+
+        // The process stops after the record is written and before the file is deleted: the file is back, and the trail says it is removed.
+        File.WriteAllText(cut.ArchiveFile, "left behind by a crash");
+        Assert.Equal(0, rig.Archiver.ExpireArchives(Now.AddDays(2601), TimeSpan.FromDays(2555)));
+        Assert.False(File.Exists(cut.ArchiveFile));
+    }
+
+    [Theory]
+    [InlineData("not json at all")]
+    [InlineData("""{"format":"opentail-audit-archive/1"}""")]
+    [InlineData("""{"format":"opentail-audit-archive/1","entries":null}""")]
+    [InlineData("""{"format":"opentail-audit-archive/1","firstSeq":1,"lastSeq":1,"count":1,"entries":[{"seq":1,"at":null,"event":"x","hash":"h","prevHash":null}]}""")]
+    [InlineData("""{"format":"something-else"}""")]
+    public void A_malformed_archive_is_reported_not_thrown(string text)
+    {
+        var file = Path.Combine(Path.GetTempPath(), "otail-malformed-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            File.WriteAllText(file, text);
+            Assert.NotEmpty(AuditArchive.Verify(file));
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    [Fact]
     public void The_archive_settings_are_bounded_and_left_out_of_the_policy_text_when_unset()
     {
         Assert.DoesNotContain("AuditLiveDays", PolicyConfig.Parse("""{ "RetentionDays": 0 }""").ToCanonicalJson());

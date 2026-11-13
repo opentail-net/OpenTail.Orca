@@ -17,7 +17,7 @@ public sealed class OpenTailHostBuilder
     private IActionStore? _store;
     private IAuditSink? _audit;
     private TimeProvider _clock = TimeProvider.System;
-    private string _name = "OpenTail Host";
+    private string _name = "OpenTail Orca";
     private TimeSpan? _lease;
     private ISessionStore? _sessionStore;
     private ITrustStore? _trust;

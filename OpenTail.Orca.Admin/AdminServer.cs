@@ -44,7 +44,7 @@ public sealed class AdminOptions
     /// <summary>AI reviewer credentials (D-30): reviewer name to the hash of its secret, as <c>sha256:</c> and 64 hex digits. The secret is shown
     /// once when it is issued and never stored; an operator rotates it by replacing the hash. The identity is <c>ai:&lt;name&gt;</c>, and it
     /// carries no role beyond reviewing.</summary>
-    public IReadOnlyDictionary<string, string> AiReviewers { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyDictionary<string, string> AiReviewers { get; set; } = new Dictionary<string, string>();
 }
 
 /// <summary>Role names used by the admin surface (also the scope/role values a JWT or token carries).</summary>

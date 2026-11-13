@@ -6,7 +6,7 @@ Designs for Orca work that is planned but not built, newest first. The cross-rep
 
 | Design | Plan section | State |
 |---|---|---|
-| [Reviewer gate: the plan for AI reviewers on Orca](reviewer-gate.md): one authority model for every channel; the five verdicts; AI refusal and approval as separate authorities; named AI reviewers with assignment; supersedes V6 (`MCP-HOST-V6-PLAN.md`, now a pointer) | none; supersedes V6 | Proposed; revised 2026-11-13 after an external review; decisions D-1 to D-25 open; R1 built |
+| [Reviewer gate: the plan for AI reviewers on Orca](reviewer-gate.md): one authority model for every channel; the five verdicts; AI refusal and approval as separate authorities; named AI reviewers with assignment; supersedes V6 (`MCP-HOST-V6-PLAN.md`, now a pointer) | none; supersedes V6 | Partly built, as of 2026-11-13: R1, P0 to P3, R5, the overseer panel and the audit archive. Not built: P4 (dropped), P5, P6, R2, R3 and R4, P7. Decisions D-1 to D-41 are in section 9; the ones the owner has settled are marked there (D-26 to D-41 were settled on 2026-11-13) |
 | [Competitor scan, November 2026](competitor-scan-2026-11.md): four products compared; claims unverified; six expansions proposed | none | Recorded 2026-11-13; expansions not started |
 | [Review of the example projects](examples-review.md): eight projects reviewed for gate ideas, with credits in `THIRD-PARTY-ACKNOWLEDGEMENTS.md` | none | Recorded 2026-11-13; decisions open |
 | [Checklist: governance naming, re-check, and A2A](governance-checklist.md): what is done, what is open, and what waits for the owner | none | Living list; updated 2026-11-11 |

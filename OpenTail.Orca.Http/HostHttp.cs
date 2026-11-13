@@ -150,6 +150,13 @@ public static class HostHttp
         {
             var admin = options.Admin ?? new AdminOptions();
             admin.RecordTelemetry &= options.RecordTelemetry;
+            // The overseer's panel lists every configured AI reviewer, including one that has not decided anything yet (review point 4).
+            if (options.AiReviewers.Count > 0)
+            {
+                var merged = new Dictionary<string, string>(admin.AiReviewers, StringComparer.Ordinal);
+                foreach (var ai in options.AiReviewers) merged[ai.Name] = ai.Hash;
+                admin.AiReviewers = merged;
+            }
             if (options.Jwt is { PageClientId: { Length: > 0 } clientId, Authority: { Length: > 0 } authority } j && admin.SignIn is null)
                 admin.SignIn = new PageSignIn(authority, clientId, j.PageScope ?? $"openid {j.Audience.TrimEnd('/')}/{j.ReviewScope}");
             AdminEndpoints.Map(app, host, admin, api =>
@@ -208,7 +215,7 @@ public static class HostHttp
             Resource = baseUrl + options.McpPath,
             AuthorizationServers = [jwt.AuthorizationServer ?? jwt.Authority ?? baseUrl],
             ScopesSupported = [jwt.RequiredScope],
-            ResourceName = "OpenTail Host",
+            ResourceName = "OpenTail Orca",
         });
     }
 

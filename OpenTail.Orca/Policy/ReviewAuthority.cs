@@ -96,12 +96,20 @@ public static class ReviewAuthority
     /// <summary>Is this decision a refusal (reject or ask for changes) rather than an approval? Refusals run nothing (D-21, D-26).</summary>
     public static bool IsRefusal(ReviewDecision decision) => decision is ReviewDecision.Reject or ReviewDecision.RequestChanges;
 
-    /// <summary>Distinct approvals the action has right now (since the last edit of its arguments).</summary>
+    /// <summary>Where the approvals that count begin: after the last edit of the arguments, or after the last withdrawal of an approval (a held
+    /// scheduled run, see <see cref="ReviewDecision.Withdraw"/>). Approvals before that point do not count any more.</summary>
+    private static int Boundary(ActionRecord r)
+    {
+        var from = -1;
+        for (var i = 0; i < r.Reviews.Count; i++)
+            if (r.Reviews[i].EditedArgumentsJson is not null || r.Reviews[i].Decision == ReviewDecision.Withdraw) from = i;
+        return Math.Max(from, 0);
+    }
+
+    /// <summary>Distinct approvals the action has right now (since the last edit or withdrawal).</summary>
     public static int Approvals(ActionRecord r, PeopleMap people)
     {
-        var lastEdit = -1;
-        for (var i = 0; i < r.Reviews.Count; i++) if (r.Reviews[i].EditedArgumentsJson is not null) lastEdit = i;
-        return r.Reviews.Skip(Math.Max(lastEdit, 0))
+        return r.Reviews.Skip(Boundary(r))
             .Where(a => a.Decision is ReviewDecision.Approve or ReviewDecision.Retry && (r.RequiredApprovals == 1 || a.Subject is null || !Subjects.IsAi(a.Subject)))
             .Select(a => people.PersonOf(a.Subject ?? "name:" + a.Reviewer)).Distinct(StringComparer.Ordinal).Count();
     }
@@ -114,12 +122,9 @@ public static class ReviewAuthority
     /// </remarks>
     public static (int Count, bool Duplicate) Tally(ActionRecord r, ActionReview incoming, PeopleMap people)
     {
-        var lastEdit = -1;
-        for (var i = 0; i < r.Reviews.Count; i++) if (r.Reviews[i].EditedArgumentsJson is not null) lastEdit = i;
-
         var prior = incoming.EditedArgumentsJson is not null
             ? new List<ActionReview>()                                   // the incoming edit voids everything before it
-            : r.Reviews.Skip(Math.Max(lastEdit, 0)).ToList();
+            : r.Reviews.Skip(Boundary(r)).ToList();
 
         string Key(ActionReview a) => people.PersonOf(a.Subject ?? "name:" + a.Reviewer);
         bool Counts(ActionReview a) =>

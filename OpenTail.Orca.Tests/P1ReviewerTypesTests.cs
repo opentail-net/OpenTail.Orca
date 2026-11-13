@@ -157,6 +157,17 @@ public class P1ReviewerTypesTests
     }
 
     [Fact]
+    public void An_ai_tool_with_no_reviewer_list_gets_a_startup_warning_and_a_named_one_does_not()
+    {
+        var unnamed = PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai" } } }""");
+        var warnings = AiReviewRules.UnassignedAiTools(unnamed);
+        Assert.Single(warnings);
+        Assert.Contains("mail.send", warnings[0]);
+        Assert.Empty(AiReviewRules.UnassignedAiTools(PolicyConfig.Parse(Assigned("Ai", "\"bot\""))));
+        Assert.Empty(AiReviewRules.UnassignedAiTools(PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue" } } }""")));
+    }
+
+    [Fact]
     public void Assignments_belong_to_a_queued_tool_an_ai_may_decide()
     {
         var human = "{ \"Tools\": { \"mail.send\": { \"Mode\": \"Queue\", \"AiReviewers\": [\"bot\"] } } }";

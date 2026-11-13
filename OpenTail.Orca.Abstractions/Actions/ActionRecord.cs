@@ -39,6 +39,10 @@ public enum ReviewDecision
     Reject = 1,
     RequestChanges = 2,
     Retry = 3,
+
+    /// <summary>A held scheduled approval is withdrawn: it stops counting, and the action needs a new approval to be scheduled again. Recorded by
+    /// the system when a run is held (late, or its requester suspended), never submitted by a reviewer.</summary>
+    Withdraw = 4,
 }
 
 public sealed record ActionReview(

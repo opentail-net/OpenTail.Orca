@@ -68,6 +68,10 @@ public static class AuditArchive
         }
         if (document is null) return [$"{Path.GetFileName(file)} is empty"];
         if (document.Format != FormatName) return [$"{Path.GetFileName(file)} is not an audit archive of format {FormatName}"];
+        // A file that parses can still be malformed: the verifier reports that, it never throws on it.
+        if (document.Entries is null) return [$"{Path.GetFileName(file)} has no entries list"];
+        if (document.Entries.Any(e => e is null || e.At is null || e.Event is null))
+            return [$"{Path.GetFileName(file)} has an entry without its time or event"];
 
         var problems = new List<string>();
         if (document.Entries.Count != document.Count) problems.Add("the number of entries does not match the header");
@@ -195,9 +199,10 @@ public sealed class AuditArchiver(SqliteActionStore store)
     public int ExpireArchives(DateTimeOffset now, TimeSpan keep)
     {
         var expired = Cuts().Where(cut => !cut.Removed && cut.ArchivedAt + keep <= now).ToList();
+        // The record comes first, in the trail, and the file after it. A crash after the record leaves a file the trail already calls removed;
+        // the pass below deletes it. Deleting first would leave a record that says the file is there when it is gone.
         foreach (var cut in expired)
         {
-            if (File.Exists(cut.ArchiveFile)) File.Delete(cut.ArchiveFile);
             using var c = store.OpenConnection();
             using var tx = c.BeginTransaction(deferred: false);
             SqliteAuditSink.Append(c, tx, new AuditEntry(now, "archive_expired", null, null, "system",
@@ -209,6 +214,9 @@ public sealed class AuditArchiver(SqliteActionStore store)
             update.ExecuteNonQuery();
             tx.Commit();
         }
+        // Every cut recorded as removed whose file is still there (this pass, or a pass that crashed after recording). Deleting is idempotent.
+        foreach (var cut in Cuts().Where(cut => cut.Removed && File.Exists(cut.ArchiveFile)))
+            File.Delete(cut.ArchiveFile);
         return expired.Count;
     }
 }

@@ -84,7 +84,7 @@ public sealed record A2aOptions
 /// profiles, partners, policy or reviewer groups.</summary>
 public sealed record A2aCardOptions
 {
-    public string Name { get; init; } = "OpenTail Host";
+    public string Name { get; init; } = "OpenTail Orca";
     public string Description { get; init; } = "A governed host for AI agents: partner requests wait for a person's review.";
     public string Version { get; init; } = "1.0";
 }

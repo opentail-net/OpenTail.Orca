@@ -184,7 +184,7 @@ Open:
 - **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). It can be built against a fake model first. The plan has Orca
   build the packet, and detect and escalate reviewer-directed text in the content.
 - **R3 and R4** start only after the v5 pilot produces human decisions to compare against.
-- **R5, the test corpus.** Needs no model and no owner input. The plan's order section puts it next.
+- **R5, the red-team corpus.** Built: `RedTeamCorpusTests`, 84 cases (seven structural limits on an AI approval times twelve injected texts).
 - **Owner decisions.** The plan's table has recommendations, not logged decisions: the first provider (OpenAI-compatible first), the
   default AI ceiling (`Write`), whether AI suggestions show during shadow measurement (no), sampling in decide mode (10%), a warning when
   the reviewer is the same model family as the requester, and reasons given in full with attempts counted.
@@ -274,7 +274,7 @@ provider and defaults (v6), and the tenant, bot and Slack app for the live Teams
 **Needs a live system; so far only fakes:** GitHub, ServiceNow, Reddit, YouTube, X, Microsoft 365, Gmail and Google Calendar (never
 called), Slack notifications, company sign-in, the Teams bot, and the container image (CI's first real run).
 
-**Engineering not started:** v6 R2 and R5, MCP tasks, Slack approve buttons, `traceparent` from `_meta`, lease extension, the outside-author
+**Engineering not started:** v6 R2 (R5 is built), MCP tasks, Slack approve buttons, `traceparent` from `_meta`, lease extension, the outside-author
 conformance kit, Windows containment for isolated modules, hot reload of policy, proposals for module configuration and notification
 routes, and session eviction.
 

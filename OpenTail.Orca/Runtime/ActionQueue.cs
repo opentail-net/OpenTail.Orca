@@ -707,14 +707,17 @@ public sealed class ActionQueue(
             var delay = at - basis;
             if (now - at > delay)
             {
-                await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending, x => x with { RunAt = null },
+                // The held approval is withdrawn: it no longer counts, so the next approval (by anyone eligible) schedules a new window.
+                await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending,
+                    x => x with { RunAt = null, Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Withdraw, "held: the approval is withdrawn", now)] },
                     EntryOf("delay_held", $"{(now - at).TotalMinutes:0} min past its time: a person decides"), ct);
                 continue;
             }
             // A requester suspended since the run was scheduled is held for a person, as a late run is (P3, 5.6).
             if (levels?.Effective(r.Requester.Id) == IdentityLevel.Suspended)
             {
-                await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending, x => x with { RunAt = null },
+                await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending,
+                    x => x with { RunAt = null, Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Withdraw, "held: the approval is withdrawn", now)] },
                     EntryOf("delay_held", "the requester is suspended: a person decides"), ct);
                 continue;
             }

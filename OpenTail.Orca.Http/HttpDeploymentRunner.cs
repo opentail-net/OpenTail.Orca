@@ -85,6 +85,7 @@ public static class HttpDeploymentRunner
             host = builder.Build();
             foreach (var line in ModulesCli.Describe(host)) await Console.Error.WriteLineAsync(line);
             foreach (var w in host.StartupWarnings.Concat(options.CheckProfiles(host.Policy.Config).Warnings)
+                         .Concat(AiReviewRules.UnassignedAiTools(host.Policy.Config))
                          .Concat(extensions.SelectMany(extension => extension.Warnings(host, options))))
                 await Console.Error.WriteLineAsync("warning: " + w);
             notifier?.Attach(host.Store, t => host.Catalog.TryGet(t, out var reg) ? reg.Descriptor.Risk : null, host.Audit);

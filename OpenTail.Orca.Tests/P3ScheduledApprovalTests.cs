@@ -141,6 +141,29 @@ public class P3ScheduledApprovalTests
     }
 
     [Fact]
+    public async Task A_held_approval_is_withdrawn_so_the_same_single_reviewer_can_schedule_the_run_again()
+    {
+        // The review's point B: with one eligible reviewer, a held run must not be a dead end.
+        var clock = new ManualClock(Start);
+        var (host, module, audit) = Hosts.Build(TenMinutes, clock);
+        var mail = await Submit(host);
+        await host.Queue.ReviewAsync(mail.Id, PersonApproves(clock, "rita"));
+
+        clock.Advance(TimeSpan.FromMinutes(25));                  // late: the scheduler holds it, and withdraws the approval
+        Assert.Equal(0, await host.Queue.RunDueDelayedAsync());
+        Assert.Null((await host.Store.GetAsync(mail.Id))!.RunAt);
+        Assert.Contains(audit.Entries, e => e.Event == "delay_held" && e.ActionId == mail.Id);
+
+        var again = await host.Queue.ReviewAsync(mail.Id, PersonApproves(clock, "rita"));
+        Assert.Equal(ActionStatus.Pending, again.Status);
+        Assert.Equal(clock.GetUtcNow() + TimeSpan.FromMinutes(10), again.RunAt);
+        Assert.Equal(0, module.SendCalls);
+        clock.Advance(TimeSpan.FromMinutes(10));
+        Assert.Equal(1, await host.Queue.RunDueDelayedAsync());
+        Assert.Equal(1, module.SendCalls);
+    }
+
+    [Fact]
     public void Approve_delay_belongs_to_a_queued_tool_and_is_bounded()
     {
         var notQueued = Assert.Throws<InvalidOperationException>(() => Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Execute", "ApproveDelay": "00:10:00" } } }"""));
