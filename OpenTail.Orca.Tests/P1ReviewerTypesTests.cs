@@ -162,4 +162,28 @@ public class P1ReviewerTypesTests
         var ex = Assert.Throws<InvalidOperationException>(() => Hosts.Build(human));
         Assert.Contains("AiReviewers only applies to Mode Queue with Reviewer Ai or Either", ex.Message);
     }
+
+    // ---- D-37: four eyes for AI ----
+
+    [Fact]
+    public async Task An_ai_reviewer_may_not_approve_a_request_from_its_own_identity_or_person_but_may_refuse_it()
+    {
+        var (host, module, _) = Hosts.Build("""{ "People": { "owner": ["ai:bot", "key:bot-agent"] }, "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" } } }""");
+        // A session is owned by whoever started it, so each requester starts its own.
+        var fromItself = await host.Queue.SubmitAsync(new ActionRequest("mail.send", Mail,
+            new ActionRequester(RequesterKind.AiSession, "ai:bot"), host.Sessions.Start("ai:bot")));
+        var fromOwnPerson = await host.Queue.SubmitAsync(new ActionRequest("mail.send", Mail,
+            new ActionRequester(RequesterKind.AiSession, "key:bot-agent"), host.Sessions.Start("key:bot-agent")));
+        var stranger = await Submit(host);
+
+        foreach (var id in new[] { fromItself.Id, fromOwnPerson.Id })
+        {
+            var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() => host.Queue.ReviewAsync(id, AiDecides("bot")));
+            Assert.Contains("own identity or its own person", ex.Message);
+        }
+        Assert.Equal(ActionStatus.Rejected, (await host.Queue.ReviewAsync(fromItself.Id, AiDecides("bot", ReviewDecision.Reject))).Status);
+        Assert.Equal(0, module.SendCalls);
+        Assert.Equal(ActionStatus.Succeeded, (await host.Queue.ReviewAsync(stranger.Id, AiDecides("bot"))).Status);
+        Assert.Equal(1, module.SendCalls);
+    }
 }

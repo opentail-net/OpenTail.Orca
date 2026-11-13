@@ -63,6 +63,12 @@ public static class ReviewAuthority
         if (!isAi && policy?.Reviewer == ReviewerKind.Ai && decision is ReviewDecision.Approve or ReviewDecision.Retry)
             return ReviewVerdict.No("This action is decided by an AI reviewer: a person may refuse it, but not approve it. Its policy would need Either for a person to approve.");
 
+        // D-37 (P1): an AI reviewer may not approve a request from its own identity, or from its own person (the People map). That is four eyes
+        // for AI. Refusals are not affected: a refusal cannot run anything.
+        if (isAi && subject is not null && (decision is ReviewDecision.Approve or ReviewDecision.Retry)
+            && (subject == r.Requester.Id || people.Same(subject, r.Requester.Id)))
+            return ReviewVerdict.No("An AI reviewer may not approve a request from its own identity or its own person.");
+
         if (r.ReviewerGroup is { } group)
         {
             if (isAi) return ReviewVerdict.No($"This action needs a reviewer in the '{group}' group; an AI reviewer cannot stand in.");

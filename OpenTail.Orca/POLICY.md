@@ -406,6 +406,7 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 * keep deciding a request it has turned down `AiMaxRejections` times along its resubmission chain;
 * approve more than `AiBudget` allows;
 * decide a tool it is not named for in `AiReviewers`, when the tool has that list. Such an action is never shown to that reviewer.
+* approve a request from its own identity, or from its own person in `People`: four eyes apply to an AI as well (a refusal is not restricted).
 
 The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits.
 Who may decide it then depends on the policy: with `Either` a person may approve it. With `Ai` a person may refuse it but not approve or
