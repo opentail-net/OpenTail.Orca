@@ -1,6 +1,6 @@
 # Third-party acknowledgements
 
-This file credits the open-source projects whose published designs informed the OpenTail Host's design documents. It is kept current
+This file credits the open-source projects whose published designs informed the OpenTail Orca's design documents. It is kept current
 whenever a design document cites a third-party project.
 
 ## What is credited here

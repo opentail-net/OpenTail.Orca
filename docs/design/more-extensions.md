@@ -29,7 +29,7 @@ profile should be in the profile.
 
 *Built 2026-10-18: `Requestable` on profiles, the `access.request` tool (a built-in module, present only when a profile can request),
 grants by time or calls whichever first (persisted, schema 8), the granted tool in the caller's `tools/list`, `granted_call` audit,
-`--grants` and `--revoke-grant`. Not built: binding a grant to one session, the tools-changed notification (the Host's tool list is
+`--grants` and `--revoke-grant`. Not built: binding a grant to one session, the tools-changed notification (Orca's tool list is
 static per connection; clients see it on their next `tools/list`), metrics by tool and profile, requests as a soft signal.*
 
 ## A tamper-evident audit trail
@@ -42,13 +42,13 @@ the EU AI Act's record-keeping duty for high-risk systems), "the log shows it" i
 
 - Each entry stores the hash of the entry before it and its own hash (over its fields and the previous hash). Editing or removing
   any entry breaks every hash after it.
-- **Checkpoints:** periodically (hourly, and at shutdown) the Host publishes the latest hash somewhere the database's owner cannot
+- **Checkpoints:** periodically (hourly, and at shutdown) Orca publishes the latest hash somewhere the database's owner cannot
   rewrite: the operator's notification channel, a write-once storage bucket, or a signed file. A chain is only as trustworthy as
   its last checkpoint someone else holds.
 - `--verify-audit` walks the chain and the checkpoints and reports the first break, if any.
 
 **Rules.** Entries still hold no argument values (as today), so the chain can be shared with an auditor. Retention deletes
-actions, never audit entries, so the chain is never cut by design. If the Host ever needs to drop old audit entries, it writes a
+actions, never audit entries, so the chain is never cut by design. If Orca ever needs to drop old audit entries, it writes a
 signed "truncated up to hash X" entry first.
 
 **Metrics.** Checkpoints written, verification runs and results.
@@ -67,19 +67,19 @@ gets a proposal in front of them benefits.
 
 **The idea.** Measure review quality and say so, gently:
 
-- **Per reviewer and per tool:** approval rate, time to decision (the Host already records `opentail.host.time_to_decision`),
+- **Per reviewer and per tool:** approval rate, time to decision (Orca already records `opentail.host.time_to_decision`),
   approvals per minute in bursts, how often an approved action was later reverted or flagged.
 - **Seeded checks, optional:** now and then, with the operator's consent, a known-bad sample action (clearly marked as a check
   once decided) is placed in the queue. Approving it is recorded and the reviewer is told immediately. It is the decoy record idea
   applied to people. Sensitive to culture: off by default, and the results go to the reviewer first.
-- **What the Host does with it:** a weekly report to the operator; a nudge on the review page ("you approved 40 in 3 minutes");
+- **What Orca does with it:** a weekly report to the operator; a nudge on the review page ("you approved 40 in 3 minutes");
   and evidence for policy changes: a tool approved 100% of the time over months is a candidate for [Delay](undo-window.md) or the
   trust ramp, and one with frequent rejections should stay Queue.
 
 **Rules.** Reported to the reviewer and the operator, never used to block a reviewer automatically. No reviewer's figures are
 shown to other reviewers.
 
-**Order.** The report from data the Host already has, then the review-page nudge, then seeded checks if a customer wants them.
+**Order.** The report from data Orca already has, then the review-page nudge, then seeded checks if a customer wants them.
 *Report built 2026-10-18: `--review-report [--since 7d]`. Not built: sending it weekly, the review-page nudge, seeded checks
 (designed only, by decision).*
 

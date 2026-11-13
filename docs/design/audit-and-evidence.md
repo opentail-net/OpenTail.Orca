@@ -10,8 +10,8 @@ partly built) and records what the newer designs decide ([adaptive limits](adapt
 
 ## Why this is needed
 
-The Host exists to make decisions about what agents may do: run a call now, wait for a person, or refuse. A customer who puts the
-Host between agents and their business systems will be asked, by an auditor, a regulator, a security team or a court:
+Orca exists to make decisions about what agents may do: run a call now, wait for a person, or refuse. A customer who puts the
+Orca between agents and their business systems will be asked, by an auditor, a regulator, a security team or a court:
 
 - **What happened?** Which agent did what, on whose behalf, when, and with what result.
 - **How was it decided?** Which rules applied, which checks ran, what each concluded, and why the outcome was what it was.
@@ -19,7 +19,7 @@ Host between agents and their business systems will be asked, by an auditor, a r
 - **Under which rules?** What the policy said on that day, and who changed it since.
 - **Can we trust the record?** Whether anyone could have altered or deleted it, and how we would know.
 
-A governance product whose own records cannot answer these is not a governance product. The Host already answers the first and
+A governance product whose own records cannot answer these is not a governance product. Orca already answers the first and
 third well, the second only in part, and the fourth and fifth not fully. This design closes the gaps.
 
 It is also a selling point: evidence an auditor can verify without trusting us is rare among agent tools, and buyers in finance,
@@ -27,26 +27,26 @@ health and the public sector ask for it first.
 
 ## What standards we are trying to meet, and how
 
-The Host is a component, not an organisation, so it cannot be certified by itself. What it can do is **produce the records and
+Orca is a component, not an organisation, so it cannot be certified by itself. What it can do is **produce the records and
 controls a customer needs to pass their own audit**, and make them easy to hand over. The standards that matter:
 
-| Standard | What it asks for, in short | How the Host answers |
+| Standard | What it asks for, in short | How Orca answers |
 |---|---|---|
 | **SOC 2** (AICPA Trust Services Criteria) | Logical access controlled and reviewed (CC6); system activity monitored, anomalies detected and acted on (CC7); changes authorised and tracked (CC8) | Every call authenticated and decided by policy; access changes audited ([D4](#d4-access-changes-are-audited)); policy changes versioned and attributed ([D2](#d2-policy-versions)); adaptive limits and identity levels as monitoring |
 | **ISO/IEC 27001:2022**, Annex A | Logging (8.15) and monitoring (8.16); protection of logs from tampering and unauthorised access; clock synchronisation (8.17); change management (8.32); collection of evidence (5.28) | The decision trace and records ([D1](#d1-a-decision-trace-on-every-action), [D3](#d3-decision-records-that-outlive-the-action)); the tamper protection [below](#keeping-the-audit-log-safe-from-tampering); UTC timestamps with the instance's identity ([D9](#d9-time-and-origin)); the auditor's export ([D7](#d7-an-export-for-auditors)) |
 | **NIST SP 800-53**, AU family (used by US public sector, and as a reference elsewhere) | What a record must contain (AU-3), protection of audit information (AU-9), non-repudiation (AU-10), retention (AU-11) | Record contents in D1 and D3; tamper protection; authenticated subjects on every decision; a separate audit retention setting |
-| **EU AI Act** (Regulation 2024/1689), for customers using agents in high-risk uses | Automatic logging over the system's life (Art. 12); human oversight (Art. 14); deployers keep the logs under their control for at least six months (Art. 26(6)) | The Host is where the logs of an agent's actions are made; approvals are the human oversight, recorded with who decided and what they saw ([D6](#d6-what-the-automated-reviewer-saw)); audit retention can be set to six months or more. Dates for high-risk obligations have been subject to change; check before quoting them |
+| **EU AI Act** (Regulation 2024/1689), for customers using agents in high-risk uses | Automatic logging over the system's life (Art. 12); human oversight (Art. 14); deployers keep the logs under their control for at least six months (Art. 26(6)) | Orca is where the logs of an agent's actions are made; approvals are the human oversight, recorded with who decided and what they saw ([D6](#d6-what-the-automated-reviewer-saw)); audit retention can be set to six months or more. Dates for high-risk obligations have been subject to change; check before quoting them |
 | **ISO/IEC 42001** (AI management systems) | Records showing AI systems are operated under defined controls, with human oversight and monitoring | The same records: policy as the defined control, approvals as oversight, the review-quality report as monitoring of the overseers |
 | **GDPR** | Accountability: being able to show compliance (Art. 5(2)); data minimisation and storage limits (Art. 5(1)(c), (e)); safeguards around automated decisions (Art. 22) | Audit entries and decision records hold no argument values; retention for actions (which hold personal data) is separate from retention for decision records (which do not); reads of personal data are logged ([D5](#d5-who-read-what)) |
 
 Sector rules (DORA for EU finance, HIPAA for US health) ask for the same things in their own words: logs of access and changes,
 kept safe and kept long enough. Meeting the table above covers most of them.
 
-**What the Host does not cover:** how the customer runs it (who has access to the server, backups, staff training, incident
-response). The Host supports those controls; it does not replace them. An [evidence guide](#d10-a-guide-for-auditors) says which is
+**What Orca does not cover:** how the customer runs it (who has access to the server, backups, staff training, incident
+response). Orca supports those controls; it does not replace them. An [evidence guide](#d10-a-guide-for-auditors) says which is
 which.
 
-## What the Host records today
+## What Orca records today
 
 - **An action record for every call:** requester, agent profile, session, tool, module version, arguments as submitted with their
   hash (reviewer edits kept beside them, never overwriting), status, error, attempts, timestamps.
@@ -91,12 +91,12 @@ review page show the same trace, so the reviewer, the operator and the auditor s
 
 ### D2. Policy versions
 
-- **Every policy the Host loads is recorded:** a `policy_loaded` audit entry with the SHA-256 of the whole effective policy (all
-  files merged), the Host version, the instance, and who started or reloaded it when known.
+- **Every policy Orca loads is recorded:** a `policy_loaded` audit entry with the SHA-256 of the whole effective policy (all
+  files merged), Orca version, the instance, and who started or reloaded it when known.
 - **Every action carries the policy hash** it was decided under, beside today's per-tool snapshot.
 - **Every version is kept,** content-addressed by its hash, so "what did the policy say on 3 March" is a lookup, and
   `--policy-diff <hash> <hash>` shows what changed.
-- **Attribution:** the Host cannot know who edited a file. It records the hash and the operator who loaded it; the recommended
+- **Attribution:** Orca cannot know who edited a file. It records the hash and the operator who loaded it; the recommended
   practice (in the evidence guide) is to keep policy in version control, where the commit names the author and the hash links the
   two. `--lint` and `--replay-policy` before a change are the change-review evidence.
 
@@ -120,7 +120,7 @@ should not go with them.
 The access review an auditor runs starts with "who could do what, and who changed it". Grants, identity levels, trust promotions
 and administration tools are audited today. Added:
 
-- **API keys:** keys are in the HTTP config, so the Host compares the key list at each load with the last one it saw and audits
+- **API keys:** keys are in the HTTP config, so Orca compares the key list at each load with the last one it saw and audits
   `key_added`, `key_removed` and `key_profile_changed` (by key name and hash prefix, never the key).
 - **Agent profiles and reviewer groups:** additions, removals and changes to what a profile allows, recorded as part of the policy
   version (D2) and summarised as audit entries.
@@ -132,7 +132,7 @@ and administration tools are audited today. Added:
 When actions hold personal data, auditors ask who looked at it.
 
 - **Audited:** opening an action's arguments or result on the review page, exports (D7, review outcomes, shadow cases), and reads
-  through the Host's API, with the reader's subject.
+  through Orca's API, with the reader's subject.
 - **Not covered, and stated so:** someone with direct access to the database file. That is the customer's server access control,
   covered by the evidence guide.
 
@@ -155,7 +155,7 @@ trace, all recorded. For the AI reviewer:
 
 **Verification does not need our code.** The chain's algorithm is documented (SHA-256 over a JSON array of the entry's fields and
 the previous hash), and the bundle includes a short script in plain Python so an auditor can check it independently.
-`--verify-audit` does the same from the Host.
+`--verify-audit` does the same from Orca.
 
 ### D8. Tamper protection completed
 
@@ -164,34 +164,34 @@ signed truncation entry.
 
 ### D9. Time and origin
 
-Every entry records UTC time and the Host instance that wrote it, and the Host version is in `policy_loaded`. The evidence guide
-asks for clock synchronisation (ISO 27001 8.17) on the server; the Host warns at start-up when its clock is far from the checkpoint
+Every entry records UTC time and Orca instance that wrote it, and Orca version is in `policy_loaded`. The evidence guide
+asks for clock synchronisation (ISO 27001 8.17) on the server; Orca warns at start-up when its clock is far from the checkpoint
 target's.
 
 ### D10. A guide for auditors
 
-A short document, `AUDIT.md` beside the Host's README, written for an auditor rather than a developer:
+A short document, `AUDIT.md` beside Orca's README, written for an auditor rather than a developer:
 
 - how a decision is made, check by check, and what each check means;
 - what is recorded, where, for how long, and what is never recorded;
 - how to verify the trail and the export;
-- which controls the Host provides and which remain the customer's (server access, backups, clocks, staff);
+- which controls Orca provides and which remain the customer's (server access, backups, clocks, staff);
 - a mapping from the standards above to the records that answer them.
 
 "How are decisions made?" is the auditor's first question; this answers it before it is asked.
 
 ## Keeping the audit log safe from tampering
 
-The threat: someone with access to the Host's database (an administrator, an attacker who got in, or the Host itself if
+The threat: someone with access to Orca's database (an administrator, an attacker who got in, or Orca itself if
 compromised) edits or deletes entries to hide what happened. Each layer below narrows what they could get away with.
 
-1. **Append-only by contract.** `IAuditSink` only appends; nothing in the Host updates or deletes audit entries, and retention never
+1. **Append-only by contract.** `IAuditSink` only appends; nothing in Orca updates or deletes audit entries, and retention never
    deletes them (built).
 2. **A hash chain.** Each entry carries the SHA-256 of its own fields and of the previous entry's hash. Editing or deleting any entry
    breaks every hash after it; `--verify-audit` finds the first break (built, schema 5).
 3. **Decision records bound into the chain.** The chain carries each decision record's hash (D3), so the records cannot be altered
    either, even though the chain never holds their content.
-4. **Checkpoints held by someone else.** A chain alone can be rewritten end to end by someone who recomputes every hash. So the Host
+4. **Checkpoints held by someone else.** A chain alone can be rewritten end to end by someone who recomputes every hash. So Orca
    publishes the latest hash hourly and at shutdown somewhere the database's owner cannot rewrite: the notification channel today
    (built); a rewrite would no longer match a checkpoint already sent. The window an attacker has is the time since the last
    checkpoint.
@@ -199,16 +199,16 @@ compromised) edits or deletes entries to hide what happened. Each layer below na
    date, even by its owner: S3 Object Lock in compliance mode first, Azure immutable blob storage next. A separate small writer,
    not the storage module (which has deliberately no write path).
 6. **Streaming to the customer's log store.** Audit entries are also sent as they are written, over OpenTelemetry logs or to a
-   syslog or SIEM endpoint (Splunk, Microsoft Sentinel, Elastic). A copy outside the Host's control, written within seconds, shrinks
+   syslog or SIEM endpoint (Splunk, Microsoft Sentinel, Elastic). A copy outside Orca's control, written within seconds, shrinks
    the window from an hour to seconds and is where a customer's security team already looks.
-7. **No silent truncation.** If audit entries must ever be dropped (retention), the Host writes a signed truncation entry first,
+7. **No silent truncation.** If audit entries must ever be dropped (retention), Orca writes a signed truncation entry first,
    naming the range and the hash it ended on, so the chain continues from a known point and the cut is visible.
 8. **Independent verification.** The documented algorithm and the script in the export (D7) mean an auditor checks the trail
-   without trusting the Host or us.
+   without trusting Orca or us.
 
 Optional, for customers who ask: trusted timestamps on checkpoints (RFC 3161), proving each checkpoint existed by a given time.
 
-**What this does not protect against,** stated plainly in the evidence guide: a compromised Host can write false entries from the
+**What this does not protect against,** stated plainly in the evidence guide: a compromised Orca can write false entries from the
 moment it is compromised. Layers 4 to 6 make sure it cannot rewrite what was recorded before; detecting the compromise itself is the
 job of adaptive limits, the customer's monitoring and the streamed copy.
 
@@ -219,7 +219,7 @@ job of adaptive limits, the customer's monitoring and the streamed copy.
    under action retention.
 3. **Audit retention is separate from action retention,** and never shorter by default.
 4. **Every change of rules or access leaves an entry.**
-5. **Verifiable without trusting the Host.**
+5. **Verifiable without trusting Orca.**
 6. **One explanation.** The review page, `--explain`, the export and the auditor's guide show the same trace.
 
 ## How it fits with the other designs
@@ -260,7 +260,7 @@ job of adaptive limits, the customer's monitoring and the streamed copy.
    is installed and check it catches an edit even when the manifest is fixed. `OpenTail.Orca/AUDIT.md` is the guide.*
 5. **D8 tamper protection:** streaming to a log store, then write-once checkpoints, then the signed truncation entry. *Streaming
    built 2026-10-18: an `audit_entry` notification event, webhook channels only (signed, through the outbox with retries), picked
-   up every scheduler pass (30 s) from a cursor kept across restarts. Format provisional: the Host's own JSON over a signed webhook,
+   up every scheduler pass (30 s) from a cursor kept across restarts. Format provisional: Orca's own JSON over a signed webhook,
    which HTTP collectors (Splunk HEC, Sentinel, Elastic) can take; OpenTelemetry logs and syslog are not built. Not built:
    write-once checkpoints (S3 Object Lock needs a real bucket with Object Lock to verify, and a choice of which package carries the
    AWS dependency: the design says a separate small writer, not the storage module) and the signed truncation entry (nothing
@@ -268,7 +268,7 @@ job of adaptive limits, the customer's monitoring and the streamed copy.
 6. **D5 read logging, D6 reviewer input, D9 origin.** *Built 2026-10-18: `action_viewed` when the review page opens an action, with
    the reader; `export` for each CLI export, with the OS account; `AiInputHash` (SHA-256 of the action as handed over) on every AI
    review, set by the runner, and `AiInput` kept when the policy says `AiReviewInput: Full` (provisional default: hash only); the
-   hash also goes into decision records. D9 in part: the Host version and instance are on `policy_loaded`; per-entry instance would
+   hash also goes into decision records. D9 in part: Orca version and instance are on `policy_loaded`; per-entry instance would
    change the chain's format, and the clock check against the checkpoint target is not built.*
 
 ## Decisions
@@ -276,7 +276,7 @@ job of adaptive limits, the customer's monitoring and the streamed copy.
 Still open:
 
 - **Default audit retention:** keep everything until the customer sets a period (as today), or a default such as one year?
-- **Streaming format first:** OpenTelemetry logs (fits the Host's telemetry), syslog, or a specific SIEM?
+- **Streaming format first:** OpenTelemetry logs (fits Orca's telemetry), syslog, or a specific SIEM?
 - **Write-once target first:** S3 Object Lock, as proposed, or Azure immutable storage for Microsoft 365 customers?
 - **AI reviewer input:** the hash always and the full input optional, as proposed, or the full input always?
 - **Read logging scope:** review page, exports and API, as proposed, or narrower to start?

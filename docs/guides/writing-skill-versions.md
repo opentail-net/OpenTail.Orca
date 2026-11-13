@@ -1,6 +1,6 @@
 # Writing a skill version
 
-What a skill version needs to pass the Host, and what each refusal means. Use this when you write a version, whether through the workbench or by hand. The operating side (publishing, approving, rolling back) is in the [runbook](skills.md). The module's behaviour is in its [reference](../../OpenTail.Modules.Skills/README.md).
+What a skill version needs to pass Orca, and what each refusal means. Use this when you write a version, whether through the workbench or by hand. The operating side (publishing, approving, rolling back) is in the [runbook](skills.md). The module's behaviour is in its [reference](../../OpenTail.Modules.Skills/README.md).
 
 Written from `opentail-orca` at `dc957f7`, 2026-11-10.
 
@@ -8,14 +8,14 @@ Written from `opentail-orca` at `dc957f7`, 2026-11-10.
 
 A version is two texts, plus the arguments that propose it:
 
-- **`skill.json`**: the metadata, as JSON. The Host stores it as sent.
-- **`SKILL.md`**: the instructions the agent follows, as Markdown. The Host stores it as sent, unless it begins with frontmatter (below).
+- **`skill.json`**: the metadata, as JSON. Orca stores it as sent.
+- **`SKILL.md`**: the instructions the agent follows, as Markdown. Orca stores it as sent, unless it begins with frontmatter (below).
 
 With them, `skills.publish` needs `skillId`, `version`, `reason`, `expectedFrom`, and optionally `label`, `report` and `ignoreFrontmatterKeys`.
 
 ## skill.json
 
-The Host reads these fields:
+Orca reads these fields:
 
 | Field | Required | Rule |
 |---|---|---|
@@ -23,11 +23,11 @@ The Host reads these fields:
 | `version` | yes | Must equal the `version` argument. A whole number from 1 to 999,999,999, with no leading zero |
 | `summary` | yes | One sentence saying what the skill does. `skills.find` returns it, and the standard description is built from it |
 | `appliesTo` | yes, in practice | The situations the skill applies to. A new version needs at least one non-blank entry |
-| `tools` | no | The tool names the skill expects. Served as information. The Host does not check them |
+| `tools` | no | The tool names the skill expects. Served as information. Orca does not check them |
 | `policies` | no | A list of `{ "ref": "policies/payment-verification.md", "hash": "sha256:…" }`. `hash` is the normalised hash of the policy text the skill was tested against, or `null`. Only the file name of `ref` is used for the drift check |
 | `owner` | no | The team that owns the skill |
 
-`format` must be `1`. The Host refuses any other value, and a file with no `format`, both at publish and when a stored version is read. The workbench writes `"format": 1`.
+`format` must be `1`. Orca refuses any other value, and a file with no `format`, both at publish and when a stored version is read. The workbench writes `"format": 1`.
 
 Each field has the type the table gives it: text for `id`, `version`, `summary` and `owner`, a list of text for `appliesTo` and `tools`, and a list of objects for `policies`, each with a text `ref` and a text or `null` `hash`. A value of another type is refused, not converted: `"version": 1` is not `"version": "1"`.
 
@@ -39,7 +39,7 @@ Write it as a procedure: what to look at, what to decide, which tool to use, and
 
 Two rules:
 
-- **It must not be blank.** The Host refuses an empty text with `The instructions (SKILL.md) are empty.`
+- **It must not be blank.** Orca refuses an empty text with `The instructions (SKILL.md) are empty.`
 - **Start with a heading, not `---`.** A text that begins with a `---` line is read as frontmatter. See the next section.
 
 ## Frontmatter (optional)
@@ -63,10 +63,10 @@ Use this for invoices, payment demands, bank-detail changes and suppliers asking
 When there is a frontmatter block:
 
 - **`name`** must equal the skill id.
-- **`description`** must equal the text the Host builds from `summary` and `appliesTo`. The rule is `<summary>. Use when <entry>; or when <entry>.`, with the trailing full stop removed from the summary and from each entry. For a skill whose `summary` is "Check whether an unpaid invoice is genuine before anyone pays or chases it." and whose `appliesTo` holds "an invoice or payment demand arrives by email" and "a supplier asks about an unpaid invoice", the example's description is exactly that text. A different wording is refused, and the refusal shows the expected text. The workbench's catalog delivery lists this text to the agent before it loads the skill, so it is what the agent chooses from.
+- **`description`** must equal the text Orca builds from `summary` and `appliesTo`. The rule is `<summary>. Use when <entry>; or when <entry>.`, with the trailing full stop removed from the summary and from each entry. For a skill whose `summary` is "Check whether an unpaid invoice is genuine before anyone pays or chases it." and whose `appliesTo` holds "an invoice or payment demand arrives by email" and "a supplier asks about an unpaid invoice", the example's description is exactly that text. A different wording is refused, and the refusal shows the expected text. The workbench's catalog delivery lists this text to the agent before it loads the skill, so it is what the agent chooses from.
 - **`metadata.version`**, if you give it, must equal the version.
 - **Other top-level keys** are refused, unless they are listed in `ignoreFrontmatterKeys` (exact, case-sensitive names that must appear in the file). Standard fields cannot be ignored.
-- **`license`, `compatibility`, `allowed-tools` and other metadata** are not stored and are not served. They come back as warnings in the change request. `allowed-tools` is never acted on: approval is the Host's policy, not the skill's.
+- **`license`, `compatibility`, `allowed-tools` and other metadata** are not stored and are not served. They come back as warnings in the change request. `allowed-tools` is never acted on: approval is Orca's policy, not the skill's.
 - **Only the body** after the closing `---` is stored. Blank lines just after it are removed.
 
 The description and the name are limited by the standard: the name is at most 64 characters, lower-case ASCII letters, digits and hyphens when saved, and the description is at most 1024 characters. Over the limit it is refused, never cut.
@@ -108,7 +108,7 @@ Two refusals have no code:
 | `Unknown frontmatter key '<key>' is ignored, as the caller asked.` (code `SKILL-KEY-IGNORED`) | An unknown key you acknowledged was dropped |
 | `'license' is not stored, so it is not served.` | The licence is not kept |
 | `'compatibility' is not stored, so it is not served.` | Compatibility is not kept |
-| `'allowed-tools' is not stored and is never acted on: approval is the Host's policy, not the skill's.` | The field is not kept, and it grants nothing |
+| `'allowed-tools' is not stored and is never acted on: approval is Orca's policy, not the skill's.` | The field is not kept, and it grants nothing |
 | `metadata '<key>' is not stored, so it is not served.` | Other metadata is not kept. `version` is the exception: it is checked, not kept |
 
 **Rollbacks** to a version already in the store are not checked again. Their files cannot change.

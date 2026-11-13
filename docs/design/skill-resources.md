@@ -2,11 +2,11 @@
 
 **Status:** proposed 2026-11-10. No code yet. Decisions marked **owner** are for the owner; the others are proposed defaults that the owner can change.
 **Plan:** [skills-plan.md](skills-plan.md), step 3.
-**Where it fits:** the Host's skills module (`OpenTail.Modules.Skills`), the workbench's package writer and its skill loader (`opentail-workbench`). A new Host tool, `skills.read_resource`, is the only new surface.
+**Where it fits:** Orca's skills module (`OpenTail.Modules.Skills`), the workbench's package writer and its skill loader (`opentail-workbench`). A new Orca tool, `skills.read_resource`, is the only new surface.
 
 ## Problem
 
-A published skill version is two files, `skill.json` and `SKILL.md`. A skill that needs a long reference (a rate table, a policy's worked examples, a template) must either carry it inside `SKILL.md` or leave it out. The standard expects the reference to live in a separate file that the agent loads only when the task needs it, so that `SKILL.md` stays short. Today the Host cannot store such a file, the Host cannot serve it, and the workbench's packager cannot write it.
+A published skill version is two files, `skill.json` and `SKILL.md`. A skill that needs a long reference (a rate table, a policy's worked examples, a template) must either carry it inside `SKILL.md` or leave it out. The standard expects the reference to live in a separate file that the agent loads only when the task needs it, so that `SKILL.md` stays short. Today Orca cannot store such a file, Orca cannot serve it, and the workbench's packager cannot write it.
 
 ## Facts this relies on
 
@@ -23,13 +23,13 @@ Verified on 2026-11-10 from the published Agent Skills specification (agentskill
 | The specification does not say how an agent retrieves a resource. The client does that, by reading files. | (absence, checked on the page) |
 | `allowed-tools` is experimental and is a space-separated list of pre-approved tools. | Frontmatter |
 
-The last row matters for scope: the standard leaves retrieval to the client. A Host that serves skills to clients that have no file system needs a retrieval tool of its own.
+The last row matters for scope: the standard leaves retrieval to the client. Orca that serves skills to clients that have no file system needs a retrieval tool of its own.
 
 ## Goals and non-goals
 
 **Goals**
 - A version may carry text resources under `references/` and `assets/`, bound to the version the way its instructions are.
-- The agent can read a resource of an activated skill through the Host, read-only, and each read is audited.
+- The agent can read a resource of an activated skill through Orca, read-only, and each read is audited.
 - The workbench can package those resources for native clients, and can test them.
 
 **Non-goals**
@@ -42,16 +42,16 @@ The last row matters for scope: the standard leaves retrieval to the client. A H
 
 Read from the code on 2026-11-10, at `opentail-orca` `6779f6b` and `opentail-workbench` `ce65cb3`.
 
-**Host store** (`OpenTail.Modules.Skills/SkillStore.cs`)
+**Orca store** (`OpenTail.Modules.Skills/SkillStore.cs`)
 - `SkillStore.Publish(id, version, label, metadataJson, instructions, expectedFrom)`: a version's files never change; republishing the same content is a no-op; different content under an existing number is refused; the label moves only if `expectedFrom` still matches; the publish holds `.publish.lock` throughout.
 - `SkillStore.Get(id, version)` and `Parse(metadataJson, instructions, id, version)`: `skill.json` must be format 1 (required since `1de39fe`). Each field's type is checked only from `4b8a8b7`, which is on `standard-skill-files` and not in `main`; at `6779f6b` the fields are not type-checked (checked 2026-11-10 with `git show 6779f6b:OpenTail.Modules.Skills/SkillStore.cs`). `Parse` is also used by the standard-form publish path and by the workbench.
 - `SkillStore.Root` layout: `<root>/<id>/<version>/skill.json` and `SKILL.md`, and `<root>/labels.json`.
 
-**Host hashes** (`SkillText.cs`)
+**Orca hashes** (`SkillText.cs`)
 - `SkillText.ContentHash(SkillVersion)` covers id, version, summary, appliesTo, tools, policy refs, owner and instructions. `SkillText.BindingLine` writes `skill-report: <id>@<version> sha256:<hex>`, and the publish preview checks a report's binding line against this hash.
 - The workbench calls `SkillText` directly: `Skill.cs` (`ContentHash`, `BindingLine`), `Program.cs` (`Bindings`), `Policies.cs` and `Scenario.cs` (`Hash`), `Tuner.cs` (`Diff`), `AiGrader.cs` (`Hash`). A change to what `ContentHash` covers for a version with no resources would change every recorded report binding. So none may change (see the proposed design, below).
 
-**Host tools** (`SkillsModule.cs`)
+**Orca tools** (`SkillsModule.cs`)
 - `skills.find` (Read): lists skills at the served label, with `warnings` for unreadable versions.
 - `skills.get` (Read, audited as `skill_served` with `served` as the detail): returns `served`, `id`, `version`, `label`, `summary`, `appliesTo`, `tools`, `policies`, `policyWarnings`, `instructions`. `SkillOutcomes` reads the `skill_served` audit and the `served` field, and only tools whose `AuditResult.Event` is `skill_served` count as serves.
 - `skills.publish` (ExternalEffect, administration): previewed as a change request; the preview shows the diff, the reason and the report check.
@@ -61,7 +61,7 @@ Read from the code on 2026-11-10, at `opentail-orca` `6779f6b` and `opentail-wor
 - `NativePackage.Write(skill, outFolder, checkIn)` writes `<out>/<id>/SKILL.md` only (checked: no `references` or `assets` in the file). The frontmatter is produced by `StandardSkill.Format`.
 - `Skill` (`Formats/Skill.cs`) reads `skill.json`, `SKILL.md` and `policies`, and builds a `SkillVersion` for hashing. Its `skills/<id>/` folder has `examples/` documented in `docs/formats.md` but not read.
 - `ScenarioRunner.cs` builds a `SkillStore` over the sandbox's store, so the sandbox serves what the store serves.
-- `AgentRunner` gives the model `skills.find` and `skills.get` through the Host in tools mode; in native mode it puts the instructions in the system prompt. The `catalog` and `none` deliveries came later (skills plan, steps 2 and 4) and are not in this snapshot.
+- `AgentRunner` gives the model `skills.find` and `skills.get` through Orca in tools mode; in native mode it puts the instructions in the system prompt. The `catalog` and `none` deliveries came later (skills plan, steps 2 and 4) and are not in this snapshot.
 
 ## Branch-by-branch: what must not change
 
@@ -100,7 +100,7 @@ Declaring the digest is what binds the resource to the version. The digest is `s
 
 ### Hash binding
 
-Resources are part of a version's identity only under the v2 algorithm of the hashing plan (its design item 10): the sorted list of each resource's path and digest, encoded as there. Under v1, a version without resources hashes exactly as today, so every existing binding stays valid. A v1 identity has no resource term, so it cannot cover a version with resources. The Host therefore refuses a v1 binding for such a version, and the workbench writes v2 for it. Without that rule, a v1 report could describe a version whose resources had changed.
+Resources are part of a version's identity only under the v2 algorithm of the hashing plan (its design item 10): the sorted list of each resource's path and digest, encoded as there. Under v1, a version without resources hashes exactly as today, so every existing binding stays valid. A v1 identity has no resource term, so it cannot cover a version with resources. Orca therefore refuses a v1 binding for such a version, and the workbench writes v2 for it. Without that rule, a v1 report could describe a version whose resources had changed.
 
 `SkillVersion` gains an optional `Resources` property with an empty default, so existing construction sites compile unchanged. The workbench's `Skill` maps its folder's resources into it.
 
@@ -136,7 +136,7 @@ Size: the arguments travel as JSON through MCP. The 256 KiB total cap bounds tha
 
 - Loader: `skills/<id>/references/` and `skills/<id>/assets/` are read, and their files are declared in `skill.json` by the loader's own rules (the author writes the declaration; the loader checks it against the folder and refuses a mismatch).
 - Packager: `NativePackage.Write` copies the resource files beside `SKILL.md`, unchanged. `scripts/` is reported and not copied.
-- Sandbox: the sandboxed Host serves resources through the same store code, so scenario runs exercise `skills.read_resource`.
+- Sandbox: the sandboxed Orca serves resources through the same store code, so scenario runs exercise `skills.read_resource`.
 - Delivery: in tools mode the model discovers resources through `skills.get` and reads them with `skills.read_resource`. The catalog delivery (built in step 2) loads a skill's instructions through the harness tool `activate_skill`, which stands in for the client's file read. A resource read in the catalog will be a second harness tool, `read_resource`, with the same exemption from the outside-skills flag. It is not built: it waits for decisions D1 to D6.
 
 ## Tests (planned)

@@ -1,17 +1,17 @@
 # Standard operating procedures
 
-How to run the Host day to day: what it does by itself, where a person comes in, and what that person does, step by step. Written
+How to run Orca day to day: what it does by itself, where a person comes in, and what that person does, step by step. Written
 for the people who operate, review, secure and audit a deployment. Adapt it into your own procedures: roles are named by what they
-do, not by job title, and steps that are your organisation's control rather than the Host's say so.
+do, not by job title, and steps that are your organisation's control rather than Orca's say so.
 
 The reference for every setting is [POLICY.md](POLICY.md); for every command, [OPERATIONS.md](OPERATIONS.md); for auditors,
 [AUDIT.md](AUDIT.md). This page links to them rather than repeating them.
 
-**How to read a procedure.** Each has the same parts: **When** (what triggers it and how you notice), **The Host has already**
+**How to read a procedure.** Each has the same parts: **When** (what triggers it and how you notice), **Orca has already**
 (what happened without you), **Steps**, **Never** (the mistakes that matter), **Keep** (what to keep as evidence). Two markers:
 
 * **[Switch on: ...]** the procedure applies only once that feature is configured. Many recent features start report only or off.
-* **[Gap Gn]** a step the Host does not support well yet. The [gap list](#gaps) says what is missing; work plan section 19 tracks it.
+* **[Gap Gn]** a step Orca does not support well yet. The [gap list](#gaps) says what is missing; work plan section 19 tracks it.
 
 Commands are written for the ready-made program, `opentail-orca`; a deployment of your own uses its own program name with the same
 flags. Commands that read the database take `--db <file>`; it is left out below for brevity.
@@ -20,12 +20,12 @@ flags. Commands that read the database take `--db <file>`; it is left out below 
 
 | Role | Does |
 |---|---|
-| **Operator** | Runs the Host: starts, watches, backs up, upgrades; changes policy and keys; works inspections that reach people. |
+| **Operator** | Runs Orca: starts, watches, backs up, upgrades; changes policy and keys; works inspections that reach people. |
 | **Reviewer** | Decides held actions on the review page (or in Teams), within the reviewer groups they belong to. |
 | **Security lead** | Owns identity levels, suspicious credentials and incidents; decides when report-only checks are enforced. |
 | **Integration owner** | Adds and changes modules and integration profiles; owns their credentials with the credential owner. |
 | **Credential owner** | Holds a module's secret (an API token, an OAuth client) in the system it belongs to; rotates it. Never an agent. |
-| **Auditor liaison** | Answers auditors and access reviews with the Host's records. |
+| **Auditor liaison** | Answers auditors and access reviews with Orca's records. |
 
 One person can hold several roles in a small team. Two rules hold whatever the team: **nobody approves their own request** where the
 policy forbids it, and **the identity that failed never inspects or redrives its own failure.**
@@ -36,9 +36,9 @@ policy forbids it, and **the identity that failed never inspects or redrives its
 
 ## A tool call, from arrival to result
 
-1. An agent calls a tool. The Host identifies the caller **from its credential** (an API key or a signed-in user), never from the
+1. An agent calls a tool. Orca identifies the caller **from its credential** (an API key or a signed-in user), never from the
    request, and attaches the agent profile bound to that credential.
-2. The Host runs its checks in a fixed order: profile, identity level, policy and rules, trust ramp, taint, data flow, delay, queue.
+2. Orca runs its checks in a fixed order: profile, identity level, policy and rules, trust ramp, taint, data flow, delay, queue.
    Each can only make the outcome stricter. The action records every check as its **decision trace**, with the hash of the policy.
 3. One of three things happens:
    * **Run now.** The tool runs; the result goes back to the agent. If the tool reads outside content (mail, web pages), the
@@ -60,9 +60,9 @@ retrying failed ones ([R3](#r3-retrying-a-failed-action)).
 Agents are told about the work tools in the server instructions when work is enabled.
 
 1. Someone creates work: a person (operator), a system, or an agent with `work.delegate` (policy-governed, only to profiles its
-   profile lists). Or an agent **parks** while it waits for approvals or other work, and the Host creates a **resume item** when the
+   profile lists). Or an agent **parks** while it waits for approvals or other work, and Orca creates a **resume item** when the
    waits come back.
-2. The item waits in the inbox for its profile or identity. The Host wakes an agent by webhook or by starting a command, if
+2. The item waits in the inbox for its profile or identity. Orca wakes an agent by webhook or by starting a command, if
    configured; otherwise an agent pulls with `next_work`.
 3. An agent claims it under a **lease** (10 minutes, renewed as it works) and reads the goal, inputs, note, outcomes and thread note.
    Reading it gives the agent the item's **taint and labels**: waiting or passing work on cleans nothing.
@@ -77,12 +77,12 @@ Agents are told about the work tools in the server instructions when work is ena
 
 1. A call fails. The module says what kind of failure it was: transient, environment, contract, auth, policy, unknown outcome, or
    (if it does not say) bug.
-2. **Transient failures of tools that are safe to run twice** are retried by the Host, a few times, waiting longer each time. Nothing
-   else is retried by the Host. A reviewer may retry transient, environment, auth and unknown-outcome failures once the cause is fixed.
+2. **Transient failures of tools that are safe to run twice** are retried by Orca, a few times, waiting longer each time. Nothing
+   else is retried by Orca. A reviewer may retry transient, environment, auth and unknown-outcome failures once the cause is fixed.
 3. **A tool that keeps failing the same way** (5 times in 5 minutes, of kind transient, environment or auth) would be paused: one
    audit entry names the fingerprint (tool, kind, code). Report only by default. **[Switch on: `Failures.CircuitMode: Enforce`]** its
    calls are then held without reaching it; after a cool-down one call probes; if it works, held calls are released a few at a time.
-4. **Work that keeps failing** dies and goes to **inspection**: the Host collects the evidence from its own records (never arguments
+4. **Work that keeps failing** dies and goes to **inspection**: Orca collects the evidence from its own records (never arguments
    or results), adds a **credential assessment** for auth failures (expected, unclear or suspicious), and opens an inspection item
    for the inspector profile, excluding whoever failed. Unclaimed after an hour, or if the inspection itself fails, it goes to the
    operators.
@@ -97,7 +97,7 @@ Agents are told about the work tools in the server instructions when work is ena
 
 ## Operations
 
-### O1. Starting the Host and checking it is healthy
+### O1. Starting Orca and checking it is healthy
 
 **When:** first start, after a restart, after an upgrade.
 
@@ -109,7 +109,7 @@ Agents are told about the work tools in the server instructions when work is ena
    the policy, do not work around it.
 3. Check `GET /healthz`: `{"status":"ok","checks":{"maintenance":"ok", ...}}`. `maintenance` is `starting` until the first
    sweep finishes. **Unhealthy** (503) means the maintenance sweep has not finished for 3 minutes: held, delayed and retried work is
-   not moving; restart the Host and read its stderr. **Degraded** (200) means a check needs a person, for example `notifications`
+   not moving; restart Orca and read its stderr. **Degraded** (200) means a check needs a person, for example `notifications`
    when a notification of the last day could not be delivered ([F4](#f4-notifications-are-not-getting-through)).
 4. Check the audit trail got a `policy_loaded` entry with the policy's hash: `--policy-versions` lists it.
 5. Check a reviewer can sign in to the review page and sees the queue.
@@ -129,7 +129,7 @@ Agents are told about the work tools in the server instructions when work is ena
 4. **Inspections and dead work** [Switch on: `Work.Enabled`]: `--work --state dead`, and open inspection items in `--work --state open`.
    [Gap G1: inspections do not show on the review page; operators work them from the command line.]
 5. **Paused routes** [Switch on: circuits]: `--circuits` lists routes paused (and that would be, report only) with their fingerprint
-   and the calls they hold. Circuits live in the Host's memory and a restart clears them; the list reads the audit trail.
+   and the calls they hold. Circuits live in Orca's memory and a restart clears them; the list reads the audit trail.
 
 **Steps, weekly**
 1. `--review-report --since 7d`: approvals within seconds, bursts, tools nearly always approved (candidates for less friction) or
@@ -143,9 +143,9 @@ Agents are told about the work tools in the server instructions when work is ena
 **When:** daily, or as your backup policy says.
 
 **Steps**
-1. Back up the database without stopping the Host: `sqlite3 queue.db ".backup queue-<date>.db"` (or copy it while the Host is
+1. Back up the database without stopping Orca: `sqlite3 queue.db ".backup queue-<date>.db"` (or copy it while Orca is
    stopped; the `-wal` file travels with it).
-2. Keep the copies where the Host's own account cannot delete them (that is your control, not the Host's).
+2. Keep the copies where Orca's own account cannot delete them (that is your control, not Orca's).
 3. Monthly, restore a copy somewhere else and run `--verify-audit` on it.
 
 **Keep:** the backup schedule and the monthly restore test result.
@@ -154,11 +154,11 @@ Agents are told about the work tools in the server instructions when work is ena
 
 **When:** the database is lost or damaged.
 
-**The Host has already:** nothing; it does not know it was restored.
+**Orca has already:** nothing; it does not know it was restored.
 
 **Steps**
-1. Stop the Host. Keep the damaged file aside (do not delete it: it is evidence).
-2. Put the backup in place and start the Host ([O1](#o1-starting-the-host-and-checking-it-is-healthy)).
+1. Stop Orca. Keep the damaged file aside (do not delete it: it is evidence).
+2. Put the backup in place and start Orca ([O1](#o1-starting-the-host-and-checking-it-is-healthy)).
 3. Run `--verify-audit --checkpoint <the latest checkpoint you hold>`. **Expect** checkpoints taken after the backup to be reported
    `MISSING`: the entries written between the backup and the loss are gone. Note the last checkpoint that does verify: that is the
    point you restored to.
@@ -169,7 +169,7 @@ Agents are told about the work tools in the server instructions when work is ena
 
 **Never:** restore over a damaged database without keeping it.
 
-### O5. Upgrading the Host
+### O5. Upgrading Orca
 
 **When:** a new release.
 
@@ -187,7 +187,7 @@ Agents are told about the work tools in the server instructions when work is ena
 
 **When:** a notification ("waiting for approval"), or a reminder; or as a routine.
 
-**The Host has already:** decided the action needs a person, recorded why (the decision trace), produced a preview where the tool can,
+**Orca has already:** decided the action needs a person, recorded why (the decision trace), produced a preview where the tool can,
 and checked who may decide it (the reviewer group, how many approvals, whether you may approve your own request).
 
 **Steps**
@@ -205,7 +205,7 @@ and checked who may decide it (the reviewer group, how many approvals, whether y
 
 **Never:** approve something you do not understand to clear the queue. The review report shows quick approvals and bursts.
 
-**Keep:** nothing extra: the Host records your decision, reason, identity, groups and what you were shown. Opening an action is
+**Keep:** nothing extra: Orca records your decision, reason, identity, groups and what you were shown. Opening an action is
 itself audited (`action_viewed`).
 
 ### R2. Going out soon (undo window)
@@ -220,7 +220,7 @@ action's reviewer group may stop it). **Approve** runs it now.
 **When:** an action failed and the failure kind allows a retry (transient, environment, auth, unknown outcome).
 
 **Steps**
-1. Read the failure kind and message. For **unknown outcome** (the Host stopped while it ran), first check in the target system
+1. Read the failure kind and message. For **unknown outcome** (Orca stopped while it ran), first check in the target system
    whether it happened. If it did, do not retry.
 2. For **environment** or **auth**, check the cause is fixed (the ticket closed, the credential rotated). Otherwise it fails again.
 3. Press **Retry**.
@@ -234,7 +234,7 @@ action's reviewer group may stop it). **Approve** runs it now.
 **When:** `inspection.opened` in the audit trail; `next_work` for the inspector profile; `--work --state open` for the operators.
 [Gap G2: operators get no chat message for inspections; `work_ready` goes to webhooks only.]
 
-**The Host has already:** marked the item dead or expired, collected the evidence (the item and its runs, the actions its claimants
+**Orca has already:** marked the item dead or expired, collected the evidence (the item and its runs, the actions its claimants
 made, their failure kinds and fingerprints, the audit entries naming it, the claimants' identity levels, and a credential assessment
 for auth failures), opened the inspection for the inspector profile with the identities that failed excluded, and woken a parent that
 waited on it (with `stalled`).
@@ -270,7 +270,7 @@ waited on it (with `stalled`).
 **When:** the operator decides directly (for example after a ticket closed), without an inspector's proposal.
 
 **Steps:** `opentail-orca --redrive <work id> --by <your name> [--for profile:<name>] [--exclude-failed] [--drop-note]`. The item
-reopens with runs reset and the findings attached; `redrive.approved` names you. The running Host wakes an agent for it on its next
+reopens with runs reset and the findings attached; `redrive.approved` names you. The running Orca wakes an agent for it on its next
 maintenance sweep (within 30 seconds).
 
 ### I4. A credential rotation request
@@ -279,7 +279,7 @@ maintenance sweep (within 30 seconds).
 
 **Steps (the credential owner)**
 1. Rotate or re-consent in the system the credential belongs to.
-2. Update the Host's credential source (the environment variable or file the module reads); it is re-read on next use.
+2. Update Orca's credential source (the environment variable or file the module reads); it is re-read on next use.
 3. Tell the operator, who redrives the item ([I3](#i3-redriving-from-the-command-line)).
 
 ## Failures
@@ -288,7 +288,7 @@ maintenance sweep (within 30 seconds).
 
 **When:** `circuit.would_open` (report only) or `circuit.opened` / `circuit.reopened` (enforced) in the audit trail.
 
-**The Host has already:** counted failures of one kind on one tool, named the fingerprint once. Enforced: held new calls on that tool,
+**Orca has already:** counted failures of one kind on one tool, named the fingerprint once. Enforced: held new calls on that tool,
 scheduled one probe after the cool-down, and will release held calls a few at a time once the probe works.
 
 **Steps**
@@ -302,7 +302,7 @@ scheduled one probe after the cool-down, and will release held calls a few at a 
 
 **When:** `credential.suspicious` in the audit trail, or a suspicious verdict in an inspection's evidence.
 
-**The Host has already:** recorded why (each signal), raised a soft signal for the identity (report only unless soft signals are
+**Orca has already:** recorded why (each signal), raised a soft signal for the identity (report only unless soft signals are
 enforced: `level_would_change`).
 
 **Steps (the security lead)**
@@ -316,13 +316,13 @@ enforced: `level_would_change`).
 
 **When:** `--levels`, or `level_changed` / `level_would_change` in the audit trail.
 
-**The Host has already:** for Elevated, made everything above Read wait for a person (or announced with a delay); for Suspended,
+**Orca has already:** for Elevated, made everything above Read wait for a person (or announced with a delay); for Suspended,
 refused everything. Report only: nothing, but recorded what would have happened.
 
 **Steps (the security lead)**
 1. Read the reason (`--levels`). A decoy touched is a near-certain sign of compromise: go to [S1](#s1-a-security-incident).
 2. When cleared: `--clear-level <subject> --by <your name>`. For a **suspended API key**, rotate the key first (a new key and hash
-   in the HTTP config, restart), then `--clear-level <subject> --by <your name> --key-rotated`. The Host checks its own `key_rotated`
+   in the HTTP config, restart), then `--clear-level <subject> --by <your name> --key-rotated`. Orca checks its own `key_rotated`
    entry since the suspension and refuses if there is none.
 
 ### F4. Notifications are not getting through
@@ -340,9 +340,9 @@ re-sends notifications for actions still pending.
 
 **On the review page (agent profiles and other policy changes, two admins)**
 1. *Admin → Agents → Propose a change* (or *Proposals → New proposal* to edit the whole policy as JSON). Say why.
-2. The Host checks the candidate exactly as a start would (against the loaded modules) and replays it against every stored action:
+2. Orca checks the candidate exactly as a start would (against the loaded modules) and replays it against every stored action:
    the proposal shows how many would have been handled differently, with examples linked to the actions, and the change section by
-   section. Nothing changes in the running Host. Audit: `policy_proposed`.
+   section. Nothing changes in the running Orca. Audit: `policy_proposed`.
 3. **A second admin** opens it under *Proposals* and approves (`policy_proposal_approved`) or rejects with a reason
    (`policy_proposal_rejected`). The proposer, or the same person under another identity in `People`, cannot approve. A proposal made
    before the running policy changed is *stale* and cannot be approved: propose again from the current policy.
@@ -355,7 +355,7 @@ re-sends notifications for actions still pending.
 2. `--lint`, then `--replay-policy new.json --since 30d` against the real database: what would have been decided differently.
    `--test-policy cases.json` if you keep cases. `--explain <tool> '<args>'` for one call.
 3. Have a second person review the change (your control).
-4. Restart the Host with the new file and `--by <your name>`. Policy changes take effect only on restart.
+4. Restart Orca with the new file and `--by <your name>`. Policy changes take effect only on restart.
 5. Check `--policy-versions`: the new hash is listed; `--policy-diff <old> <new>` shows the change. The audit trail has
    `policy_loaded` naming who started it, and `profile_added` / `profile_changed` / `profile_removed` / `people_changed` for those
    changes. The commit is the record of who wrote the change; `policy_loaded` of who put it into force.
@@ -404,7 +404,7 @@ package. See [MODULES.md](MODULES.md#removing-a-module).
 **When:** a decoy touched, a suspicious credential judged an incident, a leaked key, signs of an agent following injected
 instructions.
 
-**The Host has already:** for a decoy sent out, suspended the identity (enforced) and refused the call; recorded everything.
+**Orca has already:** for a decoy sent out, suspended the identity (enforced) and refused the call; recorded everything.
 
 **Steps (the security lead), in this order**
 1. **Preserve:** `--audit-checkpoint`, and keep the output somewhere outside the server. Copy the database ([O3](#o3-backing-up)).
@@ -434,7 +434,7 @@ kept. Change them through [C1](#c1-changing-the-policy).
 **Steps (the auditor liaison)**
 1. Agree the period.
 2. `opentail-orca --export-audit <folder> --from <start> --until <end>`. The export is audited (`export`).
-3. Give the auditor the folder, [AUDIT.md](AUDIT.md), and the checkpoints you kept outside the Host for that period.
+3. Give the auditor the folder, [AUDIT.md](AUDIT.md), and the checkpoints you kept outside Orca for that period.
 4. The auditor runs `python3 verify.py <folder>` themselves and compares `head.txt` with your checkpoints.
 5. For "how was this decided", point them at the decision trace in `decisions.jsonl` and the policy versions in `policies/`.
 
@@ -458,8 +458,8 @@ force, grants and identity levels. Compare with who should have access (your con
 **When:** a person asks what you hold on them, or asks for it to be deleted.
 
 **Steps**
-1. Know where it can be: in **actions** (arguments and results, until `RetentionDays`), and in the systems the Host reaches (not the
-   Host's to answer). Audit entries and decision records hold no argument values or results, only ids, tool names and hashes.
+1. Know where it can be: in **actions** (arguments and results, until `RetentionDays`), and in the systems Orca reaches (not the
+   Orca's to answer). Audit entries and decision records hold no argument values or results, only ids, tool names and hashes.
 2. Finding actions that hold a person's data: [Gap G9: there is no search by argument value and no command to delete one action
    early. Today: shorten `RetentionDays`, or query the database directly with care.]
 
@@ -467,15 +467,15 @@ force, grants and identity levels. Compare with who should have access (your con
 
 # Gaps
 
-What the procedures above need and the Host does not do yet. Tracked in work plan section 19.
+What the procedures above need and Orca does not do yet. Tracked in work plan section 19.
 
 | Gap | What is missing | Procedures |
 |---|---|---|
 | G1 | Inspections and work items are not on the review page; inspections for the operators can only be claimed from the command line | O2, I1 |
 | G2 | No chat message for operators when an inspection reaches them (`work_ready` is webhook-only) | I1 |
 | G3 | ~~No way to list paused routes or the calls they hold (circuits are in memory)~~ Closed 2026-10-18. | O2, F1 |
-| G4 | ~~`policy_loaded` records `system`: the runners do not pass who started the Host~~ Closed 2026-10-18. | C1 |
-| G5 | ~~`--clear-level --key-rotated` takes the operator's word; the Host could check its own `key_rotated` entry~~ Closed 2026-10-18. | F3 |
+| G4 | ~~`policy_loaded` records `system`: the runners do not pass who started Orca~~ Closed 2026-10-18. | C1 |
+| G5 | ~~`--clear-level --key-rotated` takes the operator's word; Orca could check its own `key_rotated` entry~~ Closed 2026-10-18. | F3 |
 | G6 | An inspection's evidence and credential assessment are not shown on the review page | I1 |
 | G7 | ~~No command to suspend an identity by hand~~ Closed 2026-10-18. | S1 |
 | G8 | ~~No command to cancel all of an identity's pending actions~~ Closed 2026-10-18. | S1 |

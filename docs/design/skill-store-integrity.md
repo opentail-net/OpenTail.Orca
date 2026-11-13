@@ -1,10 +1,10 @@
 # Design: skill store integrity and discovery
 
 **Status:** planned 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
-**System:** the Host's skill store and the tools that read it: `OpenTail.Modules.Skills` (`SkillStore`, `SkillsModule`).
+**System:** Orca's skill store and the tools that read it: `OpenTail.Modules.Skills` (`SkillStore`, `SkillsModule`).
 **Not in this plan:** the content hash ([skill-content-hashing.md](skill-content-hashing.md)), outcome attribution ([skill-outcome-attribution.md](skill-outcome-attribution.md)), extracting the standard into a library ([agent-skills-library.md](agent-skills-library.md)), and resources ([skill-resources.md](skill-resources.md)).
 **Code basis:** `opentail-orca` on `standard-skill-files` at 4b8a8b7 (committed; not in `main`). The strict-type changes in `SkillStore.cs` were uncommitted when this plan was first written and are in that commit. Where `main` (6779f6b, which is `origin/main`; the local `main` ref is older, 6081d5b) differs, it is noted. Checked 2026-11-10: within the skills module, 4b8a8b7 differs from 6f1a59b only in `SkillStore.cs` and the module README; `SkillsModule.cs` and `Standard/` are unchanged.
-**Order with the other plans:** this plan changes the store in place, in the Host, first. The library plan does not move the store (O-L4: the Host keeps it). It adds optional `skill.json` keys (O-L3), which this store reads and writes, and it moves the identity code (O-L5), as changed by the hashing plan (this plan does not change it). The hashing plan changes the republish comparison (its design item 6) and adds the `sha256v2:` policy-hash prefix; design item 4 below must accept whatever prefixes the hashing plan has introduced by then.
+**Order with the other plans:** this plan changes the store in place, in Orca, first. The library plan does not move the store (O-L4: Orca keeps it). It adds optional `skill.json` keys (O-L3), which this store reads and writes, and it moves the identity code (O-L5), as changed by the hashing plan (this plan does not change it). The hashing plan changes the republish comparison (its design item 6) and adds the `sha256v2:` policy-hash prefix; design item 4 below must accept whatever prefixes the hashing plan has introduced by then.
 
 ## Purpose
 
@@ -121,7 +121,7 @@ Each claim from the external review was checked against the code on 2026-11-10.
 | no content, version does not exist | `ArgumentException` (`:144`) | unchanged |
 | failure after the temporary version folder is created (a write fails) | folder left behind | folder removed; label unchanged |
 | the version folder exists but is incomplete (`Get` returned null because one file is missing), so `Directory.Move` fails | `IOException`; temporary folder left; the publish is refused with an I/O error, not an `ArgumentException` | temporary folder removed; refused with a message naming the incomplete folder (the store check reports it) |
-| the version folder appears between `Get` and the move | not possible between Host publishes (both are under the lock); possible only from another writer | covered by the row above |
+| the version folder appears between `Get` and the move | not possible between Orca publishes (both are under the lock); possible only from another writer | covered by the row above |
 | failure while writing `labels.json.tmp`, or in the final `File.Move` | file left behind; the version folder stays (versions are immutable; a version with no label is not served) | handled failure: temporary file removed, label unchanged, and the new version folder removed (guarantee 2); unhandled failure (a crash): the folder stays unlabelled, is never served, and the store check reports it (guarantee 3) |
 
 ## Branch-by-branch: preview (the `skills.publish` preview)
@@ -155,9 +155,9 @@ Mapping of the preview rows to tests. Malformed labels file: `A_preview_with_mal
 5. **Publish cleans up.** The temporary folder and temporary labels file are removed in a `finally` when anything after their creation fails. The final move happens only after every file is complete. An incomplete version folder already in place is not overwritten or repaired by a publish; it is refused and named. If the label write fails after this publish moved its version folder into place, the new folder is removed when the failure is handled; if the process dies, it stays unlabelled (guarantee 3).
 6. **Policy references.** Detect a clash of file names within one skill, and warn. Whether references should resolve by relative path instead is **O-S1**. The existing references all have the form `policies/<name>.md`, so the resolution rule decides what `PolicyFolder` must contain. Changing it is not part of the first step.
 7. **Store check.** A command that scans a store and lists every problem the read path would report, without serving anything. It also lists what the read path never sees: version folders with no label, incomplete version folders, and leftover temporary folders and `labels.json.tmp` (guarantee 3). It is run before a release with the stricter reading (design items 1 to 4) is deployed on an existing store (work order step 3, O-S3). Where the command lives is not fixed: the admin command line is the candidate, and its contract is read and added to "Contracts" before step 3 starts.
-8. **Backup.** Two kinds of writer change the state a backup must capture: skill-store publishes, which take `.publish.lock`, and every Host database write, which the lock does not cover. So the procedure is one of these:
-   - **Option A (recommended): quiesce the Host.** Stop the Host, copy the store folder, take the database snapshot (`sqlite3 queue.db ".backup copy.db"`, from `OPERATIONS.md:233`), and restart. The two copies are consistent with each other. (To verify: that the Host has no pause mode, so a stop is the only quiesce.)
-   - **Option B (weaker, and labelled as such): keep the Host running.** Copy the store while holding `.publish.lock`, then take the database snapshot. An action approved between the two copies can be in one copy and not the other. The restore must reconcile that from the audit trail (to verify that the audit trail identifies it).
+8. **Backup.** Two kinds of writer change the state a backup must capture: skill-store publishes, which take `.publish.lock`, and every Orca database write, which the lock does not cover. So the procedure is one of these:
+   - **Option A (recommended): quiesce Orca.** Stop Orca, copy the store folder, take the database snapshot (`sqlite3 queue.db ".backup copy.db"`, from `OPERATIONS.md:233`), and restart. The two copies are consistent with each other. (To verify: that Orca has no pause mode, so a stop is the only quiesce.)
+   - **Option B (weaker, and labelled as such): keep Orca running.** Copy the store while holding `.publish.lock`, then take the database snapshot. An action approved between the two copies can be in one copy and not the other. The restore must reconcile that from the audit trail (to verify that the audit trail identifies it).
    The restore note records the option, the times and both copies. Facts the procedure must state (from `SkillStore.cs:162-174`): the lock is taken without waiting, so an approved publish that executes while it is held fails with "the skill store is busy" and must be resubmitted; the lock is advisory on Unix and binds only processes that take it; on Windows the held `.publish.lock` cannot be copied, so the copy excludes it. A restore drill is run once, dated, and repeated when the procedure changes.
 9. **Lock test without PowerShell.** The cross-process test starts the test assembly itself in a helper mode (or a small helper console project, referenced by the test project), so it does not depend on PowerShell and cannot skip. The in-process test stays.
 
@@ -167,8 +167,8 @@ Mapping of the preview rows to tests. Malformed labels file: `A_preview_with_mal
 - **O-S2 Refusing publishes on a damaged labels file.** Recommended: refuse as in design item 2.
 - **O-S3 Existing stores.** Run the store check on the production store before enabling the stricter read checks. Recommended: yes, and fix or report what it finds first.
 - **O-S4 Backup window (Option B only).** Option B holds the publish lock while the store is copied, so a publish approved during that copy fails and must be resubmitted. Accept that (recommended: the copy is short and the failure says "resubmit"), or make publish wait for the lock with a timeout (a behaviour change to `TakeStoreLock`)?
-- **O-S5 Backup consistency.** Quiesce the Host for each backup (Option A, recommended), or accept Option B's window, which the restore must reconcile from the audit trail?
-- **O-S6 Repairing a damaged labels file or entry.** With design item 2, no publish can overwrite damage, so something else must repair it. Recommended: by hand, with the Host stopped, following a short procedure in `docs/guides/skills.md` (the audit trail of approved publishes says where each label should point; to verify that it does), then the store check. A repair command is not part of the first step.
+- **O-S5 Backup consistency.** Quiesce Orca for each backup (Option A, recommended), or accept Option B's window, which the restore must reconcile from the audit trail?
+- **O-S6 Repairing a damaged labels file or entry.** With design item 2, no publish can overwrite damage, so something else must repair it. Recommended: by hand, with Orca stopped, following a short procedure in `docs/guides/skills.md` (the audit trail of approved publishes says where each label should point; to verify that it does), then the store check. A repair command is not part of the first step.
 
 ## Tests (new, written before the change)
 
@@ -203,13 +203,13 @@ Mapping of the preview rows to tests. Malformed labels file: `A_preview_with_mal
 ## Acceptance
 
 - Every row in the four branch tables (discovery, `skills.get`, publish and preview) has a test, an existing test that covers it, or a stated reason it needs none.
-- The current Host test suite passes before the change starts, and after it, with the new tests included. (The count is in `skills-plan.md`; re-run it, do not copy it.)
+- The current Orca test suite passes before the change starts, and after it, with the new tests included. (The count is in `skills-plan.md`; re-run it, do not copy it.)
 - Discovery returns a warning, never an exception, for every damage listed in the discovery table.
 - A failed publish never moves a label. After a handled failure no temporary file, temporary folder or new version folder remains. After an unhandled failure a new version folder may remain, unlabelled, and so may a temporary folder or `labels.json.tmp`: none is served, and the store check reports each. The tests cover both cases.
 
 ## Not built
 
-**Built and merged to Host `main` at `de44a3a`** (branch `feat/store-integrity-rest`; commits `589d940`, `80e57cf`, `4263adf`, `27edba9`, `51358ef`, `2b0059c`; the full Host suite passes on the merged state, 1115 tests, none skipped):
+**Built and merged to Orca `main` at `de44a3a`** (branch `feat/store-integrity-rest`; commits `589d940`, `80e57cf`, `4263adf`, `27edba9`, `51358ef`, `2b0059c`; the full Orca suite passes on the merged state, 1115 tests, none skipped):
 
 - The publish part of design item 2 and the discovery part (S1): `4c2cfcd`, earlier.
 - Design item 5, publish cleanup (guarantee 2; S4): a version folder that a publish created is removed when the label write fails, and temporary files are always removed. An incomplete version folder already in place is refused by name, not repaired.
@@ -230,11 +230,11 @@ Mapping of the preview rows to tests. Malformed labels file: `A_preview_with_mal
 **Not built, and why:**
 
 - **O-S3, the store check on the production store** (owner-only): the stricter read checks must not reach an existing store before it has run. Blocked until the owner runs it.
-- **O-S6, repair of a damaged labels file or entry** (owner-only): by hand, with the Host stopped. Blocked.
+- **O-S6, repair of a damaged labels file or entry** (owner-only): by hand, with Orca stopped. Blocked.
 - **Design item 8, backup procedure and the restore drill** (owner-only): needs the production store and a dated drill. Not written. Waits for O-S4 and O-S5.
-- **The store check against the repository's three skills**: not run. They are in the workbench layout, not the Host store layout; to be done with the owner.
+- **The store check against the repository's three skills**: not run. They are in the workbench layout, not Orca store layout; to be done with the owner.
 - **The policy drift warning** is not part of the store check: it needs a deployment's policy folder.
-- **Workbench tests** were not re-run against this branch. Its Host dependency is not changed by this merge until the Host is packaged.
+- **Workbench tests** were not re-run against this branch. Its Orca dependency is not changed by this merge until Orca is packaged.
 - **Work order step 5** (`OpenTail.Modules.Skills/README.md`: known limits and the invariants table): not updated in this pass.
 - **Test names**: the cross-process test keeps its existing name, `A_publish_is_refused_while_a_separate_process_holds_the_store`. The unreadable-or-corrupt preview row is two tests (`…_corrupt_target_version…`, `…_unreadable_target_version…`). The label-moves-after-preview row is covered by the existing `Approving_an_old_proposal_after_the_label_moved_publishes_nothing`.
 

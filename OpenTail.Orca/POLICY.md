@@ -1,7 +1,7 @@
 # Writing a policy
 
-The policy file is the only place that decides what the Host does with a call. It is written by the operator, read once at startup, and
-never influenced by arguments, model output or tool results. A mistake anywhere in it stops the Host from starting, with a message that
+The policy file is the only place that decides what Orca does with a call. It is written by the operator, read once at startup, and
+never influenced by arguments, model output or tool results. A mistake anywhere in it stops Orca from starting, with a message that
 names the tool, the rule and where in the condition the problem is.
 
 Check a change before you ship it:
@@ -164,7 +164,7 @@ domain is lower-cased and converted to punycode and compared **exactly** (`corp.
 
 `"Budget": { "Per": "24h", "MaxCount": 50, "Scope": "Requester" }` on an `Execute` rule: once the tool has been executed `MaxCount` times
 within `Per` (by that requester, or by anyone with `"Scope": "Global"`), the rule stops matching and the call waits for a reviewer. The
-count and the insert are one transaction, so concurrent callers (and several Host processes on one database) cannot overshoot. Only
+count and the insert are one transaction, so concurrent callers (and several Orca processes on one database) cannot overshoot. Only
 executions count (`Succeeded` or `Executing`), including ones a human approved.
 
 ### Reviewer edits
@@ -204,16 +204,16 @@ grants in force; `--revoke-grant <id> --by <name>` ends one early.
 
 ### Administration tools
 
-Some tools change how the agents behave instead of doing the business's work: `skills.publish` is one (its module marks it). The Host
+Some tools change how the agents behave instead of doing the business's work: `skills.publish` is one (its module marks it). Orca
 holds them to fixed rules, whatever the configuration says:
 
 1. **Only an exact name grants one.** `*` and `skills.*` never include `skills.publish`; a profile must name it. A signed-in caller
    without a profile never reaches one; only the local stdio operator does.
 2. **Always a proposal that people decide.** If its entry is not `Deny`, it must be `Mode: Queue`, `Reviewer: Human`, with a
    `ReviewerGroup`, `SelfApproval: Forbid` and `AllowEdits: false`, with no `Execute` rule and no trust ramp. A trust promotion never
-   applies to it. Otherwise the Host refuses to start, naming the tool.
+   applies to it. Otherwise Orca refuses to start, naming the tool.
 3. **Never next to business tools with effects.** A profile naming an administration tool and any other tool above `Read` stops
-   startup, except on a sandbox or shadow Host. The workbench proposes skills; it does not send mail.
+   startup, except on a sandbox or shadow Orca. The workbench proposes skills; it does not send mail.
 4. **Listed at startup:** every profile holding one is named on stderr.
 
 The `skills` module's suggested policy (`--adopt-policy skills`) meets these rules, with the reviewer group `skill-approvers`: one
@@ -222,7 +222,7 @@ approval to move the `staging` label, two different people for `production`.
 ## Failures: retries and paused routes
 
 Every failed action has a kind (transient, environment, contract, auth, policy, unknown outcome, bug), from the module when it knows
-and `bug` when it does not. What the Host does about it:
+and `bug` when it does not. What Orca does about it:
 
 ```json
 "Failures": { "AutoRetries": 3, "RetryBase": "5s", "RetryMax": "5m",
@@ -233,17 +233,17 @@ and `bug` when it does not. What the Host does about it:
 * **Automatic retries** only for a **transient** failure of a tool **idempotent by key**, at most `AutoRetries` times, waiting
   `RetryBase` doubled each time with jitter (up to `RetryMax`, never less than the tool's `Retry-After`). Anything else waits for a
   person (a reviewer can retry transient, environment, auth and unknown-outcome failures). A non-idempotent effect is never re-run
-  by the Host.
+  by Orca.
 * **Paused routes:** `CircuitThreshold` failures of one kind (transient, environment or auth) on one tool within `CircuitWindow`
   pause that tool. One audit entry names the fingerprint (tool, kind, code), not one per call. Report only by default
   (`circuit.would_open`). With `Enforce`, calls on a paused tool are held without reaching it (`circuit_open`); after
   `CircuitCooldown` one call is let through as a probe; if it succeeds the tool reopens and held calls run, `ReleasePerSweep` per
   maintenance sweep; if it fails, the pause doubles (up to `CircuitMaxCooldown`). Held calls never reached the tool, so running them
-  later is safe, and it does not count as an attempt. Circuits are per Host process.
+  later is safe, and it does not count as an attempt. Circuits are per Orca process.
 
 ## Work items and continuations
 
-The Host can keep a ledger of **work owed** (an inbox of work items for agents) and **work waited on** (an agent's place, parked
+Orca can keep a ledger of **work owed** (an inbox of work items for agents) and **work waited on** (an agent's place, parked
 while it waits). It never calls a model, builds prompts or keeps transcripts: it keeps records, leases and outcomes, and a note the
 agent writes for itself. See [the design](../docs/design/work-and-continuations.md).
 
@@ -253,7 +253,7 @@ agent writes for itself. See [the design](../docs/design/work-and-continuations.
 ```
 
 * `Enabled` (default false) offers the work tools to callers: `park`, `next_work`, `get_work`, `complete_work`, `fail_work`,
-  `hand_back_work`, `update_thread_note`. They are the Host's own bookkeeping, like `get_updates`, not business tools.
+  `hand_back_work`, `update_thread_note`. They are Orca's own bookkeeping, like `get_updates`, not business tools.
 * **Park:** an agent waiting on its actions, on work it delegated or on a time saves a note. When the waits are met, or the time is
   up, it gets a resume item (through `next_work`, listed by `get_updates`) carrying the note and what each wait came to: statuses and
   reviewers' reasons, never results (it reads a result with `get_action_status`, which taints as usual).
@@ -264,7 +264,7 @@ agent writes for itself. See [the design](../docs/design/work-and-continuations.
 * **Every item ends:** `DefaultTtl` on items and continuations. `--work`, `--work-item <id>`, `--requeue <id> --by <name>` and
   `--cancel-work <id> --by <name>` are the operator's view.
 
-**Waking an agent:** work that becomes ready reaches an agent in one of three ways, and the Host is neutral between them:
+**Waking an agent:** work that becomes ready reaches an agent in one of three ways, and Orca is neutral between them:
 
 * **Pull:** the agent calls `next_work` (any MCP client).
 * **A signed URL:** a notification route with `"On": ["work_ready"]` and optional `"Work": [ "profile:clerk" ]` sends the agent
@@ -272,24 +272,24 @@ agent writes for itself. See [the design](../docs/design/work-and-continuations.
   starts its agent, which pulls.
 * **Host-started:** `"Work": { "Runners": [ { "For": "profile:clerk", "Command": "agent-run", "Arguments": [ "--work", "{workId}" ],
   "MaxConcurrent": 1 } ] }` starts the command (no shell; the id also in `OPENTAIL_WORK_ID`) when work is ready for that profile, up
-  to its limit; work that arrives while it is busy waits in the inbox. Off unless listed. It starts someone else's harness; the Host
+  to its limit; work that arrives while it is busy waits in the inbox. Off unless listed. It starts someone else's harness; Orca
   does not become one.
 
-**Inspection:** an item that dies (too many failed runs) or expires before it is done goes to inspection: the Host collects the
+**Inspection:** an item that dies (too many failed runs) or expires before it is done goes to inspection: Orca collects the
 evidence from its own records (the item and its runs, the actions its claimants made while it was open with their failure kinds and
 fingerprints, the audit entries naming it, the claimants' identity levels; never arguments or results) and opens an inspection item
 for the `Work.InspectorProfile` profile (default `inspector`; without one, for the operators). The identities that failed it may not
 claim the inspection. An inspection nobody claims within `Work.InspectorFallback` (default 1 hour), or that fails, goes to the
 operators; it never opens another inspection. A parent waiting on the dead item wakes with `stalled` and the inspection's id.
 
-**Credential failures** in the evidence carry the Host's own assessment, from facts it holds: *expected* (the tool never worked here;
+**Credential failures** in the evidence carry Orca's own assessment, from facts it holds: *expected* (the tool never worked here;
 the policy changed in the last week; other identities fail the same way), *suspicious* (it worked for this identity in the last week;
 the session had read outside content; the identity is not Normal; several tools refused it in a day; it touched a decoy; it had just
 asked for more access) or *unclear*. Suspicion wins over any expected reason, is audited as `credential.suspicious`, and is a soft
 signal for identity levels (report only unless soft signals are enforced).
 
 Inspection proposes; a person decides. The inspector's remedy tools `work.redrive` and `work.request_rotation` (ask a credential's
-owner to rotate it; the Host never touches the secret) must be `Mode: Queue`, `Reviewer: Human`,
+owner to rotate it; Orca never touches the secret) must be `Mode: Queue`, `Reviewer: Human`,
 `SelfApproval: Forbid` (anything looser stops startup), and the operator can redrive directly with `--redrive <id> --by <name>
 [--for profile:<name>] [--exclude-failed] [--drop-note]`. A redrive reopens the item with its runs reset and the inspection's findings
 attached; `--exclude-failed` keeps the identities that failed it from claiming it again, `--drop-note` replaces the old thread note
@@ -352,7 +352,7 @@ At every outbound (`ExternalEffect`) tool, the labels held are checked against `
 `Allow` lists destinations whatever the arguments; `Destinations` allows a tool only when its arguments match a condition in the
 [rules' language](#conditions) (here: every recipient in our own domain). An unknown condition does not allow.
 
-**Value matching.** The Host keeps salted fingerprints (never the values) of distinctive values that labelled reads returned (strings
+**Value matching.** Orca keeps salted fingerprints (never the values) of distinctive values that labelled reads returned (strings
 of 8+ characters, numbers of 6+ digits), for the label window. When a flow rule is broken and an outbound call's arguments contain
 one, the reviewer sees "the arguments contain values returned by these reads" and the audit trail `flow_matched`. A rule with
 `"RelaxWithoutMatch": true` does not queue a call that contains none of them; it never relaxes a `Deny`, because re-encoded data

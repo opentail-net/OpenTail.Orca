@@ -1,4 +1,4 @@
-# Guide: querying Oracle Database from the Host
+# Guide: querying Oracle Database from Orca
 
 Oracle is a Sql module provider, `"Provider": "oracle"`, that lives in its own package: `OpenTail.Modules.Sql.Oracle`. The
 package brings Oracle's driver (`Oracle.ManagedDataAccess.Core`) and Oracle's settings; the guard's Oracle rules stay in the Sql
@@ -40,7 +40,7 @@ For unqualified table names, either create synonyms or a logon trigger that sets
 With `AllowWrites`, give writes their own user (`WriteConnectionString` and the `write-password` credential) with `INSERT`,
 `UPDATE` and `DELETE` on the tables it may change, and keep the query user read-only.
 
-## 2. In the Host deployment
+## 2. In Orca deployment
 
 Reference `OpenTail.Modules.Sql.Oracle` (it brings the driver), then:
 

@@ -8,15 +8,15 @@ that a later migration is a package swap plus a small mapping, without taking th
 
 ## Short answer
 
-1. **Align names now, while the Host is pre-release.** Renaming costs churn in code, tests and docs. It loses no data, because
+1. **Align names now, while Orca is pre-release.** Renaming costs churn in code, tests and docs. It loses no data, because
    nothing outside the owner's development environment is known to hold audit data (see [constraints](#constraints)).
 2. **Align the public surfaces, not the internals.** Public surfaces are audit event names, reason codes, export JSON and the
    canonical binding keys. Those are what a migration touches. Internal types (`ActionStatus`, `ToolMode`, `ActionRecord`) keep their
    names, with a map.
-3. **Keep the operator's policy words** (`Execute`, `Queue`, `Deny`). They are the Host's public vocabulary, and changing them would
+3. **Keep the operator's policy words** (`Execute`, `Queue`, `Deny`). They are Orca's public vocabulary, and changing them would
    rewrite every policy file for a benefit that only a migration would realise.
 4. **Build the three missing mechanisms in our own code, in Microsoft's shape:** an action binding with a digest, a re-check at claim,
-   and a stored resolution record. The Host needs these whatever we decide about Microsoft.
+   and a stored resolution record. Orca needs these whatever we decide about Microsoft.
 5. **Freeze the public names at a defined point** (see [the freeze rule](#the-freeze-rule)). After that, a rename needs a migration step.
 
 ## Constraints
@@ -25,7 +25,7 @@ that a later migration is a package swap plus a small mapping, without taking th
   tool, actor, detail and previous hash (lines 35-36, 58). Renaming an event changes the hash that a verifier computes for an old row,
   so any existing chain would fail verification. This only matters where a chain already exists.
 - **Who holds chains today.** The owner's development databases (`host-dev`, per project memory). Discard them rather than migrate.
-  Project memory also records that Host 0.0.1 packages and a container image (`ghcr.io/opentail-net/opentail-host`) were published on
+  Project memory also records that Orca 0.0.1 packages and a container image (`ghcr.io/opentail-net/opentail-host`) were published on
   2026-10-20. Whether anyone pulled the image cannot be seen from here. Check the registry's pull counts before the freeze, if the
   image is public.
 - **No customer deployment is recorded.** The design documents describe one ("when the first customer runs Entra ID") as future work.
@@ -41,7 +41,7 @@ that a later migration is a package swap plus a small mapping, without taking th
 Public names freeze at whichever comes first:
 
 - the first deployment that keeps audit data we must keep (a customer, or a production run), or
-- the Host's 1.0 release.
+- Orca's 1.0 release.
 
 Before the freeze: rename freely, update tests and docs, and discard development databases (record that in the changelog). After the
 freeze: a public name changes only with a migration step, a reviewed tool that rewrites or re-hashes the chain, or by adding the new
@@ -109,7 +109,7 @@ name and keeping the old one.
 ### Phase 1: the binding and its digest
 
 - Add an `ActionBinding` record in `OpenTail.Orca.Abstractions`, with the canonical keys above.
-- `tool_schema_version`: a hash of the tool's parameter schema. The Host does not store this today, so it has to be computed when the
+- `tool_schema_version`: a hash of the tool's parameter schema. Orca does not store this today, so it has to be computed when the
   catalogue is built.
 - Canonicalise with RFC 8785 rules. Check the canonicaliser against the reference test data before using it. Where the
   .NET writer differs (number formatting), fix the writer or document the difference; do not claim conformance otherwise.
@@ -125,7 +125,7 @@ name and keeping the old one.
   is not run.
 - A claim that passes writes `approval_consumed` and `execution_allowed`, in the same transaction as the claim.
 - Bundle the renames in the public-surfaces table with this phase, because it adds the new events and reason codes anyway.
-- Tests: restart the Host with a changed policy file and check that the old approval is refused; tamper with stored arguments and check
+- Tests: restart Orca with a changed policy file and check that the old approval is refused; tamper with stored arguments and check
   the digest refusal; let an approval expire and check the refusal.
 - **Useful without Microsoft:** yes. This is the most important item.
 
@@ -156,7 +156,7 @@ name and keeping the old one.
 - **The ADR is Python-first, and the .NET code may diverge.** Mitigation: pin to a .NET release, and re-hash the files as in
   [the comparison](agt-comparison.md).
 - **Renames cost churn.** Mitigation: rename only the public surfaces, and do it in one change before the freeze.
-- **The freeze may be missed.** Mitigation: write the freeze point in the Host's README, and check the registry's pull counts for
+- **The freeze may be missed.** Mitigation: write the freeze point in Orca's README, and check the registry's pull counts for
   0.0.1 before the freeze.
 - **Preview churn.** Mitigation: no dependency until the gate.
 
@@ -165,7 +165,7 @@ name and keeping the old one.
 Proposed defaults, for the owner to change:
 
 1. **Rename the public surfaces now**, in one change (default: yes).
-2. **Freeze trigger:** the first deployment that keeps audit data, or Host 1.0, whichever is first (default).
+2. **Freeze trigger:** the first deployment that keeps audit data, or Orca 1.0, whichever is first (default).
 3. **Keep the policy words** `Execute`, `Queue`, `Deny` (default: yes).
 4. **Audit re-check refusals** as `execution_denied`, with a reason code (default: yes).
 5. **Build Phases 1 and 2 first,** before any other naming work (default: yes). They fix a real gap.

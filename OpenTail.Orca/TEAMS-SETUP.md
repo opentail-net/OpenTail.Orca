@@ -9,27 +9,27 @@ There are two levels. Start with level 1; it needs no app installation and no in
 |---|---|---|
 | In Teams | A card per waiting action with an **Open** button | Cards with **Approve**, **Approve with changes**, **Request changes**, **Reject** and **Open**; typed `waiting`, `work`, `help` (and `tasks` when A2A is on) |
 | Decisions | On the OpenTail review page (company sign-in) | In Teams, or on the review page |
-| Needs | A Teams Workflows webhook URL | An Azure Bot + app registration, the Teams app below, the Host on public HTTPS |
-| Inbound traffic to the Host | None from Microsoft (only reviewers' browsers) | Microsoft's Bot Framework posts to one endpoint |
+| Needs | A Teams Workflows webhook URL | An Azure Bot + app registration, the Teams app below, Orca on public HTTPS |
+| Inbound traffic to Orca | None from Microsoft (only reviewers' browsers) | Microsoft's Bot Framework posts to one endpoint |
 
 Level 1 is in [OPERATIONS.md](OPERATIONS.md#notifications) ("Teams, simplest"). The rest of this guide is level 2.
 
 ## 1. What it does and what data goes where
 
-* When an AI asks for an action that needs a person, the Host posts a card **to the chat of the person whose AI asked** (or to a chosen
+* When an AI asks for an action that needs a person, Orca posts a card **to the chat of the person whose AI asked** (or to a chosen
   channel). The card shows what will happen, the risk, why it waits, and **the draft's text** (so it can be changed before sending).
   Card content therefore lives in your Microsoft 365 tenant, in that chat, like any other Teams message.
-* When someone presses a button, Teams sends the click to the Host. The Host accepts it only if all of these hold: the request carries a
+* When someone presses a button, Teams sends the click to Orca. Orca accepts it only if all of these hold: the request carries a
   valid Bot Framework token issued for **your** bot and the service it names; it comes from **your** tenant; the person is listed as a
-  reviewer; the card was signed by the Host for that action and that chat; the action's risk is within what Teams may decide; and the
+  reviewer; the card was signed by Orca for that action and that chat; the action's risk is within what Teams may decide; and the
   usual approval rules pass (groups, number of approvals, approving one's own AI's request, expiry).
 * The bot asks for **no Microsoft Graph permissions**. It cannot read mail, files, chats or calendars. It can only post and update its own
   cards, in chats and teams where the app is installed.
-* Every decision is recorded in the Host's audit trail with the reviewer's identity and "teams".
+* Every decision is recorded in Orca's audit trail with the reviewer's identity and "teams".
 
 ## 2. Prerequisites
 
-* The OpenTail Host running with its HTTP mode (`--http`), reachable from the internet over **HTTPS** at a stable address, for example
+* The OpenTail Orca running with its HTTP mode (`--http`), reachable from the internet over **HTTPS** at a stable address, for example
   `https://approvals.contoso.com`. Only the path `/api/teams/messages` must be reachable by Microsoft; the review page and API can stay
   behind your network or proxy rules for staff. [DEPLOY.md](DEPLOY.md) shows three ways to get there: a tunnel for a trial, one server
   with Docker and Caddy, or your own platform.
@@ -40,7 +40,7 @@ Level 1 is in [OPERATIONS.md](OPERATIONS.md#notifications) ("Teams, simplest"). 
 
 1. In the Azure portal create an **Azure Bot** resource. Type of app: **Single Tenant**. Let it create a new app registration, or use one
    you created in Entra (Microsoft App ID = the app registration's client id).
-2. In the app registration, create a **client secret**. Store it where the Host reads environment variables, for example as
+2. In the app registration, create a **client secret**. Store it where Orca reads environment variables, for example as
    `TEAMS_BOT_SECRET`. Note its expiry; see *Rotating the secret*.
 3. In the Azure Bot: **Configuration** > Messaging endpoint = `https://approvals.contoso.com/api/teams/messages`.
 4. In the Azure Bot: **Channels** > add **Microsoft Teams**.
@@ -59,7 +59,7 @@ build a later version, so Teams treats it as an update. The package holds no sec
 In the **Teams admin center** > Teams apps > Manage apps > **Upload new app**, upload the zip. Then, in an app setup or permission policy,
 allow it for the reviewers (and optionally pin it). The manifest requests only the bot, in personal and team scope.
 
-## 5. Configure the Host
+## 5. Configure Orca
 
 In the HTTP config file:
 
@@ -79,7 +79,7 @@ In the HTTP config file:
 
 * `Reviewers`: only these people can decide from Teams. Anyone else sees the card but cannot act on it. Object ids are case-insensitive.
 * `ChatMaxRisk`: the highest risk Teams may decide. The order is Read, Write, ExternalEffect, Destructive. `ExternalEffect` lets people
-  send prepared emails from Teams; `Destructive` actions (deleting, closing) then show only **Open**. A tool the Host does not have loaded
+  send prepared emails from Teams; `Destructive` actions (deleting, closing) then show only **Open**. A tool Orca does not have loaded
   counts as Destructive. Use `Write` to allow nothing that reaches other people from Teams. **Stop** works on delayed actions at any risk.
 * `ApprovePartnerRepliesInChat` (default `true`): set it to `false` to approve a partner's reply (an `a2a.reply`, the answer to an A2A
   request) only on the review page. Its card then has no **Approve** or **Approve with changes**, an approve click for it is refused, and
@@ -106,14 +106,14 @@ stop made on the review page would leave the card in Teams as it was. A card is 
 Use `"Target": "conversation:channel:<conversation id>"` instead to post to one channel where the app is installed (for a central AI
 whose actions a team reviews).
 
-Restart the Host. On start it prints one line: the app id, the tenant, `ChatMaxRisk`, `ApprovePartnerRepliesInChat` and the number of reviewers (no secrets). A missing
+Restart Orca. On start it prints one line: the app id, the tenant, `ChatMaxRisk`, `ApprovePartnerRepliesInChat` and the number of reviewers (no secrets). A missing
 secret or a malformed section stops it with the reason.
 
 ## 6. Check it works
 
 1. A reviewer opens the app in Teams (or it is pinned) and sends it any message. The bot answers; from now on it can write to them.
    (Installing the app is enough; the message just confirms it.)
-2. Let the AI prepare a test action that needs approval, or submit one with the Host's tools.
+2. Let the AI prepare a test action that needs approval, or submit one with Orca's tools.
 3. The card arrives in the reviewer's chat. Press **Approve**: the card changes to "Approve by …", and the action runs.
 4. Try **Approve with changes** with an edited text, and **Reject** without a reason (it asks for one). **Request changes** works the same
    way: it needs a reason, and it sends the action back to the AI.
@@ -125,7 +125,7 @@ secret or a malformed section stops it with the reason.
    chat is a place a request's text must not reach:
 
    - `work`: how many work items are open, claimed, dead, and expired in the last 7 days, then the ten oldest open or dead ones (a short
-     id, who each is for, its status and its age). It says so when work items are not enabled on the Host.
+     id, who each is for, its status and its age). It says so when work items are not enabled on Orca.
    - `tasks` (only when A2A is enabled): the A2A tasks in flight, newest first, up to ten: a short task id, the partner's name, the state
      the partner sees, the age, and what the task waits for (a reviewer for the request, an agent, a reviewer for the reply, or the reply
      to be queued).
@@ -141,7 +141,7 @@ secret or a malformed section stops it with the reason.
   **Open** link to the review page, which needs `PublicBaseUrl`. Decide those actions on the review page, or wait for new cards.
 * **Removing someone:** delete their entry from `Reviewers` and restart. Their cards remain, but their clicks are refused.
 * **Uninstalling:** remove the app in the Teams admin center and the `Teams` section from the config. Nothing else depends on it.
-* **Logs:** a refused click (wrong token, tenant, reviewer or card) answers 401/403 or shows a message on the card; the Host never
+* **Logs:** a refused click (wrong token, tenant, reviewer or card) answers 401/403 or shows a message on the card; Orca never
   executes anything for it.
 
 ## 8. Troubleshooting

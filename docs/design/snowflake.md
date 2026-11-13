@@ -23,7 +23,7 @@ Size: S3 and S4 together about a session; S5 about an hour once the account exis
 
 ## S3: start-up checks on the warehouse
 
-The resource monitor and timeouts are set by the customer's admin, and the Host cannot rely on them being there. At start-up (and
+The resource monitor and timeouts are set by the customer's admin, and Orca cannot rely on them being there. At start-up (and
 every few hours after) the module reads the configured warehouse and checks:
 
 - **Size** at most `MaxWarehouseSize` (default `XSMALL`): `SHOW WAREHOUSES LIKE '<name>'`.
@@ -44,7 +44,7 @@ report only by default, then queue or deny past the budget.
   warehouse), or credits (exact, but only per warehouse and hour, not per query).
 - **Source:** `INFORMATION_SCHEMA.QUERY_HISTORY_BY_USER` (current, short window) rather than `ACCOUNT_USAGE.QUERY_HISTORY`
   (up to about 45 minutes late).
-- **Mapping:** the tag carries the action id; the Host's audit gives the identity behind each action.
+- **Mapping:** the tag carries the action id; Orca's audit gives the identity behind each action.
 
 ## S5: real-account suite
 
@@ -66,11 +66,11 @@ to approve.
 | Layer | Set by | Step |
 |---|---|---|
 | Dedicated X-Small warehouse, auto-suspend, statement timeouts, resource monitor | Snowflake admin | Guide; checked by S3 |
-| Module timeout, cancelled on the server | Host | S2, built |
-| LIMIT when absent | Host | S2, built |
-| Query tag = action id | Host | S2, built |
-| Daily budget per identity | Host | S4 |
-| Policy: queue unusual queries for a person | Host policy | Possible today with rules; no Snowflake-specific default yet |
+| Module timeout, cancelled on the server | Orca | S2, built |
+| LIMIT when absent | Orca | S2, built |
+| Query tag = action id | Orca | S2, built |
+| Daily budget per identity | Orca | S4 |
+| Policy: queue unusual queries for a person | Orca policy | Possible today with rules; no Snowflake-specific default yet |
 
 Snowflake's result cache answers an identical query within 24 hours without compute (*to verify*), so repeated agent questions
 cost little.
@@ -100,7 +100,7 @@ can be written to make that easy.
 | Stays in `OpenTail.Modules.Sql` | Would move to `OpenTail.Modules.Sql.Snowflake` |
 |---|---|
 | `SqlDialect.Snowflake` and its guard rules: the guard is one parser, and its safety depends on knowing every dialect | Warehouse checks at start-up (S3): `SHOW WAREHOUSES`, `SHOW PARAMETERS`, the resource monitor |
-| `AddRowLimit`, `PositionalParameters`, `TagQueries`: generic, and other pay-per-use warehouses (BigQuery, Redshift, Databricks) would use them | Reading per-query cost from query history (S4); the budget itself stays in the Host's adaptive limits |
+| `AddRowLimit`, `PositionalParameters`, `TagQueries`: generic, and other pay-per-use warehouses (BigQuery, Redshift, Databricks) would use them | Reading per-query cost from query history (S4); the budget itself stays in Orca's adaptive limits |
 | `"Provider": "snowflake"` and the `private-key` credentials, so existing configs keep working | A reference to `Snowflake.Data`, so a deployment adds one package instead of the module plus the driver |
 | The schema query | Anything later that only Snowflake has: asynchronous query handles, OAuth or workload-identity sign-in, Cortex |
 

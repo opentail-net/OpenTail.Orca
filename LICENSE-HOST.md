@@ -1,8 +1,8 @@
-# Licence for the OpenTail Host
+# Licence for the OpenTail Orca
 
 Required Notice: Copyright 2026 OpenTail (https://github.com/opentail-net/OpenTail)
 
-This licence applies to everything in this repository: the OpenTail Host, its modules, its integration profiles, the samples
+This licence applies to everything in this repository: the OpenTail Orca, its modules, its integration profiles, the samples
 and tests, the scripts, the plans and the documentation, and to the NuGet packages built from them.
 
 Any commercial use, including use inside a business, needs a separate commercial licence from the licensor. Personal and other

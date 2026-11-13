@@ -12,7 +12,7 @@ It changes how a result *reaches* a client that supports Tasks; it changes nothi
 
 ## The problem
 
-When a call cannot finish at once (it waits for a reviewer, runs after an undo window, or takes a long time), the Host returns
+When a call cannot finish at once (it waits for a reviewer, runs after an undo window, or takes a long time), Orca returns
 ordinary tool output, `{"status": "pending_approval", "actionId": ...}`, and teaches the model through server instructions to call
 `get_action_status`, `wait_for_action` or `get_updates`. That works with every client, but:
 
@@ -46,7 +46,7 @@ handle instead of a result; the client checks it with `tasks/get`, can cancel it
   elicitation, never more.
 
 **C# SDK:** Tasks need `ModelContextProtocol` 2.x (2.2.0 is current) and the `ModelContextProtocol.Extensions.Tasks` package. The
-Host is on **1.4.1**, which speaks the 2025-11-25 revision only. SDK 2.x still accepts 2025-11-25 clients, so upgrading does not
+Orca is on **1.4.1**, which speaks the 2025-11-25 revision only. SDK 2.x still accepts 2025-11-25 clients, so upgrading does not
 break today's clients.
 
 **Clients:** support varies and I found no authoritative list of which major clients (Claude Code, VS Code, Cursor, Codex) speak
@@ -54,7 +54,7 @@ Tasks today. Check before building; it decides how much this is worth (see [when
 
 ## The idea
 
-**An action is a task.** The Host already keeps exactly what the standard asks of a task server: a durable record created before
+**An action is a task.** Orca already keeps exactly what the standard asks of a task server: a durable record created before
 the response is sent, an unguessable id, an owner checked on every read, a status, a result, and an expiry. Tasks become a second
 way to *see* actions, beside the built-in tools, for clients that ask for it.
 
@@ -70,7 +70,7 @@ Only when the client opted in on that request, and only when the action does not
 | Delayed by an undo window | **task**, `working` | `scheduled` JSON (unchanged) |
 | Runs longer than the inline limit (proposed 20 s) | **task**, `working` | waits, as today |
 
-A client that did not opt in sees no change at all, and the Host never answers "missing capability" (`-32021`): there is always the
+A client that did not opt in sees no change at all, and Orca never answers "missing capability" (`-32021`): there is always the
 old way.
 
 ### How the statuses map
@@ -85,7 +85,7 @@ old way.
 | Cancelled because a person pressed Stop on a delayed action | `completed`, `isError: true` | "Stopped by a person before it ran." |
 | Failed (the tool failed) | `completed`, `isError: true` | the error, as today |
 | Cancelled by the requester | `cancelled` | — |
-| The Host itself broke (store error, crash) | `failed` | JSON-RPC error `-32603` |
+| Orca itself broke (store error, crash) | `failed` | JSON-RPC error `-32603` |
 
 A person's decision (rejection, stop, expiry) is a *result*, not a cancellation: the model needs to read the reason. `cancelled`
 is kept for the client's own cancel. **Changes requested** completes the task with the reviewer's reason and the usual hint to call
@@ -96,10 +96,10 @@ is kept for the client's own cancel. **Changes requested** completes the task wi
 - **`tasks/get`** goes through the same code as `get_action_status`, not a copy of it. Reading a result therefore applies taint (a
   tool that reads outside content taints the session recorded on the action and its owner), adds data labels, runs output guards,
   and marks the notice as seen, exactly as today. This is the part most easily got wrong: a second path to results that skipped
-  taint would undo the protection the Host exists for.
+  taint would undo the protection Orca exists for.
 - **`tasks/cancel`** is `cancel_action`: the requester may cancel a pending action. A running or finished action cannot be
-  cancelled; the Host acknowledges anyway (the standard allows it) and the task ends as it ends.
-- **`tasks/update`**: not used at first; the Host has nothing to ask the *user* mid-task. A reviewer's decision is not client
+  cancelled; Orca acknowledges anyway (the standard allows it) and the task ends as it ends.
+- **`tasks/update`**: not used at first; Orca has nothing to ask the *user* mid-task. A reviewer's decision is not client
   input, which is why waiting for review is `working`, not `input_required`. [Later uses](#later) are listed below.
 
 Ownership: every task request resolves the caller at the protocol edge, as tool calls do. Someone else's task id and an unknown id
@@ -109,7 +109,7 @@ random bits), so there is no second id to map.
 ### Timing fields
 
 - **`ttlMs`:** for a pending action, until its expiry plus the result retention period; for a finished one, until it is purged.
-  The Host purges on its own schedule, so the value is honest rather than fixed.
+  Orca purges on its own schedule, so the value is honest rather than fixed.
 - **`pollIntervalMs`:** chosen by what the action waits for. Awaiting a person: 60 s (people are slow; checking every second helps
   nobody). Delayed: the time until it runs, capped at 60 s. Running: 2 s. Polling much faster than suggested counts towards the
   caller's limits under [adaptive limits](adaptive-limits.md), report-only like the rest.
@@ -122,21 +122,21 @@ shorter variant for clients that opted in, since the client now does the trackin
 
 ## How it is built
 
-- **Upgrade the SDK first,** 1.4.1 to 2.x, as its own step with the full test suite. The Host already runs Streamable HTTP
+- **Upgrade the SDK first,** 1.4.1 to 2.x, as its own step with the full test suite. Orca already runs Streamable HTTP
   stateless and keeps its own session handles, which is what the 2026-07-28 revision moves everyone towards, so the upgrade should
   be mostly mechanical. Only `OpenTail.Orca` and `OpenTail.Orca.Http` reference the SDK; `OpenTail.Orca.Abstractions` does not, so
   module authors and the frozen contract are unaffected. Note the licence change to MIT in SDK 2.0 for the notices file.
 - **Use the SDK's alternate-result handler, not its task store.** `WithTasks` would run every tool call in its own background task
   with its own store, beside ours. Instead, `CallToolWithAlternateHandler` (which replaces our `CallToolHandler`) returns either the
-  ordinary result or a `CreateTaskResult` built from the action, and the Host serves `tasks/get`, `tasks/update` and `tasks/cancel`
+  ordinary result or a `CreateTaskResult` built from the action, and Orca serves `tasks/get`, `tasks/update` and `tasks/cancel`
   from the action store. One source of truth.
-- **Several Host instances:** the standard has clients send the task id in an `Mcp-Name` header so a load balancer can route to the
-  instance that holds the task. Host instances sharing one action store do not need that; a deployment that does not share a store
+- **Several Orca instances:** the standard has clients send the task id in an `Mcp-Name` header so a load balancer can route to the
+  instance that holds the task. Orca instances sharing one action store do not need that; a deployment that does not share a store
   must route on it.
 
 ## Later
 
-- **Push:** `notifications/tasks` once the SDK supports `subscriptions/listen`, fed by the Host's existing action events. Polling
+- **Push:** `notifications/tasks` once the SDK supports `subscriptions/listen`, fed by Orca's existing action events. Polling
   stays the baseline.
 - **Work items** ([section 17](work-and-continuations.md)): `delegate` returns a task the delegating agent can poll; it completes
   when the item is done, with the completion summary as its result. Tasks and continuations complement each other: a task suits a
@@ -180,7 +180,7 @@ gets better at no cost to others. Proposed order:
    clients that opted in (the instructions are per server, not per client). Tested with the SDK's own client over in-memory
    streams; no real client yet.*
 3. **Long-running calls as tasks** (the inline limit). *Built 2026-10-18: for a client that opted in, the call runs detached from
-   its request (on the Host's lifetime, so a stateless HTTP request ending does not cancel it); past `TaskInlineLimit` (provisional
+   its request (on Orca's lifetime, so a stateless HTTP request ending does not cancel it); past `TaskInlineLimit` (provisional
    default 20 s, in the policy) the client gets a task for the running action, polled every 2 s, and the action finishes in the
    background. The queue hands the handler the running action as soon as it is stored. Other clients wait as before.*
 4. **Push, delegation and `input_required`,** each when its prerequisite exists. *Not built: push needs `subscriptions/listen` in

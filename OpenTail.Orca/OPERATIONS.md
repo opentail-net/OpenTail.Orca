@@ -1,4 +1,4 @@
-# Running the Host for a team
+# Running Orca for a team
 
 Step-by-step procedures for operators, reviewers, security and auditors (what happens, and what you do) are in [SOP.md](SOP.md).
 
@@ -38,7 +38,7 @@ my-host --policy policy.json --db D:\host\queue.db --http http.json --notificati
 | `--usage [--since 7d]` | Daily use per identity and tool: outcomes, records, distinct entities, recipients and bytes. Needs `--db`. |
 | `--verify-audit [--checkpoint <seq:hash> ...]` | Walk the audit trail's hash chain and name the first entry that was changed, removed or reordered; with checkpoints, also catch entries removed from the end. Also checks the decision records kept for purged actions against the digests the trail holds for them. Exit 1 when anything is wrong. Needs `--db`. |
 | `--audit-checkpoint` | Print the chain's newest entry and hash (`<seq>:<hash>`). Keep it where the database's owner cannot rewrite it (a ticket, a write-once bucket); a chain is only as trustworthy as its last checkpoint someone else holds. |
-| `--policy-versions` | Every policy this database has run under, by hash, with when it was first and last loaded. A Host records the policy it starts with and audits `policy_loaded` (hash, Host version, instance); every action carries the hash it was decided under. Needs `--db`. |
+| `--policy-versions` | Every policy this database has run under, by hash, with when it was first and last loaded. Orca records the policy it starts with and audits `policy_loaded` (hash, Orca version, instance); every action carries the hash it was decided under. Needs `--db`. |
 | `--policy-diff <hash> <hash>` | What changed between two stored policy versions, line by line (`-` only in the first, `+` only in the second). A unique prefix of a hash is enough. Needs `--db`. |
 | `--export-audit <folder> [--since 90d \| --from <time>] [--until <time>]` | A folder for an auditor: the audit trail (each entry with the exact text its hash covers), the decision records of the period (complete purge batches, and actions not yet purged), every policy version in force, the chain's head, a manifest of file hashes and `verify.py`, which checks all of it with Python's standard library only. No argument values or results. See [AUDIT.md](AUDIT.md). Needs `--db`. |
 | `--access-report [--at <time>]` | Access as of a time, rebuilt from the audit trail and the stored policy versions: every API key with its profile and what the profile allowed, the policy in force, temporary grants (those still stored) and identities above Normal. For access reviews. Needs `--db`. |
@@ -50,9 +50,9 @@ my-host --policy policy.json --db D:\host\queue.db --http http.json --notificati
 | `--cancel-pending <subject> --by <name> --reason <text>` | Cancel all of an identity's pending actions, announced ones included. Audited. Needs `--db`. |
 | `--circuits` | Routes paused (or that would be, report only), with fingerprint and the calls they hold, from the audit trail. Circuits are per process and a restart clears them. Needs `--db`. |
 | `--record-restore --by <name> --note <text>` | Record a restore from backup in the audit trail, with the head restored to; later checkpoints will show as missing. Needs `--db`. |
-| `--by <name>` (when serving) | Who started the Host, named in the `policy_loaded` audit entry. Default: the operating-system account. |
+| `--by <name>` (when serving) | Who started Orca, named in the `policy_loaded` audit entry. Default: the operating-system account. |
 | `--levels` | Identities that are Elevated or Suspended, or would be (report only), and why. Needs `--db`. |
-| `--clear-level <subject> --by <name> [--key-rotated]` | Return an identity to Normal; audited. A suspended API key must be rotated first, and the Host checks its own `key_rotated` entry since the suspension. Needs `--db`. |
+| `--clear-level <subject> --by <name> [--key-rotated]` | Return an identity to Normal; audited. A suspended API key must be rotated first, and Orca checks its own `key_rotated` entry since the suspension. Needs `--db`. |
 | `--review-report [--since 7d]` | How people reviewed, per reviewer and tool: approval rate, median time to decide, approvals within 5 s of arriving, approvals in bursts of 10+ a minute, approved actions that then failed; and tools approved almost always (candidates for less friction) or often rejected. For the operator and each reviewer, never shown to other reviewers or used to block anyone. Needs `--db`. |
 | `--grants`, `--revoke-grant <id> --by <name>` | Temporary access grants in force (identity, tool, until, calls left, reason); end one early, audited. Needs `--db`. |
 | `--new-api-key <name>` | Print a new API key once, with the hash for the config. |
@@ -76,7 +76,7 @@ read-only **Modules** view with the same information, and every action records t
 }
 ```
 
-* **Agents** sign in with a **JWT** from your identity provider (the Host is an OAuth 2.1 resource server: it publishes protected-resource
+* **Agents** sign in with a **JWT** from your identity provider (Orca is an OAuth 2.1 resource server: it publishes protected-resource
   metadata and a `WWW-Authenticate` challenge, so MCP clients that support authorization find your provider on their own) or with an
   **API key** (`my-host --new-api-key alice-agent`; give the key to the agent, put the hash in the file). Give each key a `Profile`
   naming an entry of the policy's `Agents`: the key then sees and may call only those tools ([agent profiles](POLICY.md#agent-profiles)).
@@ -86,7 +86,7 @@ read-only **Modules** view with the same information, and every action records t
   Filters: only what I can decide, only high impact, expiring within 2 hours. Keys: `j`/`k` move, `a` approve (asks first), `x` reject
   (a reason is required to reject or request changes).
 * **Reviewers sign in to the page with the company's identity provider** when the HTTP config's `Jwt` section has `Authority` and
-  `PageClientId`. For Entra ID: register the Host as an API (Application ID URI such as `api://opentail-orca`, a delegated scope
+  `PageClientId`. For Entra ID: register Orca as an API (Application ID URI such as `api://opentail-orca`, a delegated scope
   `opentail.review`, app roles for groups), register the page as a **single-page application** with redirect URI `<PublicBaseUrl>/`
   and permission to that scope, then set `"Authority": "https://login.microsoftonline.com/<tenant>/v2.0"`, `"Audience":
   "api://opentail-orca"` and `"PageClientId": "<page app id>"` (`PageScope` overrides the default `openid <Audience>/opentail.review`).
@@ -105,7 +105,7 @@ read-only **Modules** view with the same information, and every action records t
 
   | Tab | Shows |
   |---|---|
-  | Jobs | Everything waiting or running, whatever holds it: work items agents owe, continuations waiting to resume, and jobs in the work queues passed as `AdminOptions.WorkQueues`. Each row says what it is, who it is for and what created it (its source), with **Cancel** (it never runs again; a running one's worker loses it), **Run now** (a delayed queue job) and **Stop the source** (when the Host owns what keeps creating it: the parent work item or a continuation). Dead jobs below, with **Redrive** and **Delete**, and **Bring back dead jobs**: after an outage, every dead job that matches a resource (`db:*`), a reason, a source and a time, previewed first; queue jobs come back through their resource's limit and circuit, so they trickle. Per queue, a banner when it needs attention (a job waiting too long, dead letters piling up, a stuck job, an open circuit), and a **Resources** table: each concurrency key, how many run against its limit, how many wait, and its circuit. Running jobs show how long they have run, their last progress note and heartbeat, and **stuck** past their maximum run time; resources show their rate limit and how many started in its window. Dead jobs are also grouped by where, resource and reason, each group with **Bring back this group**; bringing jobs back can be spread over a number of minutes. Each registered queue is also a `/healthz` check, `queue:{name}`, degraded (never failing) while it needs attention. Every change is audited with the admin's name. Goals are shown; queue bodies and work inputs are not. The one place on the admin page that changes something directly: stopping work is always the safe direction. |
+  | Jobs | Everything waiting or running, whatever holds it: work items agents owe, continuations waiting to resume, and jobs in the work queues passed as `AdminOptions.WorkQueues`. Each row says what it is, who it is for and what created it (its source), with **Cancel** (it never runs again; a running one's worker loses it), **Run now** (a delayed queue job) and **Stop the source** (when Orca owns what keeps creating it: the parent work item or a continuation). Dead jobs below, with **Redrive** and **Delete**, and **Bring back dead jobs**: after an outage, every dead job that matches a resource (`db:*`), a reason, a source and a time, previewed first; queue jobs come back through their resource's limit and circuit, so they trickle. Per queue, a banner when it needs attention (a job waiting too long, dead letters piling up, a stuck job, an open circuit), and a **Resources** table: each concurrency key, how many run against its limit, how many wait, and its circuit. Running jobs show how long they have run, their last progress note and heartbeat, and **stuck** past their maximum run time; resources show their rate limit and how many started in its window. Dead jobs are also grouped by where, resource and reason, each group with **Bring back this group**; bringing jobs back can be spread over a number of minutes. Each registered queue is also a `/healthz` check, `queue:{name}`, degraded (never failing) while it needs attention. Every change is audited with the admin's name. Goals are shown; queue bodies and work inputs are not. The one place on the admin page that changes something directly: stopping work is always the safe direction. |
   | Agents | Each agent profile, every tool it names with its risk and mode (and the mode after outside content), what it may ask for and whom it may hand work to. Tools the profile names but the policy denies are listed as `Deny`. |
   | People and keys | `People`, and the API keys as the last start recorded them: name, hash prefix, profile. Never the key. |
   | Policy versions | Every policy this database ran under; *Changes since* diffs one against the running policy, section by section. |
@@ -134,7 +134,7 @@ Connect Claude Code, for example, with a project `.mcp.json`:
 
 ### A2A (preview: the thin slice)
 
-A2A lets agents that are not ours send requests to this Host over the A2A JSON-RPC binding ([design](../docs/design/a2a.md)).
+A2A lets agents that are not ours send requests to this Orca over the A2A JSON-RPC binding ([design](../docs/design/a2a.md)).
 It is **off** unless `A2A.Enabled` is true in `http.json`. With it off there is no `/a2a` route (404) and no `a2a.submit` tool.
 
 **Served now:** `SendMessage` for a new task with `returnImmediately=true`; `GetTask`; `CancelTask` (while the request is pending, or
@@ -172,7 +172,7 @@ with UnsupportedOperation); no file parts; no continuation of a task.
   an entry of the policy's `"Agents"`, and `"Partner": "<id>"` naming a listed partner. A key with `a2a:call` cannot call `/mcp` or the review
   API, and a key without it cannot call `/a2a` (403; no credential gives 401). Several keys may name one partner, for rotation. A partner's
   tasks belong to the partner, not to the key: another partner's key gets the same TaskNotFound for a foreign id as for an unknown one.
-* **Version.** `A2A-Version` is checked by the Host before the SDK sees the request, after sign-in: missing is 1.0; `1.0` is accepted; an
+* **Version.** `A2A-Version` is checked by Orca before the SDK sees the request, after sign-in: missing is 1.0; `1.0` is accepted; an
   empty value, `0.3`, and anything else are refused with the SDK's VersionNotSupported error (HTTP 200, JSON-RPC -32009). A header sent more
   than once, or a comma-separated list, is accepted only when every value is `1.0`.
 * **Limits.** The goal and the inputs are capped by the policy's `"Work"` section (`GoalMaxBytes`, `InputsMaxBytes`). The body limit and the
@@ -201,7 +201,7 @@ with UnsupportedOperation); no file parts; no continuation of a task.
   trust every partner, and startup prints a warning saying so.
 * **Agent card.** With A2A on, `GET /.well-known/agent-card.json` returns the card to a caller with the `a2a:call` role. No credential is
   401; a key without the role is 403; with A2A off the path does not exist (404). `A2A.Card` sets the name, description and version
-  (defaults: "OpenTail Host", a generic description, "1.0"). The card names one JSON-RPC 1.0 interface at `PublicBaseUrl` + `/a2a`, has no
+  (defaults: "OpenTail Orca", a generic description, "1.0"). The card names one JSON-RPC 1.0 interface at `PublicBaseUrl` + `/a2a`, has no
   streaming, push or extended card and no skills, and names the two ways a key is sent (the bearer token and `X-API-Key`). It never names a
   tool, profile, partner, policy or reviewer group. Its cache header is `private`, and a partner's first read in each 10 minutes is audited
   as `a2a.card_served`.
@@ -250,7 +250,7 @@ action was decided under.
 
 **Reads and exports:** opening an action on the review page (its arguments may hold personal data) is audited as `action_viewed`
 with the reader; every export (`--export-review-outcomes`, `--export-shadow-cases`, `--export-audit`) is audited as `export` with
-the operating-system account that ran it. An AI reviewer's review carries the SHA-256 of the action exactly as the Host handed it
+the operating-system account that ran it. An AI reviewer's review carries the SHA-256 of the action exactly as Orca handed it
 over (`AiInputHash`); with `"AiReviewInput": "Full"` in the policy the input itself is kept with the action and purged with it.
 
 **Access changes:** API keys live in the HTTP config, so each start compares them with the last ones seen and audits `key_added`,
@@ -273,7 +273,7 @@ so `--verify-audit --checkpoint <seq:hash>` can later prove nothing was edited o
 hashes, to a webhook channel (a log store such as Splunk, Microsoft Sentinel or Elastic behind an HTTP collector), signed like
 every webhook. The notifier picks up new entries on each scheduler pass (every 30 seconds) and remembers how far it got across
 restarts; a log store that is down catches up through the outbox's retries. Only webhook channels take it: every entry as a chat
-message would bury the channel. With it, a copy of the trail exists outside the Host within a minute of being written.
+message would bury the channel. With it, a copy of the trail exists outside Orca within a minute of being written.
 
 **Teams, simplest** (no app to install, no public address needed): in the Teams channel choose **Workflows**, then the template *Post to a channel
 when a webhook request is received*, and copy the URL it gives. Put it in an environment variable, and add:
@@ -317,7 +317,7 @@ Reject and request changes still work from Teams, and other tools are unchanged.
 
 Each waiting action arrives as a card: what will happen, its risk, whether it was held after outside content, and an **Open** button to
 the review page at `PublicBaseUrl/#<action id>`. Nothing can be approved from the card: approving happens on the page, after sign-in, so
-Teams never calls the Host and the page can stay inside the company network (`PublicBaseUrl` only has to work for the reviewers). The
+Teams never calls Orca and the page can stay inside the company network (`PublicBaseUrl` only has to work for the reviewers). The
 workflow URL is a secret (anyone with it can post to the channel): keep it in the environment, never in the file.
 
 Delivery is from a durable outbox in the same database, retried 30 s, 60 s, ... up to 1 h, dead after 6 attempts (`notification_dead` in
@@ -327,11 +327,11 @@ pass; actions pending longer than `ReconcileWindow` (6 h) when notifications are
 
 ## Surviving a power cut
 
-The database runs in WAL mode. By default (`OPENTAIL_DB_SYNCHRONOUS=normal`) a commit survives the Host process crashing or being
+The database runs in WAL mode. By default (`OPENTAIL_DB_SYNCHRONOUS=normal`) a commit survives Orca process crashing or being
 killed, but a power cut or an operating-system crash can roll back the most recent commits: the file stays consistent, and the last
 few decisions (an approval, an audit entry, a queued action) may be lost. Set `OPENTAIL_DB_SYNCHRONOUS=full` and every commit that
 returned survives a power cut too, at the cost of one disk flush per write; `extra` also syncs the directory. The setting applies
-to the action store and the notification outbox (the Teams store already uses SQLite's default, which is full). Every Host process
+to the action store and the notification outbox (the Teams store already uses SQLite's default, which is full). Every Orca process
 on one database should use the same value. An unknown value stops startup.
 
 A disk that acknowledges writes it has only cached (some consumer drives, some virtual disks) defeats any setting: for high stakes,
@@ -339,12 +339,12 @@ put `/data` on storage that honours flushes.
 
 ## What to back up and how to upgrade
 
-* **Back up the SQLite file** (use `sqlite3 queue.db ".backup copy.db"` or copy it while the Host is stopped; WAL files travel with it).
+* **Back up the SQLite file** (use `sqlite3 queue.db ".backup copy.db"` or copy it while Orca is stopped; WAL files travel with it).
 * **Upgrades:** start the new version; if the database schema is older it is migrated, and a copy is taken first
-  (`<db>.bak-v<old>-<timestamp>`). The migration is one-way: an older Host refuses a newer database, so to roll back, restore the copy.
+  (`<db>.bak-v<old>-<timestamp>`). The migration is one-way: an older Orca refuses a newer database, so to roll back, restore the copy.
 * **Policy changes** take effect on restart; an approved proposal from the page is a policy file like any other ([SOP C1](SOP.md#c1-changing-the-policy)). Run `--replay-policy` against the real database first, and `--test-policy` if you keep cases.
-* **Module upgrades:** a module built against a contract this Host does not support is refused at startup with both versions named.
-  Within contract 1 any module version works with any Host version.
+* **Module upgrades:** a module built against a contract this Orca does not support is refused at startup with both versions named.
+  Within contract 1 any module version works with any Orca version.
 * **A module upgrade that changes a tool's parameter schema refuses the approvals given before it.** Each approved action of that tool
   that has not run yet fails at its claim with `action_digest_mismatch`, and nothing runs. The approval was given for a different tool
   contract, so the request must be made again under the new one. An action still waiting for a decision is judged the same way when it
@@ -357,9 +357,9 @@ put `/data` on storage that honours flushes.
 
 ## Watching it
 
-`GET /healthz` (anonymous, any Host header) answers `ok`, `degraded` or `unhealthy` with each check's state and nothing else.
+`GET /healthz` (anonymous, any Orca header) answers `ok`, `degraded` or `unhealthy` with each check's state and nothing else.
 **Unhealthy, 503:** the maintenance sweep (recovery, expiry, delayed actions, retries, work, retention) has not finished for 3
-minutes; an orchestrator should restart the Host. **Degraded, 200:** a check needs a person, such as `notifications` when a
+minutes; an orchestrator should restart Orca. **Degraded, 200:** a check needs a person, such as `notifications` when a
 notification created in the last day could not be delivered; restarting would not fix it.
 
 **On the page, without a collector:** the review page's *Telemetry* tab shows every metric below since the process started (counters
@@ -412,13 +412,13 @@ What to do about each, step by step, is in [SOP.md](SOP.md).
 | "403 from /api" | The credential is not a reviewer (an API key never is), or not in the required group, or the action forbids approving your own request. |
 | "Reviewers got no message" | `opentail.host.pending_actions`, the audit trail for `notification_dead`, and the outbox table (`status`, `last_error`). |
 | "The queue is full for an agent" | `MaxPendingPerRequester`: decisions are waiting. |
-| "After a crash an action says interrupted" | The tool is not idempotent by key, so the Host did not re-run it. A reviewer decides (Retry). |
+| "After a crash an action says interrupted" | The tool is not idempotent by key, so Orca did not re-run it. A reviewer decides (Retry). |
 
 ## Known limits
 
 One node; SQLite; no clustering. The approval page has been exercised with a script and automated header checks but not walked through by
 a second person in a real browser. MCP tasks are implemented for queued, delayed and long-running calls (clients that opt in), tested
-with the SDK's own client only; their push notifications and Slack approve-buttons are not implemented. Modules run inside the Host process unless
+with the SDK's own client only; their push notifications and Slack approve-buttons are not implemented. Modules run inside Orca process unless
 `modules.json` isolates them (a worker process per module; containment needs the operator's account and network setup). The
 GitHub Issues module has been tested against a stateful fake of the GitHub API over real HTTP, not yet against github.com. See [SECURITY.md](SECURITY.md).
 
@@ -427,5 +427,5 @@ Two constraints to keep in view:
 - **Execution lease.** An executing action's lease is five minutes by default and is not extended. Recovery treats a lapsed lease as an
   interrupted call, so a tool that legitimately runs longer can be retried while its first call is still running. Only tools declared
   idempotent by key are retried this way. Configure a longer lease, or keep tool calls bounded.
-- **Capacity is per process.** Capacity limits are in-memory token buckets, so several Host processes do not share one capacity budget.
+- **Capacity is per process.** Capacity limits are in-memory token buckets, so several Orca processes do not share one capacity budget.
   Rate limits and action budgets are counted in the database and do hold across processes.

@@ -1,8 +1,8 @@
-# A2A on this Host: a guide
+# A2A on this Orca: a guide
 
 ## What it is
 
-A2A lets an agent that is not yours send a request to this Host over the A2A JSON-RPC binding. The request is outside text. It is queued
+A2A lets an agent that is not yours send a request to this Orca over the A2A JSON-RPC binding. The request is outside text. It is queued
 for a person to approve before it becomes a work item. An internal agent takes the work, a person approves the answer, and only then does
 the partner receive it. Nothing a partner sends runs without review in the sample, and a partner gets task states and the answer text only.
 The design is in [../design/a2a.md](../design/a2a.md); the settings and startup checks are in [../../OpenTail.Orca/OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md).
@@ -17,7 +17,7 @@ Its two API keys are documented throwaway values, and the sample holds only thei
 - partner key: `sample-only-partner-key-replace-me` (profile `partner-desk`, scope `a2a:call`)
 - inbox key: `sample-only-inbox-key-replace-me` (profile `inbox`, scope `mcp:tools`)
 
-Replace both before anything real touches the Host. Do not write a real key into a sample.
+Replace both before anything real touches Orca. Do not write a real key into a sample.
 
 Two environment variables, set in your shell and never in a file:
 
@@ -49,7 +49,7 @@ chat, if the Teams bot is configured ([../../OpenTail.Orca/TEAMS-SETUP.md](../..
 
 ## The inbox agent takes the work
 
-The approved request is a work item for the `inbox` profile. The inbox agent calls the Host's MCP endpoint at `/mcp` with the inbox key,
+The approved request is a work item for the `inbox` profile. The inbox agent calls Orca's MCP endpoint at `/mcp` with the inbox key,
 and uses three of the built-in work tools (from `OpenTail.Orca/Mcp/BuiltInTools.cs`):
 
 - `next_work` claims the next item for the agent and reads it. It takes an optional `waitSeconds`. The result carries `workId`, `goal`
@@ -95,11 +95,11 @@ passes first, the partner gets an error naming the task, and the task keeps runn
        "DataFlow": { "finance": { "Destinations": [ { "Tool": "a2a.reply", "When": { "arg": "/partner", "equals": "<partner id>" } } ],
            "Otherwise": "Deny" } }
 
-6. Restart the Host and read the log for startup checks.
+6. Restart Orca and read the log for startup checks.
 
 ## Startup checks
 
-Each check refuses to start the Host, with the reason, when A2A is enabled and the check fails. The full list and what each means is in
+Each check refuses to start Orca, with the reason, when A2A is enabled and the check fails. The full list and what each means is in
 [OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md), under "A2A (preview)". In short: `DataFlowMode` is `Enforce`; the database runs at
 `synchronous=full`; every `a2a:call` key names a profile and a partner and has no other scope; the partner ids are UUIDs, unique and
 named; `Work.Enabled` is set; `a2a.submit` has an entry; `a2a.reply` is `Queue` or `Deny` (never `Execute`), reviewed by a person, with no
@@ -119,7 +119,7 @@ is `https`, or `http` on loopback; `BlockingWait` is from 1 second to 5 minutes;
 
 ## Not built
 
-The skill-selection extension, signing of the card, push notifications, outbound calls from the Host to other agents, and file parts.
+The skill-selection extension, signing of the card, push notifications, outbound calls from Orca to other agents, and file parts.
 The design lists them, with the reasons, in [../design/a2a.md](../design/a2a.md).
 
 ## Where the details are

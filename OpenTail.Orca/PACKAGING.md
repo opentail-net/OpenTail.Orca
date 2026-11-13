@@ -2,7 +2,7 @@
 
 ## Twenty-one packages, one version
 
-Nineteen Host and module packages and two profile packages, built here. The modules also use six Connectivity libraries
+Nineteen Orca and module packages and two profile packages, built here. The modules also use six Connectivity libraries
 (`OpenTail.Connectivity.*`), which come as packages from their own repository, `opentail-connectivity`, with their own version. The
 dependency graph is shallow:
 
@@ -27,10 +27,10 @@ Host  (queue, policy and rules, sessions and taint, MCP server, SQLite, modules.
           └── Host.Http  (Streamable HTTP, JWT / API-key sign-in, metadata, limits;  also references Host.Notifications)
 ```
 
-* Modules don't know about the Host. An architecture test enforces that a module may reference only `Host.Abstractions`, the small
+* Modules don't know about Orca. An architecture test enforces that a module may reference only `Host.Abstractions`, the small
   `OpenTail.Connectivity.*` libraries and, for provider packages, the provider-neutral `Modules.Email` and `Modules.Calendar`.
   Nothing here references `OpenTail.Core`.
-* The Host doesn't know about any module. It finds them through `IHostModule` (added in code) or `IHostModuleFactory` (named in
+* Orca doesn't know about any module. It finds them through `IHostModule` (added in code) or `IHostModuleFactory` (named in
   `modules.json`, discovered in the packages the deployment references through its deps.json).
 * A stdio-only deployment references `Host.Admin` (or just `Host`) and never pulls in HTTP, JWT or notifications.
 * All twenty-four share one version. The Connectivity packages are pinned in `Directory.Packages.props`; moving to a new Connectivity
@@ -58,32 +58,32 @@ The contract is what a module author compiles against: `IHostModule`, `IToolRegi
 `AIFunctionArguments.Context` keys), the two assembly attributes, and the helpers `RootedPath` and `NetworkRules`.
 
 * Every module assembly says which contract it was built against with `[assembly: HostContractVersion(HostContract.Version)]`. The constant
-  is compiled into the module, so the Host sees the real build version. A Host refuses a module outside `HostContract.MinSupportedVersion`
+  is compiled into the module, so Orca sees the real build version. Orca refuses a module outside `HostContract.MinSupportedVersion`
   to `HostContract.Version` and names both.
 * **The promise for version 1:** members are only added, never removed or changed, and an added member has a default, so every module
-  built for contract 1 keeps working with every later Host that supports contract 1. Anything else is contract 2, and the Host keeps
+  built for contract 1 keeps working with every later Orca that supports contract 1. Anything else is contract 2, and Orca keeps
   loading contract-1 modules for as long as `MinSupportedVersion` is 1.
 * `ContractFreezeTests` compares the public surface of these types with `OpenTail.Orca.Abstractions.Tests/contract-v1.txt`. A change fails
   the build's tests, says what was removed and what was added, and is only accepted deliberately (`OPENTAIL_UPDATE_CONTRACT=1`).
-* The manifest has its own format number (`ModuleManifest.Format`); a Host refuses a newer format than it reads.
+* The manifest has its own format number (`ModuleManifest.Format`); Orca refuses a newer format than it reads.
 
 The contract was frozen after the first real module (GitHub Issues) was written against it, which changed it once: factories receive the
 module's config when describing it, so a manifest can follow a configured base URL (GitHub Enterprise).
 
 Added since the freeze, as the promise allows (a new member with a default, so every contract-1 module still works):
 
-* `IHostModuleFactory.Describe(id, config, baseDirectory)` (2026-10-16), defaulting to `Describe(id, config)`. The Host calls it so a
+* `IHostModuleFactory.Describe(id, config, baseDirectory)` (2026-10-16), defaulting to `Describe(id, config)`. Orca calls it so a
   factory whose config names a file can read it while describing: an integration profile decides the manifest's hosts and credential.
-* `ToolDescriptor.AuditResult` (2026-10-17), default null: after a successful run the Host writes an audit entry from a named text
+* `ToolDescriptor.AuditResult` (2026-10-17), default null: after a successful run Orca writes an audit entry from a named text
   field of the result (the skills module's `skill_served`, with `invoice-check@3`).
-* `ModuleManifest.ServerInstructions` (2026-10-17), default null: a sentence the Host adds to its MCP server instructions while the
+* `ModuleManifest.ServerInstructions` (2026-10-17), default null: a sentence Orca adds to its MCP server instructions while the
   module has an advertised tool (the skills module points the agent at `skills.find`).
 * `ToolDescriptor.Administers` (2026-10-18), default false: an administration tool (`skills.publish`), never granted by a wildcard or
   to a caller without an agent profile, and held to a strict review policy at load ([POLICY.md](POLICY.md#administration-tools)).
 * `ToolDescriptor.Counts` (2026-10-18), default null: where the result says how many records it returned, which entity ids it touched
-  and which arguments hold recipients, for the Host's usage rollups (`ResultCounts`, a new type).
+  and which arguments hold recipients, for Orca's usage rollups (`ResultCounts`, a new type).
 * `ToolFailureException` and `ToolFailureKind` (2026-10-18), new types: a tool says what kind of failure it hit (transient,
-  environment, contract, auth, policy, unknown outcome, bug), for the Host's retry and inspection rules
+  environment, contract, auth, policy, unknown outcome, bug), for Orca's retry and inspection rules
   ([failures design](../docs/design/failures-and-inspection.md)). Modules that never throw it behave as before; an unclassified
   exception is a bug.
 * `ToolDescriptor.Labels` (2026-10-18), default empty: kinds of sensitive data the tool returns (`finance`, `personal`, ...), for
@@ -109,7 +109,7 @@ Files module now brings `Connectivity.Files` (and its text extractor) to read PD
 
 ## Versioning
 
-The Host packages share one version, from `host-v*` tags (`Directory.Build.props`: `MinVerTagPrefix=host-v`, minimum `0.1`, applied to
+Orca packages share one version, from `host-v*` tags (`Directory.Build.props`: `MinVerTagPrefix=host-v`, minimum `0.1`, applied to
 every project named `OpenTail.Orca*`, `OpenTail.Modules.*` and `OpenTail.Profiles.*`).
 
 | Git state | Version of every package |
@@ -139,9 +139,9 @@ Every package built here carries `LICENSE-HOST.md` (PolyForm Strict 1.0.0) and s
 ## Before this is usable by someone else
 
 - **A public feed.** Packages and image are published privately (GitHub Packages, GHCR), which needs a token even to read. Going
-  public means choosing nuget.org or another public feed for the Host packages and the Connectivity packages together, a publisher
+  public means choosing nuget.org or another public feed for Orca packages and the Connectivity packages together, a publisher
   name, and whether to sign them.
 - **`Host.Admin` carries Kestrel** even for a stdio-only deployment that only wants the loopback approval page. If that matters, the
   approval endpoints (`AdminEndpoints`) and the stdio `DeploymentRunner` could be split.
 - **Single-file and trimmed publishing** have not been tried with configured modules. Trimming can remove a factory nobody references in
-  code; the Host then says the type is missing.
+  code; Orca then says the type is missing.

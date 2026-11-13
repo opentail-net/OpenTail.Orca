@@ -46,7 +46,7 @@ documentation. Each correction is now reflected in the body above. This is the c
      current version, 1.0. It accepts `0.3` and `1.0` and answers any other value with `VersionNotSupported` (-32009).
    - **A missing header** is not stated in the spec at all. The SDK's rule is the only written answer.
    - **Recommended, for the owner to confirm:** follow the spec for empty (reject as 0.3), and follow the SDK for missing (treat as 1.0).
-     Reject `0.3` as this Host does not serve it. Interoperability tests run against the SDK-mapped endpoint for empty, missing, `0.3` and
+     Reject `0.3` as this Orca does not serve it. Interoperability tests run against the SDK-mapped endpoint for empty, missing, `0.3` and
      `1.0`, and record the SDK's actual result for each.
 7. **Partner identity.** Reflected in section 2 and the summary. The `partnerId` is a server-generated, immutable UUID, stored separately
    from the API key name.
@@ -55,12 +55,12 @@ documentation. Each correction is now reflected in the body above. This is the c
 ## Who decides, and who is asked
 
 No question reaches the partner from governance. A partner's requests and answers are states of a task. Questions go to people only
-inside the Host's review queue.
+inside Orca's review queue.
 
-- **Reviewers** are the people the Host already uses: holders of the `review` role (the review page, the API or a reviewer token),
+- **Reviewers** are the people Orca already uses: holders of the `review` role (the review page, the API or a reviewer token),
   narrowed by reviewer group where the policy names one. They are told through the existing channels: the review page and the Teams
   card. Both `a2a.submit` and `a2a.reply` name `Reviewer: Human`, so no AI reviewer may decide them.
-- **Step by step.** An inbound message becomes an `a2a.submit` action. With `returnImmediately=true`, the Host returns once the task is
+- **Step by step.** An inbound message becomes an `a2a.submit` action. With `returnImmediately=true`, Orca returns once the task is
   created, in SUBMITTED, because the queue never waits for a reviewer, and a reviewer decides the action. A blocking request waits
   instead (section 4). When the work is done, the reply becomes an `a2a.reply` action, and a
   reviewer sees the exact text the partner would receive. Only an approved reply can appear in `GetTask`.
@@ -75,9 +75,9 @@ What the specification requires of a server, and where this design answers it:
 
 | Requirement | Section | Answer here |
 |---|---|---|
-| Authenticate every incoming request | §7.4 | All A2A routes use the Host's existing sign-in. There is no anonymous route, the card included (see [the card](#8-the-agent-card)). |
+| Authenticate every incoming request | §7.4 | All A2A routes use Orca's existing sign-in. There is no anonymous route, the card included (see [the card](#8-the-agent-card)). |
 | Authorisation is the server's to define; may use skills, actions, data and scopes | §7.5 | Profiles and policy, as today. |
-| A task waiting for credentials is `AUTH_REQUIRED`; that state is not authorisation | §7.6.1, §7.6.4 | Not used. The Host never asks a partner for in-band credentials. |
+| A task waiting for credentials is `AUTH_REQUIRED`; that state is not authorisation | §7.6.1, §7.6.4 | Not used. Orca never asks a partner for in-band credentials. |
 | Serve the card at `/.well-known/agent-card.json` | §8.1, §8.2 | Yes; see the card section. |
 | Card signatures (optional): JWS over JCS-canonical JSON, `alg` and `kid` required, expired keys not used | §8.4 | Phase 2. |
 | `ListTasks` returns only the caller's tasks; authorisation runs before any query that could reveal existence | §13.1 | Tasks are owned by the partner's subject; foreign and unknown ids give the same answer. |
@@ -108,8 +108,8 @@ From the SDK's README and docs. Not checked in its code. *Verify* every signatur
 Read from the package's XML documentation (2026-11-11), which changes the plan:
 
 - **The engine is not used.** `A2AServer` owns its own task store (`ITaskStore`) and runs an `IAgentHandler`. Using it would give the
-  Host a second task store. The plan implements `IA2ARequestHandler` instead, with its eleven operations (send, stream, get, list,
-  cancel, subscribe, four push-configuration operations, extended card), and keeps every task in the Host. The endpoint is mapped
+  Orca a second task store. The plan implements `IA2ARequestHandler` instead, with its eleven operations (send, stream, get, list,
+  cancel, subscribe, four push-configuration operations, extended card), and keeps every task in Orca. The endpoint is mapped
   with `MapA2A(path, handler)`.
 - **Caller identity is not in the request context.** `A2ARequestContext` carries only extension data. The caller comes from
   `HttpContext.User` through `IHttpContextAccessor`, read with `HostClaims.CallerOf`.
@@ -125,7 +125,7 @@ Read from the package's XML documentation (2026-11-11), which changes the plan:
   by a person with `AllowEdits: false`; `DataFlowMode` must be `Enforce`; the database must be `synchronous=full`; every `a2a:call` key
   must name a profile.
 
-### The Host (read in code, 4b8a8b7)
+### Orca (read in code, 4b8a8b7)
 
 | Contract | Members A2A relies on | What A2A needs from it |
 |---|---|---|
@@ -192,7 +192,7 @@ Each branch of `ActionQueue.SubmitAsync` (`Runtime/ActionQueue.cs`), and what an
 - **Transport.** JSON-RPC first. HTTP+JSON when a partner asks. No gRPC.
 - **Streaming and push.** Not in v1. `capabilities.streaming` and `pushNotifications` are false. Partners poll `GetTask`, which is the
   same baseline as MCP tasks ([mcp-tasks.md](mcp-tasks.md)).
-- **Headers and bodies.** `tenant` must be empty; anything else is refused, because the Host is single-tenant. Requests are capped at
+- **Headers and bodies.** `tenant` must be empty; anything else is refused, because Orca is single-tenant. Requests are capped at
   `MaxBodyBytes` (1 MB by default). The SDK's security guide asks for a strict JSON content type on JSON-RPC endpoints; whether
   `application/a2a+json` is also accepted for requests is *verify*.
 
@@ -212,7 +212,7 @@ A partner is a `partnerId` with its API keys. The profile of a key lists the too
   so a partner key left at the default could also call the MCP endpoint.
 - **Partner identity.** The `partnerId` is a server-generated UUID, immutable, and stored separately from the API key name. A display name
   is for people and can change. One or more API keys link to the same `partnerId`, through an optional partner reference on each key
-  entry in the Host's existing credential configuration (no second credential system). Rotating a key does not change the partner's
+  entry in Orca's existing credential configuration (no second credential system). Rotating a key does not change the partner's
   identity. The subject is the partner's, so taint, labels and task ownership follow the partner.
 - **No administration.** A partner profile never lists an `Administers` tool. The existing grant rule already blocks wildcards from
   reaching them.
@@ -292,12 +292,12 @@ per partner. To trust one partner and not another, use a conditional rule on the
 
 ### 5. Task states
 
-| A2A state | Host state | Note |
+| A2A state | Orca state | Note |
 |---|---|---|
 | `SUBMITTED` | `a2a.submit` pending a person | "Received, not started." This deliberately differs from [MCP tasks](mcp-tasks.md), which report reviewer waits as `working`. |
 | `WORKING` | Work item open, claimed or running; the action executing | Accepted. The status message says what is happening, in general words. |
 | `INPUT_REQUIRED` | Not in v1 | Needs a `work.ask_partner` tool (phase 3). |
-| `AUTH_REQUIRED` | Not used | The Host does not ask partners for credentials. |
+| `AUTH_REQUIRED` | Not used | Orca does not ask partners for credentials. |
 | `COMPLETED` | The reply's artifact has been approved and delivered (`GetTask`) | Artifacts come only from an executed `a2a.reply`. |
 | `REJECTED` | Reviewer rejected, changes were requested, or policy refused | Generic text. The reviewer's reason stays internal (decision 9). A changed request is a new message with a new `messageId`. |
 | `FAILED` | Work item dead or expired; the tool failed | Generic text. The internal failure kind is not sent. |
@@ -315,7 +315,7 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
   partner's session (`GainCarried`, as `WorkService.Apply` does). The standard exit check then sees them. The item's labels are
   not on the partner's session otherwise.
 - **The destination is named.** A label rule names the partner in a destination condition on the `partner` argument (the syntax of
-  `DataLabels.Check`; `Allow` names tools, not destinations, so `"a2a.reply:partner=..."` is not a form the Host reads). Tested in
+  `DataLabels.Check`; `Allow` names tools, not destinations, so `"a2a.reply:partner=..."` is not a form Orca reads). Tested in
   `A_label_the_completer_held_is_checked_at_the_exit...`:
 
 ```json
@@ -323,8 +323,8 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 ```
 
 - **Enforcement is required.** `DataFlowMode` defaults to `ReportOnly`. With that default, a labelled reply would be recorded as
-  "would be queued" and sent. The Host must refuse to start with A2A enabled unless `DataFlowMode` is `Enforce`.
-- **One path.** `GetTask` returns an artifact only from an executed `a2a.reply`. Nothing else leaves the Host in an A2A response. This is
+  "would be queued" and sent. Orca must refuse to start with A2A enabled unless `DataFlowMode` is `Enforce`.
+- **One path.** `GetTask` returns an artifact only from an executed `a2a.reply`. Nothing else leaves Orca in an A2A response. This is
   the same rule as the MCP tasks design's "one path to results".
 - **Direct skills.** The tool runs as an action and its result becomes the text of an `a2a.reply`, which then goes through the same
   review and the same label check.
@@ -346,7 +346,7 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 
 - **The card requires authentication (correction 3).** `/.well-known/agent-card.json` is served only to an authenticated caller. It
   has the name, a generic description, the version, the JSON-RPC interface with `protocolVersion: "1.0"`, the capabilities (no
-  streaming, no push), the input and output modes, and the security schemes the Host really accepts: `apiKey` in the `X-API-Key`
+  streaming, no push), the input and output modes, and the security schemes Orca really accepts: `apiKey` in the `X-API-Key`
   header and `http` bearer. With Entra, an `openIdConnect` scheme. It lists no skills. Partners receive the card's location and their
   credentials out of band. The specification allows direct configuration as a discovery mechanism.
 - **Extended card.** `GET /extendedAgentCard` returns, for an authenticated caller, the skills its profile may use, built by the same
@@ -394,16 +394,16 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
   it matters for a profile that may use no skill).
 - **The SDK is a preview.** Pin an exact version. Keep the SDK behind one adapter class, so an API change touches one file.
 
-## Outbound (the Host calls other agents): phase 4
+## Outbound (Orca calls other agents): phase 4
 
 - **A remote agent is a module,** like the OpenAPI module: an `AllowedHosts` list, credentials through `ModuleCredentials`, and
   `GuardedHttpClientFactory` for every request (connect-time address check, no automatic redirects, redirects re-checked).
 - **Tools per remote skill,** risk `ExternalEffect`, so each call is queued by default and checked by the data-flow rules, because the
-  message is data leaving the Host.
+  message is data leaving Orca.
 - **Responses are outside content.** They are `ReadsUntrusted`, so they taint the session.
-- **Card pinning.** The Host stores the remote card's hash and key id. It verifies a signature when one is present (the specification
+- **Card pinning.** Orca stores the remote card's hash and key id. It verifies a signature when one is present (the specification
   says a client should verify at least one signature before trusting a card).
-- **Callbacks.** A remote's push to the Host uses the signed callback route from the work design's external waits (step 4), which is
+- **Callbacks.** A remote's push to Orca uses the signed callback route from the work design's external waits (step 4), which is
   not built. Polling comes first.
 
 ## Push (partner notifications): phase 3
@@ -428,7 +428,7 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 | Taint or labels laundered across a long conversation | Stored with the context and re-applied on every message. |
 | Resource exhaustion | Per-subject rate limit; per-requester pending cap; body and goal caps. |
 | Information in errors | Generic messages; reviewer reasons and failure kinds stay internal. |
-| SSRF through push URLs (phase 3) | Registered hosts only; the SDK's address check; the Host's guard. |
+| SSRF through push URLs (phase 3) | Registered hosts only; the SDK's address check; Orca's guard. |
 | Card spoofing of a remote agent (phase 4) | Pinning; signature verification when present. |
 | A human approver manipulated by partner text | The review page shows partner text whole and as text: the page writes every value with `textContent`, and the API gives the whole summary (batch 04 B1, RUN). Teams cards escape it, so no markup, link or line break from the partner survives (B2, RUN), and a card does not offer approve on a preview it has cut, on the card or on the click (B3, RUN). Approval stays with a person; self-approval is forbidden for administration tools. By default Teams may approve an `a2a.reply` (B4, RUN; a record for the owner). |
 
@@ -462,7 +462,7 @@ the card, the skill-selection extension) follows the slice. The checklist ([gove
     - *Out-of-profile trips.* A partner names no tool. The two tool calls it causes are `a2a.submit` (the handler refuses a caller
       whose profile does not list it, before it submits) and `a2a.reply` (submitted with the profile of the submit). Startup refuses an
       `a2a:call` key whose profile lacks either tool (`A2AFrontDoor.Check`). The queue's own trip, a `not_in_profile` refusal that
-      suspends the requester (`ActionQueue.cs`, around line 92 to 102), is reached from A2A only if a profile loses a tool while the Host
+      suspends the requester (`ActionQueue.cs`, around line 92 to 102), is reached from A2A only if a profile loses a tool while Orca
       runs. This build has no hot reload of the policy, so that does not happen. Checked: no partner-driven path makes a call outside its
       profile.
     - *A context surviving a session expiry with its labels.* Contexts are not built. One task has one submit session (created at the
@@ -486,7 +486,7 @@ Decided by the owner on 2026-11-11 ("no idea" on card access was taken as the de
   is built, and Phase 0 and Phase 1 wait for the owner's review of this document.
 - **Card (1):** requires authentication (default).
 - **Replies (2):** every reply is reviewed in v1.
-- **Durability (6):** `OPENTAIL_DB_SYNCHRONOUS=full` is required when A2A is on, for now. Revisit when the Host runs on a server
+- **Durability (6):** `OPENTAIL_DB_SYNCHRONOUS=full` is required when A2A is on, for now. Revisit when Orca runs on a server
   database.
 
 Still the proposed defaults, unchanged:
@@ -510,7 +510,7 @@ Status after batch 06. "Closed" names where the point was checked.
 - **Specification, still unread.** Open: §3 (abstract definitions), §4.3 (push objects), §5.4 (error table), §13.1 in full, and how
   negotiation works for versions and extensions. Partly: whether `skills` may be empty. The SDK serves an empty list (RUN, section 7);
   the specification text is not read.
-- **Host, in code.** Closed: the rule syntax for a condition on a top-level argument (phase 0 test, `Policy/Rules/Conditions.cs`); the
+- **Orca, in code.** Closed: the rule syntax for a condition on a top-level argument (phase 0 test, `Policy/Rules/Conditions.cs`); the
   review page's rendering of partner text (`ReviewViewTests.B1`, RUN: `textContent` throughout, no cut). Open: the throughput cost of
   `synchronous=full` (not measured).
 - **Vendor claims not used.** Closed: neither the Gravitee pages nor agentgateway is relied on for a design decision.
@@ -527,7 +527,7 @@ Built, by commit. The brief that asked for each batch is listed in `docs/briefs/
   - `SendMessage` with `returnImmediately` true. With false or omitted, a blocking wait (`BlockingWait`, default 30 seconds) that answers
     the task when it is terminal, or an error naming the task when the wait passes. A per-partner cap (`MaxBlockingWaitsPerPartner`,
     default 4).
-  - The task id table (`a2a_tasks`, schema 13): the Host's id, the partner, the content hash, the submit, work-item and reply links,
+  - The task id table (`a2a_tasks`, schema 13): Orca's id, the partner, the content hash, the submit, work-item and reply links,
     and no text.
   - `a2a.submit` as the partner, with the task id as the idempotency key. On approval it creates one work item for the skill's inbox
     profile, on the task's thread, tainted, carrying what the submit's session holds. The work item's id never goes to the partner.

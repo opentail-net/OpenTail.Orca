@@ -6,7 +6,7 @@
 delay late); Stop and run-now on the review page and the Teams card; a "Going out soon" headline in notifications. First written 2026-10-17. Written from reading
 [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions). Corrected on 2026-10-18: Delay is a `DelayFor` on `Execute`, not a fourth `ToolMode` value ([why](#where-it-sits-in-policy)).
 
-**Where it fits:** Host work. A new step between running a call now and waiting for a reviewer. It fits the
+**Where it fits:** Orca work. A new step between running a call now and waiting for a reviewer. It fits the
 [adaptive limits ladder](adaptive-limits.md#the-ladder) as the step an Elevated agent can drop to before everything queues.
 
 ## The problem
@@ -76,7 +76,7 @@ Not for: destructive actions (they keep Queue), anything time-critical, and Read
 
 1. **What runs is what was announced.** Arguments are fixed when the action is accepted; there is no editing during the delay
    (stop and let the agent resubmit instead). The preview shown is the preview that runs.
-2. **The run-at time survives restarts.** Delayed actions live in the action store like queued ones; on start the Host runs any
+2. **The run-at time survives restarts.** Delayed actions live in the action store like queued ones; on start Orca runs any
    whose time has passed (or, if they are much older than `DelayFor`, holds them for a person, so an outage does not fire a backlog
    of stale actions at once).
 3. **Stopping is never blocked.** Rate limits, budgets and approvals apply to running, never to stopping.

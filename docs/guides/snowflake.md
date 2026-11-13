@@ -1,4 +1,4 @@
-# Guide: querying Snowflake from the Host
+# Guide: querying Snowflake from Orca
 
 Agents can ask a Snowflake warehouse read-only questions through the Sql module. Every query costs warehouse time, so most of
 this guide is about setting Snowflake up so that cost stays bounded whatever the agent does.
@@ -15,18 +15,18 @@ for the open steps and [what was built](../done/snowflake-s1-s2.md).
 
 There are no write tools. Results are marked untrusted, so they taint the session like any outside content.
 
-What the Host adds to each query:
+What Orca adds to each query:
 
 - `LIMIT MaxRows + 1` when the query has no LIMIT, FETCH or TOP of its own.
 - A timeout (`CommandTimeoutSeconds`, default 15); the driver cancels the query on Snowflake when it passes.
-- The query tag `opentail:<action id>`, so each query in Snowflake's history can be traced back to the Host's audit record.
+- The query tag `opentail:<action id>`, so each query in Snowflake's history can be traced back to Orca's audit record.
 
 What the guard refuses, beyond anything that is not a single SELECT: `//` comments, `$` outside literals (dollar quotes, `$1`,
 session variables, `SYSTEM$` functions), backslashes in literals, stage references (`@stage` is read as a parameter with no value).
 
 ## 1. On the Snowflake side (the account admin)
 
-The role is the real boundary; the Host's guard is a second line. Give the agent its own warehouse, role and service user:
+The role is the real boundary; Orca's guard is a second line. Give the agent its own warehouse, role and service user:
 
 ```sql
 -- A small warehouse of its own, with a timeout and a credit cap.
@@ -61,11 +61,11 @@ openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out rsa_key.p8 -nocrypt
 openssl rsa -in rsa_key.p8 -pubout -out rsa_key.pub
 ```
 
-`rsa_key.pub` goes into `RSA_PUBLIC_KEY`; `rsa_key.p8` goes into the Host's credential store, never into a config file.
+`rsa_key.pub` goes into `RSA_PUBLIC_KEY`; `rsa_key.p8` goes into Orca's credential store, never into a config file.
 
-## 2. In the Host deployment
+## 2. In Orca deployment
 
-Reference the driver package next to the Host: `Snowflake.Data` (tested with 6.3.0). Then add the module to `modules.json`:
+Reference the driver package next to Orca: `Snowflake.Data` (tested with 6.3.0). Then add the module to `modules.json`:
 
 ```json
 {
@@ -102,11 +102,11 @@ A starting policy: run `schema` and `query` directly, and keep the warehouse sma
 |---|---|---|
 | Resource monitor | Snowflake admin | Total spend: suspends the warehouse at the credit quota. The hard ceiling. |
 | Warehouse size and statement timeouts | Snowflake admin | Expensive single queries; queries waiting in a queue. |
-| `CommandTimeoutSeconds` | Host config | Any query running longer; cancelled on the server. |
-| Added LIMIT | Host, automatic | Producing rows nobody reads. |
-| Query tag | Host, automatic | Nothing by itself; it makes every query attributable. |
+| `CommandTimeoutSeconds` | Orca config | Any query running longer; cancelled on the server. |
+| Added LIMIT | Orca, automatic | Producing rows nobody reads. |
+| Query tag | Orca, automatic | Nothing by itself; it makes every query attributable. |
 
-Not built yet: the Host checking the warehouse settings at start-up (S3), and a daily budget per identity (S4).
+Not built yet: Orca checking the warehouse settings at start-up (S3), and a daily budget per identity (S4).
 
 To see what the agent ran and what it cost:
 

@@ -1,6 +1,6 @@
-# OpenTail Host: status by version
+# OpenTail Orca: status by version
 
-As of 2026-11-13. This is the one place to see what the Host has built, from which plan, and what is still open. The plans are the
+As of 2026-11-13. This is the one place to see what Orca has built, from which plan, and what is still open. The plans are the
 design record; each plan's implementation log is the detailed record, and where a plan's status line disagrees with its log, the log
 wins. What is listed as built comes from those logs. The test counts in them are snapshots and were not re-run for this document.
 
@@ -12,7 +12,7 @@ called V1 to V7 (its sections 5 to 11). When this document says "v2 phase V3", i
 
 | Plan | Subject | State | Read |
 |---|---|---|---|
-| v1 | Host core, queue, SQLite, first modules, sample deployments | Built (phases 0 to 8 and a review pass) | [archived](../docs/done/MCP-HOST-PLAN.md) |
+| v1 | Orca core, queue, SQLite, first modules, sample deployments | Built (phases 0 to 8 and a review pass) | [archived](../docs/done/MCP-HOST-PLAN.md) |
 | v2 | Team use: HTTP and sign-in, policy rules, notifications, resumable work, approval controls, docs | Built (its phases V1 to V7); acceptance 2026-10-16 | [archived](../docs/done/MCP-HOST-V2-PLAN.md) |
 | v3 | Modules as bricks: contract, credentials, configuration, provider modules, process isolation | Built, except W6 (publishing), the live tests and the outside-author conformance kit | [archived](../docs/done/MCP-HOST-V3-PLAN.md) |
 | v4 | Integrations as data: integration profiles | Built; ServiceNow kept as code by decision | [archived](../docs/done/MCP-HOST-V4-PLAN.md) |
@@ -22,11 +22,11 @@ called V1 to V7 (its sections 5 to 11). When this document says "v2 phase V3", i
 
 Designs for work that is planned but not built, and for work after these plans, are indexed in [`docs/design/README.md`](../docs/design/README.md).
 
-## v1: the Host core
+## v1: Orca core
 
 Built (log of 2026-10-15):
 
-- The core model in `OpenTail.Orca.Abstractions`, and the Host in `OpenTail.Orca`: the MCP stdio server, the action queue with approval
+- The core model in `OpenTail.Orca.Abstractions`, and Orca in `OpenTail.Orca`: the MCP stdio server, the action queue with approval
   states, the SQLite store with leases and recovery, rate limits, the trust ramp, `--explain`, redaction, and OpenTelemetry under the
   `OpenTail.Orca` source.
 - Modules: Files, Email, Csv, Sql (read-only queries, with previewed writes on request), Calendar, Web (guarded fetch), and OpenApi, a
@@ -78,7 +78,7 @@ Still open, from the plan's own list:
   recorded in the plans.
 - Sign-in was tested with a local signing key, not a live identity provider. Notifications were tested against a scripted handler and a
   local receiver, not a live Slack workspace.
-- `OpenTail.Core` does not pack (missing icon). This predates the Host work.
+- `OpenTail.Core` does not pack (missing icon). This predates Orca work.
 
 ## v3: modules as bricks
 
@@ -121,7 +121,7 @@ Built (log of 2026-10-16 and after):
   profiles cannot express without becoming a workflow language.
 - **P4b, packaging.** `package:Assembly/name` profiles, the `OpenTail.Profiles.YouTube` and `OpenTail.Profiles.X` packages, and a
   conformance check that runs at startup and in `--lint`.
-- **Licence.** The Host, its modules and profiles are under PolyForm Strict 1.0.0 (`LICENSE-HOST.md`). The shared `OpenTail.Connectivity.*`
+- **Licence.** Orca, its modules and profiles are under PolyForm Strict 1.0.0 (`LICENSE-HOST.md`). The shared `OpenTail.Connectivity.*`
   libraries keep MIT.
 
 Open:
@@ -180,7 +180,7 @@ Built (R1):
 
 Open:
 
-- **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). It can be built against a fake model first. The plan has the Host
+- **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). It can be built against a fake model first. The plan has Orca
   build the packet, and detect and escalate reviewer-directed text in the content.
 - **R3 and R4** start only after the v5 pilot produces human decisions to compare against.
 - **R5, the test corpus.** Needs no model and no owner input. The plan's order section puts it next.
@@ -222,7 +222,7 @@ Built (its commits are in the checklist's batch record):
   page and in Teams; and the kit (`docs/guides/a2a-sample/`, `scripts/a2a-smoke.ps1`, `docs/guides/a2a.md`).
 - Tests: `A2aSliceTests`, `A2aPhase0Tests`, `A2aKitTests` and `ReviewViewTests`, and the Teams tests in `TeamsBotTests`.
 
-Not built: the skill-selection extension; more than one skill per Host; contexts and multi-turn; tool skills; the extended card; card
+Not built: the skill-selection extension; more than one skill per Orca; contexts and multi-turn; tool skills; the extended card; card
 signing; HTTP+JSON; push and `INPUT_REQUIRED`; outbound calls; partners authenticated by JWT; streaming and resubscribe; file parts.
 
 Waiting for the owner (the decisions the planner made, and where each is recorded, are in [`docs/briefs/README.md`](../docs/briefs/README.md)):

@@ -1,9 +1,9 @@
-# Guide: querying Databricks from the Host
+# Guide: querying Databricks from Orca
 
 Databricks is a Sql module provider, `"Provider": "databricks"`, in its own package: `OpenTail.Modules.Sql.Databricks`. There is
 no driver. The package is a small ADO.NET adapter over Databricks' **SQL Statement Execution API** (`/api/2.0/sql/statements`), so
 the Sql module's guard, row caps, schema tool, policy and audit apply as they do for any database. Unlike the database drivers, its
-traffic goes through the Host's guarded HTTP client: the module reaches only the hosts in its `Network.Hosts`.
+traffic goes through Orca's guarded HTTP client: the module reaches only the hosts in its `Network.Hosts`.
 
 **State: Tested, not Verified.** Checked against a stub of the API (requests, polling, result chunks, cancel on timeout, OAuth,
 the network allow-list); not yet against a real workspace. Items marked *to verify* need one.
@@ -44,9 +44,9 @@ Backticks quote identifiers; `[ ]` is element access.
 
    Row filters and column masks on those tables apply to the agent as they would to a person.
 4. Optionally set a statement timeout on the warehouse (the `STATEMENT_TIMEOUT` SQL configuration parameter) as a ceiling under
-   the Host's own.
+   Orca's own.
 
-## 2. In the Host deployment
+## 2. In Orca deployment
 
 Reference `OpenTail.Modules.Sql.Databricks`, then:
 
@@ -70,7 +70,7 @@ Reference `OpenTail.Modules.Sql.Databricks`, then:
 - `password` holds the OAuth secret when `ClientId` is set, or a personal access token without it. Never put either in the
   connection string; the module refuses to start if you do.
 - `WarehouseId` is in the warehouse's *Connection details*; `HttpPath=/sql/1.0/warehouses/<id>` works too.
-- `Network.Hosts` must list the workspace, or every call is refused before it leaves the Host. On Azure the host is
+- `Network.Hosts` must list the workspace, or every call is refused before it leaves Orca. On Azure the host is
   `adb-<id>.<n>.azuredatabricks.net`.
 - `Network.MaxResponseBytes` (default 4 MB) caps each response; with `MaxRows` at 200 that is rarely reached, but very wide rows
   may need more.
@@ -84,8 +84,8 @@ A SQL warehouse bills DBUs while it runs. The ceilings, from hardest to softest:
 | Warehouse size and auto-stop | Workspace admin | The rate of spend, and idle time. |
 | Budget policies and alerts on the warehouse | Account admin | Spend past a budget (alerts; enforcement depends on the plan, *to verify*). |
 | `STATEMENT_TIMEOUT` on the warehouse | Workspace admin | Any single long statement. |
-| `CommandTimeoutSeconds` | Host config | Statements past it, cancelled through the API. |
-| Added LIMIT | Host, automatic | Producing rows nobody reads. |
+| `CommandTimeoutSeconds` | Orca config | Statements past it, cancelled through the API. |
+| Added LIMIT | Orca, automatic | Producing rows nobody reads. |
 
 ## 4. Trying it
 

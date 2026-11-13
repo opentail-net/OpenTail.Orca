@@ -1,6 +1,6 @@
 # Skills: setup, publishing and operations
 
-For whoever runs a Host with the skills module, and for the people who approve changes to skills. What the module does, and what it promises, is in [OpenTail.Modules.Skills/README.md](../../OpenTail.Modules.Skills/README.md). How to write a skill version is in [writing a skill version](writing-skill-versions.md).
+For whoever runs Orca with the skills module, and for the people who approve changes to skills. What the module does, and what it promises, is in [OpenTail.Modules.Skills/README.md](../../OpenTail.Modules.Skills/README.md). How to write a skill version is in [writing a skill version](writing-skill-versions.md).
 
 Written from `opentail-orca` at `dc957f7`, 2026-11-10. Commands use `my-host` as the deployment's name.
 
@@ -14,7 +14,7 @@ Written from `opentail-orca` at `dc957f7`, 2026-11-10. Commands use `my-host` as
 4. **Adopt the suggested policy:**
    `my-host --policy policy.json --modules modules.json --adopt-policy skills`
    It writes `policy.d/skills.json`. The options are in [OPERATIONS.md](../../OpenTail.Orca/OPERATIONS.md).
-5. **Put the approvers in the `skill-approvers` group.** The Host docs show how groups are set only for Teams reviewers (`Teams.Reviewers`, in [TEAMS-SETUP.md](../../OpenTail.Orca/TEAMS-SETUP.md)). For the approval page, the docs do not say how groups are assigned. Confirm that before the first approval (see [open questions](#open-questions)).
+5. **Put the approvers in the `skill-approvers` group.** Orca docs show how groups are set only for Teams reviewers (`Teams.Reviewers`, in [TEAMS-SETUP.md](../../OpenTail.Orca/TEAMS-SETUP.md)). For the approval page, the docs do not say how groups are assigned. Confirm that before the first approval (see [open questions](#open-questions)).
 6. **Give each caller a profile.** Profiles are defined under `Agents` in the policy file. An API key names its profile in the HTTP config. Read [agent profiles](../../OpenTail.Orca/POLICY.md#agent-profiles) first. A sketch:
 
    ```json
@@ -24,7 +24,7 @@ Written from `opentail-orca` at `dc957f7`, 2026-11-10. Commands use `my-host` as
    }
    ```
 
-   The agents that do the work get `skills.find` and `skills.get`. Only the people or tools that propose changes get `skills.publish`. `*` and `skills.*` never include `skills.publish`, so a profile must name it. The Host refuses to start if a profile names `skills.publish` next to any other tool above Read, unless the Host runs in sandbox or shadow mode.
+   The agents that do the work get `skills.find` and `skills.get`. Only the people or tools that propose changes get `skills.publish`. `*` and `skills.*` never include `skills.publish`, so a profile must name it. Orca refuses to start if a profile names `skills.publish` next to any other tool above Read, unless Orca runs in sandbox or shadow mode.
 
 ## Put the first version live
 
@@ -32,7 +32,7 @@ The store has no versions at the start, and only an approved publish writes to i
 
 1. **Prepare the content:** `skill.json` and `SKILL.md`, as the [authoring guide](writing-skill-versions.md) describes.
 2. **Publish to staging first.** Submit `skills.publish` with `version` set to `1`, `expectedFrom` set to `none`, `label` set to `staging`, and the `skillJson`, `instructions` and `reason`. One approval is enough for staging.
-3. **Check it on a staging Host.** A Host with `"Label": "staging"` serves it.
+3. **Check it on a staging Host.** Orca with `"Label": "staging"` serves it.
 4. **Promote to production.** Submit `skills.publish` with the same `version`, `label` set to `production`, `expectedFrom` set to `none`, and no content. The version already exists, so only the label moves. Production needs two different approvers.
 
 ## Publish a new version
@@ -40,10 +40,10 @@ The store has no versions at the start, and only an approved publish writes to i
 1. **Edit the skill** in `opentail-workbench`, under `skills/<id>/`. Give it a new version number. Never reuse a number, because a version never changes once published.
 2. **Run the scenarios** with `workbench run --model <id> --skill <id>`. Use the same `--delivery` for both batches: `native` by default, or `none` for a baseline with no skill. Then compare the batch with the one for the live version: `workbench compare --base <batch> --candidate <batch> --report <file>`. The comparison report carries the binding line for the candidate's content.
 3. **Check the policies.** `workbench policies` shows, for each skill and policy, whether the skill was tested against the current text, was never recorded, was tested against text that has since CHANGED, or is missing. After the scenarios pass, `workbench policies --record` writes the current hashes into `skill.json`. That changes the file, so the result is a new version.
-4. **Find the live version.** `skills.find` shows the version at the Host's label. That is the `expectedFrom` value. For the other label, read `labels.json` in the store.
+4. **Find the live version.** `skills.find` shows the version at Orca's label. That is the `expectedFrom` value. For the other label, read `labels.json` in the store.
 5. **Prepare the arguments:**
    `workbench propose --skill <id> --reason "<what changed; what the runs showed>" --expected-from <version> [--label staging] [--report <file>]`
-   It prints the `skills.publish` arguments as JSON. It submits nothing. It stops if the report describes other content, because the Host would refuse it as well. The workbench holds no Host credentials.
+   It prints the `skills.publish` arguments as JSON. It submits nothing. It stops if the report describes other content, because Orca would refuse it as well. The workbench holds no Orca credentials.
 6. **Submit** the arguments with `skills.publish`, as a person whose key's profile names it. The change is queued.
 7. **Review.** Read the reason first, then the diff, then the report check, which says whether the report is **Bound** or **Not bound**, then the policies that changed. Approve, reject, or request changes. Edits to the arguments are not possible. A request for changes means a new version number.
 
@@ -57,7 +57,7 @@ The store has no versions at the start, and only an approved publish writes to i
 
 ## Check what is live and how it is doing
 
-- **`skills.find`** with no argument lists every skill with its version at the Host's label. If a label points at a version whose files are missing, it is left out of the list and named in `warnings`.
+- **`skills.find`** with no argument lists every skill with its version at Orca's label. If a label points at a version whose files are missing, it is left out of the list and named in `warnings`.
 - **`labels.json`** in the store shows both labels for every skill.
 - **`--skill-outcomes [--since 30d] [--min-cases 20] [--worse-by 0.15]`** shows, for each version, how people decided the actions that followed it, with a 95% interval, and any rollback suggestion.
 - **`--export-review-outcomes`** exports rejected and sent-back actions for the workbench. Redaction is best effort. Check each line before it leaves the deployment.
@@ -65,8 +65,8 @@ The store has no versions at the start, and only an approved publish writes to i
 
 ## Staging and serve-only deployments
 
-- **Staging.** A second Host with `"Label": "staging"` in its own `modules.json`. It serves the staging label.
-- **Serve-only.** `"AllowPublish": false` leaves out `skills.publish`. Such a Host can read a store another Host writes. Only one Host may publish to a folder, so the serving Host should only read it.
+- **Staging.** A second Orca with `"Label": "staging"` in its own `modules.json`. It serves the staging label.
+- **Serve-only.** `"AllowPublish": false` leaves out `skills.publish`. Such Orca can read a store another Orca writes. Only one Orca may publish to a folder, so the serving Orca should only read it.
 
 ## Policy drift
 
@@ -103,11 +103,11 @@ A refusal is returned at once as `invalid_arguments`, and nothing is queued. A f
 | `Not bound: the report names no content for this skill.` | Change request (shown, not refused) | The report has no binding line | The reviewer sees it as unchecked. Attach a comparison report to bind it. |
 | `No published skill '<id>' (label production).` | `skills.get` | No version at the label | Check the label. Publish, or promote. |
 | `The store lists <id>@<v> but its files are missing.` | `skills.get`; `skills.find` names it in `warnings` | `labels.json` points at a version folder that is gone | Restore the store folder from backup. |
-| `The skill store is busy: another publish holds it, or its folder cannot be locked.` | Request | Another Host is publishing to the same store right now, or the folder cannot be locked | Wait a moment and resubmit. Nothing was published. |
+| `The skill store is busy: another publish holds it, or its folder cannot be locked.` | Request | Another Orca is publishing to the same store right now, or the folder cannot be locked | Wait a moment and resubmit. Nothing was published. |
 | `skill.json must say "format": 1.` | Request, or a `warnings` entry from `skills.find` | The version's `skill.json` is in another format, or has none | Correct it in a new version. Stored versions cannot be edited: see [before upgrading](#before-upgrading). |
 | `skill.json needs '<field>', as a non-empty string.` or `skill.json '<field>' must be a list of strings.` | Request, or a `warnings` entry from `skills.find` | A field has the wrong type, such as a number where text is expected | Correct the field in a new version. The [authoring guide](writing-skill-versions.md) lists each field's type. |
-| The Host refuses to start, naming `ReviewerGroup`, `SelfApproval Forbid` or `AllowEdits false` | Startup | The policy for `skills.publish` is looser than the suggested one | Adopt the suggested policy: `--adopt-policy skills`. |
-| The Host refuses to start, naming a profile with `skills.publish` | Startup | A profile names `skills.publish` next to another tool above Read | Split the profile. |
+| Orca refuses to start, naming `ReviewerGroup`, `SelfApproval Forbid` or `AllowEdits false` | Startup | The policy for `skills.publish` is looser than the suggested one | Adopt the suggested policy: `--adopt-policy skills`. |
+| Orca refuses to start, naming a profile with `skills.publish` | Startup | A profile names `skills.publish` next to another tool above Read | Split the profile. |
 | `Config.Store is required.` | Startup | No `Store` in the config | Add it. |
 | `Config.Label must be one of production, staging.` | Startup | Any other label | Correct it. |
 | `Config.PolicyFolder <path> does not exist.` | Startup | The path is wrong. Relative paths are relative to `modules.json` | Correct the path, or remove the setting. |
@@ -120,10 +120,10 @@ Every stored version must say `"format": 1`. A stored version that does not is r
 grep -L '"format": 1' <store>/*/*/skill.json
 ```
 
-Each file the command lists would stop being served. Republish that content as a new version with `"format": 1` and move the label to it. A stored version with a field of the wrong type is refused the same way: the [authoring guide](writing-skill-versions.md) lists each field's type, and there is no command that finds those, so read any version that `skills.find` names in `warnings` against it. Do not edit a stored version: versions never change, and the Host does not rewrite them.
+Each file the command lists would stop being served. Republish that content as a new version with `"format": 1` and move the label to it. A stored version with a field of the wrong type is refused the same way: the [authoring guide](writing-skill-versions.md) lists each field's type, and there is no command that finds those, so read any version that `skills.find` names in `warnings` against it. Do not edit a stored version: versions never change, and Orca does not rewrite them.
 
 ## Open questions
 
-- **Approver groups on the approval page.** The Host docs show groups for Teams reviewers only. Confirm how the approval page assigns `skill-approvers`.
-- **Network shares.** A publish holds the store's lock file, and a second publishing Host is refused while it is held. File locks may not be enforced on a network share, so keep the store on a local disk, or run one publishing Host per store there. Limit 1 in the [module reference](../../OpenTail.Modules.Skills/README.md#known-limits-and-gaps) explains it.
+- **Approver groups on the approval page.** Orca docs show groups for Teams reviewers only. Confirm how the approval page assigns `skill-approvers`.
+- **Network shares.** A publish holds the store's lock file, and a second publishing Orca is refused while it is held. File locks may not be enforced on a network share, so keep the store on a local disk, or run one publishing Orca per store there. Limit 1 in the [module reference](../../OpenTail.Modules.Skills/README.md#known-limits-and-gaps) explains it.
 - **Standard-form decisions 3, 4 and 7**, which are provisional until the owner reviews them ([standard skill files](../design/standard-skill-files.md)).

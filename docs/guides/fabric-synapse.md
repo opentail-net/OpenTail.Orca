@@ -1,4 +1,4 @@
-# Guide: querying Microsoft Fabric or Azure Synapse from the Host
+# Guide: querying Microsoft Fabric or Azure Synapse from Orca
 
 Fabric warehouses, Fabric SQL analytics endpoints and Synapse SQL pools speak SQL Server's protocol, so they use the Sql module's
 `sqlserver` provider with Microsoft Entra ID sign-in. No Fabric-specific code is involved.
@@ -12,11 +12,11 @@ Fabric warehouses, Fabric SQL analytics endpoints and Synapse SQL pools speak SQ
 
 - **No added row limit.** T-SQL has no `LIMIT`; the module still returns at most `MaxRows` rows, and the model can write `TOP`.
 - **No read-only transaction.** SQL Server has no such mode; the login's permissions are the boundary.
-- **No query tag** yet. The Host's audit has the statement and the action id.
+- **No query tag** yet. Orca's audit has the statement and the action id.
 
 ## 1. In Entra ID and Fabric (or Synapse)
 
-1. Register an app (a service principal) for the agent and create a client secret, or use a managed identity where the Host runs
+1. Register an app (a service principal) for the agent and create a client secret, or use a managed identity where Orca runs
    in Azure.
 2. **Fabric:** let service principals use Fabric (tenant setting *Service principals can use Fabric APIs*), then give the app the
    narrowest access that lets it read: share the warehouse with it with *Read data*, rather than a workspace role. One
@@ -25,7 +25,7 @@ Fabric warehouses, Fabric SQL analytics endpoints and Synapse SQL pools speak SQ
 3. **Synapse serverless:** create a database user for the app (`CREATE USER [app name] FROM EXTERNAL PROVIDER`) and add it to
    `db_datareader` only.
 
-## 2. In the Host deployment
+## 2. In Orca deployment
 
 Reference `Microsoft.Data.SqlClient` **and `Microsoft.Data.SqlClient.Extensions.Azure`**: since SqlClient 7, Entra ID sign-in is
 in the extension package. Then:

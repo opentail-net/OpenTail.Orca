@@ -4,13 +4,13 @@
 at `2537674` and from the state of the protocols in October 2026 (MCP Tasks extension, A2A). The owner's position of 2026-10-18 is
 under [decisions](#decisions); the rest is open for discussion.
 
-**Where it fits:** Host work, after [roles and permissions](roles-and-permissions.md) (who may do what) and alongside
-[where data goes](data-flow.md) (labels must survive a wait). It gives the Host a memory of **work owed and work waited on**; the
+**Where it fits:** Orca work, after [roles and permissions](roles-and-permissions.md) (who may do what) and alongside
+[where data goes](data-flow.md) (labels must survive a wait). It gives Orca a memory of **work owed and work waited on**; the
 tools stay the agent's hands.
 
 ## The problem
 
-The Host is good at one call at a time. A queued action already outlives the agent's turn: the decision is kept as a notice and
+Orca is good at one call at a time. A queued action already outlives the agent's turn: the decision is kept as a notice and
 handed over on the agent's next call or through `get_updates`, and `wait_for_action` waits up to 25 seconds. Three things are
 missing:
 
@@ -19,25 +19,25 @@ missing:
 2. **Coming back to something.** An agent that sends off a request (an approval, a licence check, a company-registration lookup)
    has to stop. When the answer arrives days later, nothing connects it to what the agent was doing or why. Today the agent must
    happen to call `get_updates` and reconstruct the rest from nothing.
-3. **Waking the agent.** The Host cannot call into an agent whose chat is closed. This is not a gap in our code but in the
+3. **Waking the agent.** Orca cannot call into an agent whose chat is closed. This is not a gap in our code but in the
    protocol: MCP no longer allows requests from server to client that the client did not ask for (SEP-2260). Whatever wakes an
    agent has to sit beside the protocol.
 
-## What the Host is, and is not
+## What Orca is, and is not
 
-**The Host keeps the ledger; the agent's harness does the thinking.** A harness runs the model: it builds prompts, chooses
-context, runs the loop of tool calls, calls the model and decides the next step. The Host does none of these, before or after this
+**Orca keeps the ledger; the agent's harness does the thinking.** A harness runs the model: it builds prompts, chooses
+context, runs the loop of tool calls, calls the model and decides the next step. Orca does none of these, before or after this
 design. A work item is a ticket; delegating is putting a ticket in an inbox, as Jira does for people without being their brain.
 
-The line, written down so later work does not drift over it. The Host never:
+The line, written down so later work does not drift over it. Orca never:
 
 - calls a model to do the work (the existing AI reviewer, which judges an action, is unchanged);
 - builds prompts or chooses what goes into an agent's context;
 - stores or replays transcripts;
 - decides an agent's next step.
 
-What the Host does keep: records of work, what is being waited on, outcomes, and a short **note** the agent writes for its future
-self, stored opaquely like an attachment on a ticket. The Host never reads the note to make a decision.
+What Orca does keep: records of work, what is being waited on, outcomes, and a short **note** the agent writes for its future
+self, stored opaquely like an attachment on a ticket. Orca never reads the note to make a decision.
 
 ## The idea
 
@@ -59,13 +59,13 @@ park(
 → { "continuationId": "c-4410" }
 ```
 
-When the condition is met (or `until` passes), the Host turns the continuation into a **resume work item**. It carries the note
+When the condition is met (or `until` passes), Orca turns the continuation into a **resume work item**. It carries the note
 and the outcomes: the approval or rejection with the reviewer's reason, the licence check's result, and which waits timed out.
 The agent that picks it up, in a fresh context, has everything it needs to carry on.
 
-- **What can be waited on:** the Host's own actions (queued, delayed, or simply long-running), timers, and
+- **What can be waited on:** Orca's own actions (queued, delayed, or simply long-running), timers, and
   [external waits](#external-waits). Waiting on another work item is how delegation reports back.
-- **The note is the agent's, not the Host's.** It may be a summary in prose, structured state, or just a pointer into the
+- **The note is the agent's, not Orca's.** It may be a summary in prose, structured state, or just a pointer into the
   agent's own session store (for harnesses that can resume sessions). It is size-capped (proposed 8 KB) so it holds a summary,
   not a dump.
 - **Notices stay.** `get_updates` keeps working for agents that never park. A continuation is the richer form of the same idea.
@@ -113,24 +113,24 @@ The operator gets `--work` (list, filter by state, profile, thread), `--work <id
 
 ### Wake-up: three interchangeable ways
 
-An item becoming ready has to reach an agent. The Host offers three ways and is neutral between them:
+An item becoming ready has to reach an agent. Orca offers three ways and is neutral between them:
 
 1. **Pull.** The agent calls `next_work`. Works for any MCP client, including chat apps a person opens in the morning.
 2. **Push to a URL.** A signed webhook to an agent platform, one per profile or identity: "work ready: w-512". The platform starts
    its agent, which then pulls. The webhook carries ids only, never the goal or note, so a leaked URL leaks nothing.
-3. **Host-started.** The Host runs a configured command that starts a headless agent with a work id, as `ReviewerRunner` already
-   starts reviewers. This starts *someone else's* harness; the Host does not become one. Optional, off by default.
+3. **Host-started.** Orca runs a configured command that starts a headless agent with a work id, as `ReviewerRunner` already
+   starts reviewers. This starts *someone else's* harness; Orca does not become one. Optional, off by default.
 
 ### External waits
 
 A licence or registration check is usually: start it, get a reference, hear back later. The module owns this:
 
-- The module's start tool returns an **external reference** (`ext:licence/lc-2207`) the Host records as a wait.
-- Completion arrives by a **signed inbound callback** to the Host (`/api/callbacks/{module}/{ref}`, signature checked by the
+- The module's start tool returns an **external reference** (`ext:licence/lc-2207`) Orca records as a wait.
+- Completion arrives by a **signed inbound callback** to Orca (`/api/callbacks/{module}/{ref}`, signature checked by the
   module) or by the module **polling** on the maintenance sweep.
 - The outcome is stored as outside content: whatever the agent reads from it taints like any other outside read.
 
-The Host gains one generic thing, the wait record and the callback route; each check's specifics stay in its module.
+Orca gains one generic thing, the wait record and the callback route; each check's specifics stay in its module.
 
 ### Standard protocols
 
@@ -159,7 +159,7 @@ The internal model maps onto the protocols as they stand, so clients that speak 
    both profiles count as available to the work (intersection). The chain is capped (proposed depth 3) so agents cannot bounce work
    between themselves forever.
 5. **Assume anything can run twice.** Leases expire mid-run; callbacks repeat. Writes made while working an item carry an
-   idempotency key derived from the item and step (the Host already honours `IdempotencyKey` on actions), and the agent is told
+   idempotency key derived from the item and step (Orca already honours `IdempotencyKey` on actions), and the agent is told
    so in the tool descriptions.
 6. **Every item ends.** `ttl` on every item and continuation (proposed default 14 days); after a set number of failed claims an
    item goes to **dead** for a person to look at. Nothing waits forever unseen. What kinds of failure there are, how far each is
@@ -212,7 +212,7 @@ schedules: still open), and putting dead items into inspection (failures design,
 ## Work items and `IWorkQueue` (2026-10-22, for the owner)
 
 The owner asked to move work items onto Connectivity's `IWorkQueue`. On reading `WorkService`, I did not make the move, because it
-would take away things work items need and add nothing the Host can use yet:
+would take away things work items need and add nothing Orca can use yet:
 
 - **A work item is a record, not just a job.** `get_work` reads one by id; `--work` lists by state, profile and thread;
   `--work-item` shows its history; inspection reads dead items and their claimants. A queue can only hand out what is at its
@@ -223,28 +223,28 @@ would take away things work items need and add nothing the Host can use yet:
 - **Two sources of truth.** Keeping the table for the record and a queue for delivery means two writes that can disagree.
   It can be made safe (the table stays the truth, the queue only says "look at w-512", a claim is compare-and-set on the row,
   so a duplicate delivery is dropped, and a sweep re-sends open items the queue lost), but that is real work and new failure modes.
-- **No gain today.** The Host keeps all its state in one SQLite file, so it runs as one node either way; the table already gives
-  leases, runs, a dead state and redrive. A broker would only pay off once the Host runs as several nodes, and then the whole
+- **No gain today.** Orca keeps all its state in one SQLite file, so it runs as one node either way; the table already gives
+  leases, runs, a dead state and redrive. A broker would only pay off once Orca runs as several nodes, and then the whole
   store needs a server database first, not only work items.
 
 What I would do instead, when there is a reason:
 
-1. **Now, if wanted:** use `IWorkQueue` with `WorkQueueWorker` for the Host's own retry-shaped jobs, where a queue is the natural
+1. **Now, if wanted:** use `IWorkQueue` with `WorkQueueWorker` for Orca's own retry-shaped jobs, where a queue is the natural
    fit: webhook deliveries (`work_ready` and the other notification events) and the external-wait polling in step 4 of the order
    above. Those are fire, retry with backoff, dead-letter; nobody queries them by id.
-2. **When the Host goes multi-node:** the "delivery hint" shape above: the work table (on a server database) stays the record,
+2. **When Orca goes multi-node:** the "delivery hint" shape above: the work table (on a server database) stays the record,
    `IWorkQueue` carries "item ready" per `For` value, and claims are compare-and-set on the row.
 
 The Connectivity side is ready for either: `IWorkQueue`, the SQLite and RabbitMQ queues, the conformance suite and the worker
-loop are built and pushed. The queue packages are not published yet; the Host would need them first.
+loop are built and pushed. The queue packages are not published yet; Orca would need them first.
 
 ## Decisions
 
 Decided by the owner on 2026-10-18:
 
-- **Not a harness.** The Host stores records and an opaque, size-capped note; it never stores transcripts and never calls a
+- **Not a harness.** Orca stores records and an opaque, size-capped note; it never stores transcripts and never calls a
   model to do the work.
-- **The note is stored by the Host,** not only a pointer into the harness, so agents without a session store of their own can
+- **The note is stored by Orca,** not only a pointer into the harness, so agents without a session store of their own can
   resume. It carries its session's taint and labels and is visible to operators.
 
 Still open:

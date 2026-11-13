@@ -1,4 +1,4 @@
-# OpenTail Host
+# OpenTail Orca
 
 An MCP server that exposes **only the modules you load** and decides, per tool, whether a call
 **runs now**, **waits for a reviewer**, or is **denied**. It runs on your machine over stdio, or as a signed-in server for a small
@@ -10,7 +10,7 @@ bricks), each with its design review and implementation log.
 |---|---|
 | [MODULES.md](MODULES.md) | enabling modules from `modules.json`, credentials, a module's suggested policy, writing a brick |
 | [DEPLOY.md](DEPLOY.md) | running it at a public HTTPS address: the container image, a tunnel for trials, Docker Compose with Caddy for a server |
-| [TEAMS-SETUP.md](TEAMS-SETUP.md) | for IT: the approvals app in Microsoft Teams (bot registration, app package, Host config, checks) |
+| [TEAMS-SETUP.md](TEAMS-SETUP.md) | for IT: the approvals app in Microsoft Teams (bot registration, app package, Orca config, checks) |
 | [PROFILES.md](PROFILES.md) | integration profiles: turn an OpenAPI document into a curated, safe module with one JSON file, no code |
 | [POLICY.md](POLICY.md) | writing the policy file and conditional rules |
 | [OPERATIONS.md](OPERATIONS.md) | running it for a team: HTTP, sign-in, notifications, backups, monitoring, troubleshooting |
@@ -24,7 +24,7 @@ bricks), each with its design review and implementation log.
 - The operator writes a **policy file**. For each tool: `Execute`, `Queue` or `Deny`. A tool with no entry is
   denied (and not even advertised to the model); only `Read` tools can default to `Execute`. Optional **rules** refine a tool by its
   arguments, the time and a budget ("mail to our own domain runs; anything else waits; never to a competitor"), and fail closed: input
-  the Host cannot read can only make a call *more* careful.
+  Orca cannot read can only make a call *more* careful.
 - **Taint:** once a caller has read untrusted content (mail, web, files, API responses, database rows), every
   `Destructive`/`ExternalEffect` tool is forced to `Queue` for that caller, whatever the policy says, for a window of time and across
   sessions (a fresh session does not launder it, and neither does a restart). Calls with no session count as tainted.
@@ -40,9 +40,9 @@ bricks), each with its design review and implementation log.
 - Agents and reviewers are different kinds of credential: **an API key can never approve**, and a reviewer token can never call tools.
 - Each agent's API key names an **agent profile**: the agent sees and may call only that profile's tools, and no prompt can change it.
 
-## Working on the Host
+## Working on Orca
 
-`OpenTail.Orca.slnx` holds the Host, the modules, the profiles, the samples, the server and the tests. `dotnet build OpenTail.Orca.slnx`
+`OpenTail.Orca.slnx` holds Orca, the modules, the profiles, the samples, the server and the tests. `dotnet build OpenTail.Orca.slnx`
 and `dotnet test --solution OpenTail.Orca.slnx` run in seconds. The Connectivity libraries come as packages from GitHub Packages, which
 needs a token to read: set `GITHUB_PACKAGES_TOKEN` to a token with `read:packages` (see `nuget.config`).
 
@@ -121,8 +121,8 @@ mark outside content `ReadsUntrusted`; preview every write).
 
 ## Sandbox mode
 
-`OpenTailHostBuilder.UseSandbox(IToolSandbox)` builds a Host whose tool calls are all answered by the sandbox: no module code runs.
-Policy, taint, previews, queueing and audit are unchanged, so an agent sees exactly the Host it would see in production. The built-in
+`OpenTailHostBuilder.UseSandbox(IToolSandbox)` builds Orca whose tool calls are all answered by the sandbox: no module code runs.
+Policy, taint, previews, queueing and audit are unchanged, so an agent sees exactly Orca it would see in production. The built-in
 `RecordingSandbox` records every call above Read (an approved `mail.send` is recorded, not sent) and answers reads from a function you
 pass: a scenario's fixtures for the skills workbench, or `RecordingSandbox.ReadLive` (the real module, Read tools only) for shadow
 runs. Load modules for it in `ModuleLoadMode.Describe`, which needs no credentials. It is a test harness, not a security sandbox: it
@@ -130,7 +130,7 @@ stops tools from running at all, and says so in `StartupWarnings`.
 
 ## What this is not
 
-It is guarded execution under the operator's OS identity, not a sandbox, and a module runs inside the Host process: only install modules
+It is guarded execution under the operator's OS identity, not a sandbox, and a module runs inside Orca process: only install modules
 you trust. The SQL guard and the redaction of error text
 are best-effort; the real controls are the database login, the allow-lists and the review step. It is a single node (SQLite), has not had an
 independent security audit, and its approval page has not been walked through by a second person in a real browser. See
@@ -138,7 +138,7 @@ independent security audit, and its approval page has not been walked through by
 
 ## Licence
 
-The Host, its modules and its integration profiles are licensed under the **PolyForm Strict License 1.0.0**: see
+Orca, its modules and its integration profiles are licensed under the **PolyForm Strict License 1.0.0**: see
 [`../LICENSE-HOST.md`](../LICENSE-HOST.md). Personal and other noncommercial use is permitted; any commercial use, including inside a
 business, needs a commercial licence. The NuGet packages carry the licence and ask for acceptance. The shared `OpenTail.Connectivity.*`
 libraries keep the repository's licence.

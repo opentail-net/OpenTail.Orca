@@ -1,13 +1,13 @@
 # Modules as bricks
 
-A module is one NuGet package that adds a capability to the Host: GitHub issues, files, an imported API. You add it by **referencing
+A module is one NuGet package that adds a capability to Orca: GitHub issues, files, an imported API. You add it by **referencing
 the package and naming it in `modules.json`**. Nothing else changes, and adding a module never widens access on its own: the policy
 still decides, and a tool with no policy entry is not offered to the model.
 
 ## Enabling a module
 
 1. Reference the package in the deployment project (`dotnet add package OpenTail.Modules.GitHubIssues`). That is the trust decision:
-   only code the deployment was built with can be enabled. The Host never loads DLLs from a folder.
+   only code the deployment was built with can be enabled. Orca never loads DLLs from a folder.
 2. Describe the instance in `modules.json`:
 
    ```json
@@ -63,7 +63,7 @@ referenced but not listed is reported and stays off.
 * `Host` binds an HTTP credential to one host pattern, which must be one of the module's `Network.Hosts`. Requests to any other host
   never carry it, and a redirect that leaves the host drops it.
 * The module never learns where a secret came from. Every mapped secret is redacted by exact value from errors, the audit trail and
-  anything that flows back to the model: from startup (when the Host checks the sources exist), and again each time one is read.
+  anything that flows back to the model: from startup (when Orca checks the sources exist), and again each time one is read.
 * `--explain`, `--list-modules`, `--adopt-policy` and `--test-policy` build modules **without** reading credentials. Starting the server
   checks that every mapped variable and file exists and refuses to start otherwise.
 
@@ -97,7 +97,7 @@ Check expected decisions in CI with a test file:
 
 ## Removing a module
 
-Set `"Enabled": false` first. The Host then tolerates the module's policy entries (with a warning) instead of refusing to start, expires
+Set `"Enabled": false` first. Orca then tolerates the module's policy entries (with a warning) instead of refusing to start, expires
 its pending actions (`module_removed`), and clears any trust promotions of its tools, so reinstalling starts again from the policy file.
 Approved actions that had not started fail as `unknown_tool`. Then remove the package, and later the entry and the fragment.
 
@@ -117,7 +117,7 @@ Approved actions that had not started fail as `unknown_tool`. Then remove the pa
 | `openapi` | `OpenTail.Modules.OpenApi` | one per named operation, or the tools of a profile | `Config.Operations` is required: nothing is exposed unless named. Token as credential `api`. Hosts are whatever you list. Or `Config.Profile`: an integration profile (spec plus JSON) that names the tools, their risk and previews, and limits each argument; its hosts and credential become the manifest. See [PROFILES.md](PROFILES.md). |
 | `csv` | `OpenTail.Modules.Csv` | `describe`, `read_rows` (Read) | One `Root`; `Delimiter`. Read only. |
 | `skills` | `OpenTail.Modules.Skills` | `find`, `get` (Read, the business's own content); `publish` (ExternalEffect) | Serves published skill versions from `Store` (one folder per version, `labels.json`), at `Label` (default `production`). `publish` adds a version and moves a label, which is also how a rollback is done; its preview is the change request (diff, reason, scenario report). Suggested policy: publish queued, `Reviewer: Human`, `SelfApproval: Forbid`. Optional `PolicyFolder`: `get` warns when a policy changed since the skill was tested. Every `get` is audited as `skill_served`. Adds a line to the server instructions. Use the id `skills`. Skills are tested in the skills workbench, a separate repository. Reference: [OpenTail.Modules.Skills/README.md](../OpenTail.Modules.Skills/README.md); setup and publishing: [guides/skills.md](../docs/guides/skills.md). |
-| `web` | `OpenTail.Modules.Web` | `fetch` (Read, outside content) | Reaches only the entry's `Network.Hosts` (the Host's guarded client enforces them). |
+| `web` | `OpenTail.Modules.Web` | `fetch` (Read, outside content) | Reaches only the entry's `Network.Hosts` (Orca's guarded client enforces them). |
 | `sql` | `OpenTail.Modules.Sql` | `schema`, `query` (Read); `write` (Write) and `delete` (Destructive) with `AllowWrites` | `Provider`: `sqlite` built in; `sqlserver` (also Fabric and Synapse, [guide](../docs/guides/fabric-synapse.md)), `postgres`, `redshift` ([guide](../docs/guides/redshift.md)), `mysql` and `mariadb` (both through `MySqlConnector`), `snowflake` when the deployment also references `Microsoft.Data.SqlClient`, `Npgsql`, `MySqlConnector` or `Snowflake.Data`; `oracle` when it references `OpenTail.Modules.Sql.Oracle` ([guide](../docs/guides/oracle.md)); `databricks` when it references `OpenTail.Modules.Sql.Databricks` (the SQL Statement Execution API over the guarded HTTP client, so list the workspace in `Network.Hosts`; [guide](../docs/guides/databricks.md)); or `ProviderFactory`. No password in `ConnectionString`: map the `password` (or `connection`) credential. `schema` and `query` always use a read-only connection (SQLite: `Mode=ReadOnly`; Postgres and MySQL: also inside `START TRANSACTION READ ONLY`, `ReadOnlyQueryTransaction` to change). With `AllowWrites` on a server database, `write` and `delete` need a second login: `WriteConnectionString` with the `write-password` credential, or the `write-connection` credential (`SharedLoginForWrites: true` opts out, unsafe). The guard refuses quoting it cannot model for the provider's dialect: Postgres `$` and `E'...'`, backslashes in literals (Postgres, MySQL), MySQL `#`, `/*!` and `--` without a space, nested comments, Snowflake `//`, `$` and `;` inside `[ ]`, Oracle `q'...'` and `DBMS_`/`UTL_` packages, Databricks `r'...'`, `${...}`, `http_request` and `read_files`. Snowflake is read-only (no `AllowWrites`), signs in with the `private-key` credential (key pair), binds `@name` by position, adds `LIMIT MaxRows + 1` to a query without one and tags each query `opentail:<action id>` ([Snowflake guide](../docs/guides/snowflake.md)). `schema` returns `table_schema, table_name, column_name, data_type` (Postgres without its system schemas, MySQL for the connected database only), takes an optional `table`, stops at `MaxSchemaRows` (2000), and `Schemas` limits what it reports. Previews on MySQL are not trial-run while the database has tables that ignore rollback (not InnoDB). See [SQL databases](#sql-databases). SQL Server, Postgres, MySQL 8.4, MariaDB 11.4 and Oracle Database Free are tested against real servers in the `sql-servers` workflow; Snowflake is **not yet tested against a real account**. |
 | `email-imap` | `OpenTail.Modules.Email.Imap` | `list_recent`, `read` (Read, outside content); `send` (ExternalEffect) unless `AllowSend: false` | `UserName`, `Imap.Host`, `Smtp.Host`; credential `password` (an app password), optional `smtp-password`; `AllowedRecipientDomains`. `LookbackDays` (default 365): how far back `list_recent` and `read` search; the IMAP adapter's own default is 30 days. |
 | `email-graph` | `OpenTail.Modules.Microsoft365` | as `email-imap` | `TenantId`, `ClientId`, `Mailbox`; credential `client-secret`. Application permissions Mail.Read (+ Mail.Send). |
@@ -131,7 +131,7 @@ Approved actions that had not started fail as `unknown_tool`. Then remove the pa
 
 `Email` and `Calendar` hold the tools and know no mail or calendar service; a provider package (`Email.Imap`, `Microsoft365`, `Google`,
 `Calendar.Ics`) completes them, so a deployment downloads only the client library it uses. IMAP, SMTP, the Graph and Google SDKs and database drivers
-open their own connections: they do not go through the Host's HTTP guard (each manifest says so). All of these modules can still be added
+open their own connections: they do not go through Orca's HTTP guard (each manifest says so). All of these modules can still be added
 in code with `builder.AddModule(...)`, as before.
 
 ### SQL databases
@@ -203,7 +203,7 @@ public sealed class TicketsModule(string id, HttpClient http, ModuleManifest man
 }
 ```
 
-Rules a brick must follow (the Host enforces the first five):
+Rules a brick must follow (Orca enforces the first five):
 
 * Name every tool `<id>.<name>` and register it under the module's own id.
 * Declare the assembly's contract version.
@@ -220,8 +220,8 @@ Rules a brick must follow (the Host enforces the first five):
   `"Labels"` in modules.json when it depends on the instance (a database, a folder).
 * Say where your results count things: `Counts = new ResultCounts { Records = "/rows" }` on a tool that returns rows, messages or
   files; `EntityKeys = "/rows/*/customer_id"` when the result names stable business ids; `RecipientArgs = ["/to", "/cc"]` on an
-  outbound tool. The Host measures from these paths (no code runs in the module) for its usage rollups; it stores entity ids only as
-  salted hashes. Without `Counts` the Host still counts calls and result bytes.
+  outbound tool. Orca measures from these paths (no code runs in the module) for its usage rollups; it stores entity ids only as
+  salted hashes. Without `Counts` Orca still counts calls and result bytes.
 * Keep secrets and argument values out of exception messages.
 
 ## Running a module in its own process
@@ -236,7 +236,7 @@ Rules a brick must follow (the Host enforces the first five):
 * The worker is the deployment's own program started with `--module-worker` (both runners handle the flag), so it runs exactly the
   packages the deployment references. `WorkerCommand` names another program when needed; `Command` is a prefix the worker runs under
   (another account, no network, a container that has the program).
-* **HTTP goes through the Host.** The module's HTTP clients send each request over the pipe; the Host applies the entry's `Network` rules,
+* **HTTP goes through Orca.** The module's HTTP clients send each request over the pipe; Orca applies the entry's `Network` rules,
   attaches the credential for the bound host and returns the answer. The worker never holds an HTTP token and needs no network of its own,
   so it can run with networking off. Only `Kind: Secret` credentials are handed to the worker, by name, when a tool asks.
 * **Environment:** the worker gets only what a runtime needs (PATH, TEMP, HOME, DOTNET_ROOT, ...) plus `Isolation.Environment`, which may
@@ -247,10 +247,10 @@ Rules a brick must follow (the Host enforces the first five):
 * Tools, risks, previews, taint, errors and policy behave exactly as in process. `--list-modules` says "runs in its own process";
   describing (`--list-modules`, `--explain`, `--adopt-policy`) builds the module in process, since that reads no credential and calls nothing.
 * **What it does not do on its own:** on Windows there is no built-in account or network sandbox; a module that opens its own sockets
-  (IMAP, SQL, the Graph SDK) needs network in the worker. Without `Command`, the worker has the Host's OS identity and file access.
+  (IMAP, SQL, the Graph SDK) needs network in the worker. Without `Command`, the worker has Orca's OS identity and file access.
 
 ## What a module can still do
 
-A module in the Host process runs with the Host's OS identity. The rules above are guard rails against mistakes and injected input,
+A module in Orca process runs with Orca's OS identity. The rules above are guard rails against mistakes and injected input,
 not containment: its own code can open sockets, read files and ignore its manifest. Install in process only modules you or someone you
 trust built; run others in their own process under a separate account without network (above).

@@ -1,4 +1,4 @@
-# Guide: querying Amazon Redshift from the Host
+# Guide: querying Amazon Redshift from Orca
 
 Redshift is a Sql module provider, `"Provider": "redshift"`, through the Postgres driver (Npgsql) in its Redshift compatibility
 mode.
@@ -12,7 +12,7 @@ Items marked *to verify* need one.
 
 - `Server Compatibility Mode=Redshift` in the connection string, unless the operator set the mode.
 - `SET query_group TO 'opentail:<action id>'` before the query, so `STL_QUERY.label` and `SYS_QUERY_HISTORY` tie each query to
-  a Host action (*to verify*: the column that shows it in Serverless).
+  Orca action (*to verify*: the column that shows it in Serverless).
 - `START TRANSACTION READ ONLY` around the query, rolled back afterwards (*to verify* that Redshift accepts it; if not, set
   `"ReadOnlyQueryTransaction": false` and rely on the user's grants).
 - `LIMIT MaxRows + 1` when the query has no limit of its own.
@@ -31,7 +31,7 @@ ALTER USER ot_agent SET statement_timeout TO 60000;  -- milliseconds
 
 On Serverless, set a usage limit on the workgroup (RPU-hours per day, week or month) so a busy agent cannot spend past it.
 
-## 2. In the Host deployment
+## 2. In Orca deployment
 
 Reference `Npgsql`, then:
 

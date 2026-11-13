@@ -3,7 +3,7 @@
 An integration profile turns an OpenAPI document into a safe, curated module **without writing code**: you write one JSON file that says
 which operations become tools, what they are called, how risky they are, what the model may send to each, and what a reviewer reads
 before approving. The `openapi` module does the rest. A profile can be written by anyone who knows the API; it never runs code inside the
-Host, and it can never widen access: the operator's hosts, the policy, taint and review still decide.
+Orca, and it can never widen access: the operator's hosts, the policy, taint and review still decide.
 
 This page describes what is implemented today (v4 P1 to P4b). Planned additions are listed at the end and marked as such.
 
@@ -29,7 +29,7 @@ This page describes what is implemented today (v4 P1 to P4b). Planned additions 
 
 ## Licence
 
-Profiles in `opentail/profiles`, like the Host and its modules, are licensed under PolyForm Strict 1.0.0 (`opentail/LICENSE-HOST.md`):
+Profiles in `opentail/profiles`, like Orca and its modules, are licensed under PolyForm Strict 1.0.0 (`opentail/LICENSE-HOST.md`):
 noncommercial use only; commercial use needs a commercial licence. A profile you write yourself is yours to license as you like.
 
 ## Why profiles
@@ -222,12 +222,12 @@ This example is the one the tests use (`OpenTail.Orca.Tests/OpenApiProfileTests.
 ## How a call flows
 
 1. The model sees only the profile's tools, with schemas narrowed by the rules (hidden parameters removed, limits and allowed values added).
-2. A call arrives. The Host's policy decides `Execute`, `Queue` or `Deny`, and taint can turn `Execute` into `Queue` for high-impact tools.
+2. A call arrives. Orca's policy decides `Execute`, `Queue` or `Deny`, and taint can turn `Execute` into `Queue` for high-impact tools.
 3. For tools that are not Read, the **preview** runs first: the rules are applied (refuse what may not be set, check every value, add
    defaults and fixed values) and the preview sentence is rendered. A value that breaks a rule is **refused at once** (`Denied`,
    `invalid_arguments`), before anyone is asked to review.
 4. When the call runs (immediately, or after approval), the same rules are applied again, the request is built against the fixed server
-   (arguments can never change scheme, host or base path), and sent through the Host's guarded client, which attaches the credential only
+   (arguments can never change scheme, host or base path), and sent through Orca's guarded client, which attaches the credential only
    for its bound host.
 5. The answer comes back marked as outside content (unless the profile says otherwise). If the tool has a `Response` rule, only the
    fields it names reach the model, text is cut and authors are pseudonyms. Errors use the profile's wording.
@@ -266,7 +266,7 @@ Unknown keys are refused, everywhere in the file: a typo is an error, not someth
 | `Body` | no | Rules per top-level property of the JSON body; `"*"` as above. |
 | `Preview` | for every tool that is not `Read` | The sentence a reviewer reads. See [previews](#reference-previews). |
 | `Response` | no | What of the answer reaches the model. See [responses](#reference-responses). Without it, the answer as the API sends it. |
-| `Query` | no | Typed filters the Host turns into one filter expression (JQL, OData, SOQL, Zendesk, Freshdesk). `Read` tools only. See [queries](#reference-queries). |
+| `Query` | no | Typed filters Orca turns into one filter expression (JQL, OData, SOQL, Zendesk, Freshdesk). `Read` tools only. See [queries](#reference-queries). |
 
 ## Reference: argument rules
 
@@ -357,7 +357,7 @@ the call **fails**; the raw answer is never passed on instead.
 ## Reference: queries
 
 Some APIs take one filter expression: Jira's JQL, OData's `$filter`, Salesforce's SOQL, Zendesk and Freshdesk search. **The model
-never writes the expression.** The profile declares typed filters; the model sets their values; the Host writes the expression,
+never writes the expression.** The profile declares typed filters; the model sets their values; Orca writes the expression,
 quoting and escaping every value for the language, and refuses a value it cannot quote safely. The parameter that carries the
 expression is hidden from the model, and sending it is refused.
 
@@ -374,7 +374,7 @@ expression is hidden from the model, and sending it is refused.
                "text":          { "Type": "text" } } } }
 ```
 
-With `{"project":"OPS","status":"In Progress","labels":["vpn"],"text":"printer jam"}` the Host sends
+With `{"project":"OPS","status":"In Progress","labels":["vpn"],"text":"printer jam"}` Orca sends
 `jql=(issuetype != Epic) AND project = "OPS" AND status = "In Progress" AND labels in ("vpn") AND text ~ "printer jam" ORDER BY updated DESC`.
 
 | Key | Meaning |
@@ -417,7 +417,7 @@ have not been run against the live APIs yet.
 * A status in `Retryable` (default `429, 500, 502, 503, 504`) fails the call as **retryable**, with "try again after N s" when the API
   sends `Retry-After`.
 * `Messages` gives the text for a status. Without one: "`<DisplayName>` answered HTTP `<code>`."
-* Every failure has a **kind**, which the Host's retry and inspection rules act on, and a code `http_<status>`. By default 401, 403
+* Every failure has a **kind**, which Orca's retry and inspection rules act on, and a code `http_<status>`. By default 401, 403
   and 407 are `Auth`, 408, 429, 502, 503 and 504 (and anything in `Retryable`) `Transient`, 507 `Environment`, other 4xx `Contract`
   and other 5xx `Bug`. `Kinds` overrides it per status, for an API that uses a status its own way:
   `"Kinds": { "404": "Auth" }` for an API that answers 404 for something the caller may not see (GitHub does, for private
@@ -445,7 +445,7 @@ have not been run against the live APIs yet.
 
 ## What is checked when a profile loads
 
-The Host refuses to start, naming the problem, when:
+Orca refuses to start, naming the problem, when:
 
 * the file is not valid JSON or has an unknown key;
 * `Profile`, `Name`, `Spec`, `Hosts` or `Tools` is missing, or `Profile` is not `1`;
@@ -489,7 +489,7 @@ instead of being sent again.
 
 ## Checking a profile (conformance)
 
-Every profile can be checked without a Host, an account or the network:
+Every profile can be checked without Orca, an account or the network:
 
 ```csharp
 var report = OpenTail.Modules.OpenApi.ProfileConformance.Check("profiles/crm/crm.json");   // or "package:Contoso.Profiles.Crm/crm"
@@ -497,7 +497,7 @@ Assert.Empty(report.Findings);                                                  
 foreach (var t in report.Tools) Console.WriteLine($"{t.Name} {t.Risk} untrusted={t.ReadsUntrusted} preview={t.Preview}");
 ```
 
-`Check` loads the profile and its spec exactly as the Host does, so every [load-time error](#what-is-checked-when-a-profile-loads)
+`Check` loads the profile and its spec exactly as Orca does, so every [load-time error](#what-is-checked-when-a-profile-loads)
 throws with its reason. It returns each tool as the model would see it (name, risk, description with `[METHOD path]`, the narrowed JSON
 schema) and the **findings**: what the profile probably should not leave open.
 
@@ -513,7 +513,7 @@ schema) and the **findings**: what the profile probably should not leave open.
 | `tool 'x': the Response rule has no Fields` | The same, per item. |
 | `tool 'x' is marked as not returning outside content` | Only true when nobody outside the deployment can write what it returns. |
 
-The same findings appear as warnings when the Host loads the profile: at startup, in `--list-modules` and in `--lint`
+The same findings appear as warnings when Orca loads the profile: at startup, in `--list-modules` and in `--lint`
 (`warning`-free output means the profile has none). Put `ProfileConformance.Check` with `Assert.Empty(report.Findings)` in your own tests
 or CI; OpenTail's tests do this for every shipped profile, in both file and package form.
 

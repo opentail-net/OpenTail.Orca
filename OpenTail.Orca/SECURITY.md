@@ -1,6 +1,6 @@
-# Security model of the OpenTail Host
+# Security model of the OpenTail Orca
 
-The Host puts a human (or a smarter AI) between a language model and the things it could do. This page says what that protects against,
+Orca puts a human (or a smarter AI) between a language model and the things it could do. This page says what that protects against,
 how, and, just as important, what it does **not** protect against. If you are deciding whether to deploy it, read the last section first.
 
 ## What we assume
@@ -9,7 +9,7 @@ how, and, just as important, what it does **not** protect against. If you are de
   file, an API response, a database row). So can its choice of tool and its arguments.
 * **Operators** (who write the policy file, run the process and hold the secrets) are trusted. **Reviewers** are trusted to read what they
   approve.
-* The machine the Host runs on, and the OS account it runs as, are trusted. The Host is *guarded execution*, not a sandbox.
+* The machine Orca runs on, and the OS account it runs as, are trusted. Orca is *guarded execution*, not a sandbox.
 
 ## Controls, by what they stop
 
@@ -25,13 +25,13 @@ how, and, just as important, what it does **not** protect against. If you are de
 | One user reads or acts on another's actions | Every caller-facing read and write is scoped to the caller; someone else's id answers like a missing one. Sessions are owner-bound. Idempotency keys are per requester | queue, built-in tools |
 | An approval is applied twice, or two approvers race | Every transition is a compare-and-set in a `BEGIN IMMEDIATE` transaction; the "n-th approval" decision is made inside it; the pending cap and budgets are counted in the insert transaction | SQLite store |
 | A crash re-runs a side effect | Approved-but-unstarted actions run once; an interrupted action is retried automatically only if its tool is idempotent by key; otherwise it waits for a reviewer | executor |
-| DNS rebinding, CSRF, cross-origin calls | Host and Origin allow-lists; bearer tokens (no cookies); CSP with a nonce on the approval page; no framing | HTTP layer |
+| DNS rebinding, CSRF, cross-origin calls | Orca and Origin allow-lists; bearer tokens (no cookies); CSP with a nonce on the approval page; no framing | HTTP layer |
 | Stolen or guessed credentials | API keys: 32 random bytes, stored only as SHA-256, constant-time comparison. JWT: audience, issuer, expiry, signature checked; the audience must be this resource and tokens are never forwarded | HTTP layer |
 | Someone with database access edits the audit trail | Each audit entry stores the previous entry's hash and its own (schema 5); `--verify-audit` names the first entry changed, removed or reordered, and checkpoints from `--audit-checkpoint` kept elsewhere catch entries removed from the end. Entries from before schema 5 are reported as unverifiable | SQLite store, CLI |
 | Open by mistake | The server refuses to start beyond loopback without sign-in, in plain http beyond loopback without `TrustProxy`, or when built without HTTP sign-in | startup checks |
 | Flooding | Body size limit, per-subject rate limit, per-requester pending cap, bounded long polls | HTTP layer, queue |
 | Leaks through notifications | Messages carry facts (tool, risk, requester, status, a link), never argument values or results; an opt-in preview is escaped and capped; review links need sign-in; webhooks are signed; no redirects, https only | notifications |
-| Leaks through logs and audit | The audit trail never holds argument values; error text is scrubbed of secrets, and every secret the Host handed to a module is removed by exact value; configuration holds environment-variable *names*, not secrets; finished actions can be deleted after `RetentionDays` | audit, redaction |
+| Leaks through logs and audit | The audit trail never holds argument values; error text is scrubbed of secrets, and every secret Orca handed to a module is removed by exact value; configuration holds environment-variable *names*, not secrets; finished actions can be deleted after `RetentionDays` | audit, redaction |
 | A module is enabled that nobody checked | Only packages the deployment references can be enabled; nothing is loaded from a folder. A configured module's Read tools are denied until named in the policy; its tools must carry its own prefix; a module built for another contract is refused | module loader |
 | A module's suggested policy widens access | Adoption accepts only `Tools` entries for that module's own registered tools, refuses global keys and other modules' tools, refuses `Execute` on anything but Read without `--allow-execute`, and writes a separate fragment that may only hold that module's tools | policy adoption |
 | A module or an injected URL reaches somewhere else, or a token goes to the wrong host | Module HTTP clients reach only the operator's `Network.Hosts` (which can narrow the manifest, never widen it), https unless an origin is listed, public addresses unless allowed, redirects re-checked; a credential is attached only for its bound host and dropped on a redirect away from it; each module sees only credentials mapped to it | guarded HTTP, credentials |
@@ -41,16 +41,16 @@ how, and, just as important, what it does **not** protect against. If you are de
 
 Be honest with yourself about these before relying on it.
 
-1. **Reviewers are the real control.** A reviewer who approves without reading defeats everything above. The Host shows the real
+1. **Reviewers are the real control.** A reviewer who approves without reading defeats everything above. Orca shows the real
    arguments, a preview of the effect and whether the session was tainted, and rules and budgets reduce how many decisions people must
    make, but nothing can make people careful.
-2. **It is not a sandbox.** Tools run with the Host process's OS identity. A tool that can read your whole disk can. Use a dedicated
+2. **It is not a sandbox.** Tools run with Orca process's OS identity. A tool that can read your whole disk can. Use a dedicated
    account, least-privilege credentials (a read-only database login for the SQL module), and the modules' own roots and allow-lists.
 3. **Best-effort guards are best-effort.** The SQL statement guard, error redaction, and regex-based rules reduce risk; the database
    login, the allow-lists and the review step are the controls.
-4. **Taint is conservative, not omniscient.** It knows a caller read content through a Host tool. It cannot know what a user pasted into
+4. **Taint is conservative, not omniscient.** It knows a caller read content through Orca tool. It cannot know what a user pasted into
    the chat, or what the model remembers from another system.
-5. **An auto-execute rule is a promise you make.** The Host will run anything that matches it without a person. Review rules with
+5. **An auto-execute rule is a promise you make.** Orca will run anything that matches it without a person. Review rules with
    `--explain` and `--replay-policy`, prefer anchored regexes for paths, and keep budgets small.
 6. **One node.** State is a SQLite file. There is no clustering or failover, and no multi-tenant isolation: one deployment is one
    tenant.
@@ -58,10 +58,10 @@ Be honest with yourself about these before relying on it.
    messages (they cannot approve anything: links need sign-in); a compromised identity provider can mint tokens.
 8. **Not independently audited.** The design was reviewed by a second model and tested adversarially by the authors; it has not had a
    third-party security review, penetration test, or a long soak under load.
-9. **A module is code you run.** By default a module runs inside the Host process with its OS identity: the host allow-list, the scoped
+9. **A module is code you run.** By default a module runs inside Orca process with its OS identity: the host allow-list, the scoped
    credentials and the prefix rules are then guard rails against mistakes and injected input, and the module's own code can open sockets,
-   read files and ignore its manifest. `"Isolation": { "Mode": "Process" }` runs it in a worker process that inherits none of the Host's
-   environment, never receives an HTTP credential (the Host carries out its HTTP) and is stopped when it hangs or misbehaves. That becomes
+   read files and ignore its manifest. `"Isolation": { "Mode": "Process" }` runs it in a worker process that inherits none of Orca's
+   environment, never receives an HTTP credential (Orca carries out its HTTP) and is stopped when it hangs or misbehaves. That becomes
    containment only when the operator also runs the worker under a separate account and without network (`Isolation.Command`); see
    [MODULES.md](MODULES.md#running-a-module-in-its-own-process). Modules that open their own connections (IMAP, SQL, the Graph SDK) need
    network in the worker. Install modules from people you do not know only isolated that way.

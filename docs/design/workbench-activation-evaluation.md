@@ -1,7 +1,7 @@
 # Design: activation evaluation in the Workbench
 
 **Status:** designed 2026-11-10. No code yet. Decisions marked **O-** are for the owner; the rest are the proposed defaults.
-**System:** the Workbench (`opentail-workbench`): how a skill load is recognised, and how activation expectations are scored and compared. It is a separate system from the Host's skills module.
+**System:** the Workbench (`opentail-workbench`): how a skill load is recognised, and how activation expectations are scored and compared. It is a separate system from Orca's skills module.
 **Summary:** [skills-plan.md](skills-plan.md), step 2a. This document is the detail.
 **Code basis:** `opentail-workbench` branch `progressive-disclosure`, commit `b762d50`. Clean.
 

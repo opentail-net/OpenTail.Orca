@@ -49,7 +49,7 @@ Admin surface, `OpenTail.Orca.Admin/`:
 - Environment: the `AppPasswordEnv` variable; a webhook URL through `UrlEnv` (NotificationConfig.cs:73).
 - `notifications.json`: a `teams-bot` channel with `Target` (NotificationConfig.cs:64-68); a `teams` channel with `Url` or `UrlEnv` (:73, :87-88); routes with `On` and `To` (:153-170).
 - Policy `People`, entries `teams:<object id>` (PolicyConfig.cs:150; ReviewAuthority.cs:24).
-- Not read by the Host: the parameters of `scripts/make-teams-app.ps1`.
+- Not read by Orca: the parameters of `scripts/make-teams-app.ps1`.
 
 ## 6. Unfinished or inconsistent
 
@@ -57,7 +57,7 @@ Admin surface, `OpenTail.Orca.Admin/`:
 2. TEAMS-SETUP.md:92-93 routes `queued`, `reminder`, `decided`. `decided` means rejected, changes_requested, succeeded, failed, expired (NotificationConfig.cs:219; Notifier.cs:193). `approved` and `cancelled` never reach the bot, so a stop on the page does not refresh the card.
 3. `TeamsBot.cs:21` (`Decided`) includes approved and cancelled; `NotificationConfig.cs:219` (`IsDecided`) does not. `denied` is in neither (NotificationConfig.cs:189).
 4. People are matched case-sensitively (PolicyConfig.cs:150; ReviewAuthority.cs:24). Chats are stored under the lowercased id (TeamsBot.cs:78; TeamsBotOptions.cs:47), but the lookup uses the id as written (TeamsBot.cs:180). TEAMS-SETUP.md:86 does not mention case. The result is "No Teams conversation" (TeamsBot.cs:193), then `notification_dead` (Notifier.cs:227-236).
-5. TEAMS-SETUP.md:99 says the Host lists the Teams configuration at start. No Teams output is printed; startup prints module lines and warnings only (HttpDeploymentRunner.cs).
+5. TEAMS-SETUP.md:99 says Orca lists the Teams configuration at start. No Teams output is printed; startup prints module lines and warnings only (HttpDeploymentRunner.cs).
 6. TEAMS-SETUP.md:113 says Open still works after rotation. Only the OpenUrl link does (TeamsBot.cs:317; needs `PublicBaseUrl`). The signed in-chat `open` (:104-106, :109) and the digest's review buttons (:344) fail.
 7. `back` is answered before the signature check (TeamsBot.cs:101, before :104). It lists only cards already in that chat (:325-329). Not documented.
 8. `RefreshAsync` swallows all but three exception types (TeamsBot.cs:225) and is started unawaited (:119, :166).

@@ -1,6 +1,6 @@
-# Reviewer gate: the plan for AI reviewers on the Host
+# Reviewer gate: the plan for AI reviewers on Orca
 
-Status: **the one plan for the Host's reviewer gate.** It merges the earlier gate proposal (2026-11-13) with `docs/MCP-HOST-V6-PLAN.md`, which is now a pointer to this file. It has been revised against an external review of the merged draft (section 13). Phase R1 of V6 is done; everything else is proposed and nothing else is built (section 8). Owner decisions are in section 9, and three of them block implementation (section 0). Line numbers are from reads on 2026-11-13. Section numbers are kept, because other documents cite them.
+Status: **the one plan for Orca's reviewer gate.** It merges the earlier gate proposal (2026-11-13) with `docs/MCP-HOST-V6-PLAN.md`, which is now a pointer to this file. It has been revised against an external review of the merged draft (section 13). Phase R1 of V6 is done; everything else is proposed and nothing else is built (section 8). Owner decisions are in section 9, and three of them block implementation (section 0). Line numbers are from reads on 2026-11-13. Section numbers are kept, because other documents cite them.
 
 ## 0. The three questions that must be settled first
 
@@ -27,7 +27,7 @@ The external review asked three questions, and implementation should not start u
 
 **The one tension to settle.** V6 puts measurement before authority: shadow mode, then sampling, then demotion. The owner's stated view is "AI saves time" and "I am not training AI". Decision D-9 settles this.
 
-**Scope.** The Host's reviewer gate. The Teams bot's own behaviour, the pair of sessions and the A2A kit are out of scope, except where they touch the gate.
+**Scope.** Orca's reviewer gate. The Teams bot's own behaviour, the pair of sessions and the A2A kit are out of scope, except where they touch the gate.
 
 ## 2. Contracts this must satisfy
 
@@ -51,7 +51,7 @@ The external review asked three questions, and implementation should not start u
 | 16 | Teams chat decisions | `OpenTail.Orca.Http/Teams/TeamsBot.cs:223, 366-374` | A chat decision is allowed up to `ChatMaxRisk` (default ExternalEffect). Its subject is `teams:<id>`, a human. | The human path; must stay |
 | 17 | One queue for every channel | `OpenTail.Orca/Mcp/QueuedToolFunction.cs`; `OpenTail.Orca.A2A/A2ARequestHandler.cs`, `A2ASubmitModule.cs`, `A2AWork.cs` | MCP and A2A calls both reach the queue. | Channel parity (5.1) |
 | 18 | `ActionExecutor.ClaimAndRunAsync` and `RecheckRefusal` | `OpenTail.Orca/Runtime/ActionExecutor.cs:394` and `:400-443` | Every run, delayed or approved, goes through `ClaimAndRunAsync`, which calls `RecheckRefusal` (the only call site, 400). The recheck compares the policy hash and the binding digest. Whether it also checks suspension is **not verified**. | Delayed runs, approved runs |
-| 19 | **Planned:** `ModelReviewer : IReviewer` over `Microsoft.Extensions.AI`'s `IChatClient` | V6 R2; not built | An in-process reviewer. The Host depends only on the abstractions (V6 section 4, R2). | Route A (5.2) |
+| 19 | **Planned:** `ModelReviewer : IReviewer` over `Microsoft.Extensions.AI`'s `IChatClient` | V6 R2; not built | An in-process reviewer. Orca depends only on the abstractions (V6 section 4, R2). | Route A (5.2) |
 | 20 | **Planned:** `AiReviewer` section in `http.json` | V6 R2; not built | Provider, endpoint, model, the name of the environment variable holding the key, poll interval and timeout. The key never appears in the file. | Deployment |
 | 21 | **Planned:** AI reviewer assignment, `AiMayRefuse`, `AiRefusalBudget`, `ApproveDelay`, scheduled outcome | this plan, 5.2 to 5.6; not built | See those sections. Names are proposals. | Route B and the verdicts |
 
@@ -129,7 +129,7 @@ Each was verified in the code cited, except where marked.
 
 **F7. The A2A submit pin is not in code.** The design says `a2a.submit` is `Reviewer: Human` (`docs/design/a2a.md:62`). `A2AFrontDoor.cs` checks only the reply (70-79). The submit gets only a warning for Execute (133-134). Fix in P0, with a regression test (5.5).
 
-**F8. The AI budget is not atomic.** `AiHistoryAsync` counts approvals before the decision is written. V6 R1 records the same fact and accepts one runner per Host as the supported shape. Nothing enforces that shape. Multiple Host processes would race on the same budget. 5.8, D-11.
+**F8. The AI budget is not atomic.** `AiHistoryAsync` counts approvals before the decision is written. V6 R1 records the same fact and accepts one runner per Orca as the supported shape. Nothing enforces that shape. Multiple Orca processes would race on the same budget. 5.8, D-11.
 
 **F9. A missing policy snapshot falls back to defaults.** `AiReviewRules` treats a null policy as the defaults: ceiling Write, two refusals, no four eyes. `ReviewAuthority` guards on `policy is not null`. Whether a queued action can have a null `PolicySnapshot` is **not verified**. It matters at creation and also for an existing action an AI reviews. 5.9.
 
@@ -151,7 +151,7 @@ Each was verified in the code cited, except where marked.
 
 | # | Cheat | Defence | Status |
 |---|---|---|---|
-| 1 | Persuasion or injection: an email says "approved by finance" | The reviewer gets a packet the Host builds; content is fenced as data; reviewer-directed text is detected deterministically and escalates (5.12) | R2: not built |
+| 1 | Persuasion or injection: an email says "approved by finance" | The reviewer gets a packet Orca builds; content is fenced as data; reviewer-directed text is detected deterministically and escalates (5.12) | R2: not built |
 | 2 | Reviewer shopping: reject, reword, resubmit | After `AiMaxRejections` AI refusals along the chain, only a person decides (R1, done). The packet carries every attempt and reason (R2). Linking a fresh submission of the same intent is R2 | R1 done; R2 open |
 | 3 | Salami slicing: twenty small payments | `AiBudget` caps AI approvals by count (R1, done). By amount is open. The budget must be shared across processes (F8) | Partly done |
 | 4 | Side doors: the same effect through a tool with weaker policy | A tool with no policy entry is denied and not advertised. R5 tests it | Design holds; R5 open |
@@ -176,7 +176,7 @@ Every decision goes through `ActionQueue`. A channel adds no verdict rules of it
 ### 5.2 AI reviewers: identity, assignment and two hosts
 
 **One authority model, two hosts.** The external review asked whether the in-process reviewer and the externally authenticated reviewer are two integration models. This plan says they are one authority model with two places to run the reviewer logic:
-- **Route A, in-process (V6 R2): the default.** `ModelReviewer : IReviewer` runs inside the Host. The runner stamps the identity as `ai:<name>`. No HTTP credential exists, so F1 does not arise. The provider key is an environment variable named in `http.json`.
+- **Route A, in-process (V6 R2): the default.** `ModelReviewer : IReviewer` runs inside Orca. The runner stamps the identity as `ai:<name>`. No HTTP credential exists, so F1 does not arise. The provider key is an environment variable named in `http.json`.
 - **Route B, external session.** The same named AI reviewer, authenticated over HTTP with a dedicated `ai` credential. The reviewer logic may run in an external session. The authority is the same: the same assignment, the same limits, the same audit. Route B is not built. It needs F1 fixed.
 
 Two integration models that grant authority separately are not acceptable. There is one assignment table and one set of limits.
@@ -247,7 +247,7 @@ Timeout approval: an undo window that runs by itself is a timeout approval. ADR-
 
 ### 5.8 Shared AI budget (F8)
 
-A per-action transaction is not enough. The budget itself is shared across actions and across Host processes. It must be one counter updated with a conditional statement in the store: increment only if the count is below the limit, in one step. Two processes cannot both take the last approval. This is a shared-counter design, not a per-action transaction. D-11 chooses between it and a startup check that refuses more than one runner.
+A per-action transaction is not enough. The budget itself is shared across actions and across Orca processes. It must be one counter updated with a conditional statement in the store: increment only if the count is below the limit, in one step. Two processes cannot both take the last approval. This is a shared-counter design, not a per-action transaction. D-11 chooses between it and a startup check that refuses more than one runner.
 
 ### 5.9 Fail-closed checks before execution (F9, F11, F14)
 
@@ -267,7 +267,7 @@ Two defences from the toolkit's MCP security spec, for the MCP channel only:
 
 ### 5.12 The reviewer packet and its defences (V6 R2)
 
-The packet is built by the Host, never by the requester:
+The packet is built by Orca, never by the requester:
 - the tool's descriptor and risk;
 - the arguments, as fenced JSON data;
 - the preview of the effect;
@@ -403,7 +403,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-8 | A retry counts as an AI approval (F10) | **keep counting it**; count separately | **Keep** |
 | D-9 | Measurement before AI authority | (a) V6 as written: shadow (R3) then sampling (R4); **(b) decide directly for named low-risk tools, with sampling (R4) and demotion from day one**; (c) decide directly, no sampling | **(b).** The owner's view is against training-style shadowing. Without any measurement, a wrong AI approval has no measured basis. |
 | D-10 | How an AI reviewer runs (route) | **(a) in-process model reviewer (Route A) as the default**; (b) external session (Route B) | **(a)**, with Route B allowed only under the one authority model in 5.2 |
-| D-11 | AI budget atomicity (F8) | **(a) one shared conditional counter**; (b) one runner per Host, enforced at startup | **(a)** |
+| D-11 | AI budget atomicity (F8) | **(a) one shared conditional counter**; (b) one runner per Orca, enforced at startup | **(a)** |
 | D-12 | "Yes, with undo" on irreversible actions such as partner replies (a timeout approval, per ADR-0030) | reversible actions only; irreversible too, with the risk accepted in writing; hold for a person's confirmation | **Reversible only**, unless the owner accepts the risk in writing |
 | D-13 | First model provider (V6) | **OpenAI-compatible endpoint first, Anthropic next**; both | **OpenAI-compatible first** |
 | D-14 | Default AI ceiling (V6) | Read; **Write**; ExternalEffect | **Write**, with ExternalEffect per tool after evidence. The code default is Write. |
@@ -428,7 +428,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 - Whether the approval and the execution start share one transaction (5.8).
 - Whether an interrupted retry is reachable and harmful (F11), and whether the endpoint's retry (F14) can be reproduced. Both are read from code, and neither has been run.
 - How an external approver session would get an `ai` credential in practice: who issues it, and how it is rotated.
-- Whether `Microsoft.Extensions.AI` is referenced by the Host today. V6 says it depends only on the abstractions; not checked.
+- Whether `Microsoft.Extensions.AI` is referenced by Orca today. V6 says it depends only on the abstractions; not checked.
 
 ## 11. Implementation log and history
 

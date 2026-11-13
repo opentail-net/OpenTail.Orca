@@ -1,6 +1,6 @@
 # OpenTail.Modules.Skills
 
-The Host module that serves a business's **skills** to its agents. A skill's live version changes only through approval.
+Orca module that serves a business's **skills** to its agents. A skill's live version changes only through approval.
 
 A **skill** is a versioned procedure for one kind of situation, such as "an invoice arrived by email". It holds instructions for the agent, the situations it applies to, and the policies it reads. A skill guides the agent. It never changes what policy allows: a tool a skill names is still governed by its own policy entry.
 
@@ -28,13 +28,13 @@ Written from reading `opentail-orca` on 2026-11-10, after commit `1464f70`. Wher
 | `SkillText.cs` | Normalisation, hashes, the content hash, the report binding line, the line diff |
 | `Standard/StandardSkill.cs` | Reader, validator, description and formatter for the standard `SKILL.md` form |
 | `Standard/StandardPublish.cs` | What a publish's instructions become: plain text or standard frontmatter |
-| `HostContract.AssemblyInfo.cs` | Declares that the module is built against Host contract 1 |
+| `HostContract.AssemblyInfo.cs` | Declares that the module is built against Orca contract 1 |
 | `OpenTail.Modules.Skills.csproj` | The project. YamlDotNet is its only package, pinned at 17.1.0 in `Directory.Packages.props` (17.1.0 is the minimum the Connectivity packages need) |
 
 The module also relies on code outside this folder:
 - [`OpenTail.Orca/Runtime/SkillOutcomes.cs`](../OpenTail.Orca/Runtime/SkillOutcomes.cs) reads the `skill_served` audit and the decisions after it, for `--skill-outcomes`.
 - Contract members from [PACKAGING.md](../OpenTail.Orca/PACKAGING.md): `AuditResult`, `ServerInstructions`, `Administers`.
-- The fixed rules for administration tools, which `skills.publish` must meet or the Host refuses to start: [POLICY.md](../OpenTail.Orca/POLICY.md#administration-tools).
+- The fixed rules for administration tools, which `skills.publish` must meet or Orca refuses to start: [POLICY.md](../OpenTail.Orca/POLICY.md#administration-tools).
 
 ## Configuration
 
@@ -61,7 +61,7 @@ Use the id `skills`. The factory's notes say why: skill text and the server inst
 - `find` and `get`: `Execute`.
 - `publish`: `Queue`, `Reviewer: Human`, `ReviewerGroup: skill-approvers`, `SelfApproval: Forbid`, `AllowEdits: false`, `ExpireAfter: 7.00:00:00`. A rule requires **two** approvals unless the label is `staging`.
 
-If the policy for `skills.publish` is looser than this, the Host refuses to start and names what is missing. Test: `Publish_is_an_administration_tool_and_a_loose_policy_for_it_stops_startup`.
+If the policy for `skills.publish` is looser than this, Orca refuses to start and names what is missing. Test: `Publish_is_an_administration_tool_and_a_loose_policy_for_it_stops_startup`.
 
 ## The store
 
@@ -89,7 +89,7 @@ If the policy for `skills.publish` is looser than this, the Host refuses to star
 | Only an approved `skills.publish` writes here. The module never deletes a version. | The factory's notes; `SkillStore` has no delete method |
 | A publish holds the store's lock file (`.publish.lock`) from its `expectedFrom` check to its label write. A publish from another process while it is held is refused, and writes nothing. | `SkillStore.TakeStoreLock` |
 
-There is no cache. Each `find` or `get` reads `labels.json` and the files it needs. `skill.json` is kept as sent. The Host reads `id`, `version`, `summary`, `appliesTo`, `tools`, `policies` and `owner`, and it requires `"format": 1`: any other format, or none, is refused at publish and when read. Each of those fields must have the type the format gives it (text; a list of text for `appliesTo` and `tools`; a list of objects for `policies`). A value of another type is refused, not converted.
+There is no cache. Each `find` or `get` reads `labels.json` and the files it needs. `skill.json` is kept as sent. Orca reads `id`, `version`, `summary`, `appliesTo`, `tools`, `policies` and `owner`, and it requires `"format": 1`: any other format, or none, is refused at publish and when read. Each of those fields must have the type the format gives it (text; a list of text for `appliesTo` and `tools`; a list of objects for `policies`). A value of another type is refused, not converted.
 
 ## The tools
 
@@ -146,7 +146,7 @@ Approval follows the suggested policy: one approval for `staging`, and two diffe
 
 - **`SkillText.Hash`** returns `sha256:` and the 64 lower-case hex digits of the SHA-256 of the normalised text. Normalising means: Unicode NFC; line endings become `\n`; runs of spaces and tabs become one space; leading and trailing spaces on each line are removed; blank lines are collapsed. Cosmetic edits leave the hash alone, and a change of wording changes it. The workbench's policy hashes use the same function.
 - **`ContentHash`** of a version is the hash of its id, version, summary, `appliesTo`, `tools`, policy refs, owner and instructions, joined together. Editing any of those changes it. Changing a policy's recorded `hash` does not. Other `skill.json` fields, such as `format`, are not in it.
-- **The binding line** is `skill-report: <id>@<version> sha256:<hex>`. A report is **bound** when one of its first 40 lines names this skill, this version and this content hash. A binding for this skill with another version or hash refuses the publish. A report with no binding line is shown as **not bound** and is not refused. Bindings for other skills are ignored. The Host checks which content a report names, not the numbers in it.
+- **The binding line** is `skill-report: <id>@<version> sha256:<hex>`. A report is **bound** when one of its first 40 lines names this skill, this version and this content hash. A binding for this skill with another version or hash refuses the publish. A report with no binding line is shown as **not bound** and is not refused. Bindings for other skills are ignored. Orca checks which content a report names, not the numbers in it.
 - **Drift** is checked by `skills.get`, described above.
 
 ## The standard form
@@ -154,19 +154,19 @@ Approval follows the suggested policy: one approval for `staging`, and two diffe
 The `instructions` of a publish may begin with a frontmatter block: a `---` line, the fields, then a closing `---` line. When it does:
 
 - `name` must equal the skill id.
-- `description` must equal the text the Host derives from `summary` and `appliesTo`: `<summary>. Use when <entry>; or when <entry>.`, with trailing full stops dropped.
+- `description` must equal the text Orca derives from `summary` and `appliesTo`: `<summary>. Use when <entry>; or when <entry>.`, with trailing full stops dropped.
 - `metadata.version`, if given, must equal the version.
 - Unknown top-level keys are refused unless they are listed in `ignoreFrontmatterKeys`.
 - Only the body after the closing `---` is stored.
 
-Without frontmatter, the instructions are stored exactly as sent. The Host still checks that a standard form could be written from them: the description must be buildable and at most 1024 characters.
+Without frontmatter, the instructions are stored exactly as sent. Orca still checks that a standard form could be written from them: the description must be buildable and at most 1024 characters.
 
 Rollbacks are not re-checked. Every error code and warning is listed in the [authoring guide](../docs/guides/writing-skill-versions.md#refusal-and-warning-codes).
 
 ## Contracts other code relies on
 
-- **The module contract.** `IHostModule` (`Id`, `Manifest`, `Register`) and `IHostModuleFactory` (`Type` is `skills`, plus `Describe` and `CreateAsync`). The module is built against contract 1 (`HostContract.AssemblyInfo.cs`), so it loads with any Host that supports contract 1.
-- **The workbench compiles against this module.** It uses `SkillText` (`Hash`, `Normalise`, `ContentHash`, `BindingLine`, `Bindings`, `Diff`); `SkillStore` in its scenario runner; `SkillsModule` in its sandboxed Host, so scenarios run the real tools; the `Standard` namespace in its package writer (`NativePackage.cs`) and its catalog delivery (`AgentRunner.cs`, `StandardSkill.Describe`). A change to what `SkillText` computes changes every recorded hash and report binding, and breaks the workbench's checks. Treat those functions as frozen. A change to `StandardSkill.Describe` also changes the descriptions a catalog run's agent is shown.
+- **The module contract.** `IHostModule` (`Id`, `Manifest`, `Register`) and `IHostModuleFactory` (`Type` is `skills`, plus `Describe` and `CreateAsync`). The module is built against contract 1 (`HostContract.AssemblyInfo.cs`), so it loads with any Orca that supports contract 1.
+- **The workbench compiles against this module.** It uses `SkillText` (`Hash`, `Normalise`, `ContentHash`, `BindingLine`, `Bindings`, `Diff`); `SkillStore` in its scenario runner; `SkillsModule` in its sandboxed Orca, so scenarios run the real tools; the `Standard` namespace in its package writer (`NativePackage.cs`) and its catalog delivery (`AgentRunner.cs`, `StandardSkill.Describe`). A change to what `SkillText` computes changes every recorded hash and report binding, and breaks the workbench's checks. Treat those functions as frozen. A change to `StandardSkill.Describe` also changes the descriptions a catalog run's agent is shown.
 - **`skill_served`.** `SkillOutcomes` depends on the event name, the tool's `AuditResult`, and the `served` field. See `skills.get`.
 
 ## Invariants and their tests
@@ -184,9 +184,9 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 | A label moves only from the version that was reviewed | Preview and store | `Approving_an_old_proposal_after_the_label_moved_publishes_nothing`; `A_publish_without_expectedFrom_or_with_a_wrong_one_is_refused_at_once` |
 | A report describes the content proposed | `CheckReport` | `A_report_bound_to_other_content_is_refused_and_a_matching_one_is_marked_bound` |
 | A rollback is an ordinary publish | `Publish` | `Rolling_back_is_publishing_an_earlier_version_through_the_same_approval` |
-| Production needs two different approvers; a publish cannot be edited | Suggested policy; the Host's rules for administration tools | `The_suggested_policy_needs_two_approvals_for_production_and_one_for_staging`; `A_reviewer_cannot_edit_a_publish`; `Publish_is_an_administration_tool_and_a_loose_policy_for_it_stops_startup` |
+| Production needs two different approvers; a publish cannot be edited | Suggested policy; Orca's rules for administration tools | `The_suggested_policy_needs_two_approvals_for_production_and_one_for_staging`; `A_reviewer_cannot_edit_a_publish`; `Publish_is_an_administration_tool_and_a_loose_policy_for_it_stops_startup` |
 | The drift warning is shown | `skills.get` | `A_policy_changed_since_the_skill_was_tested_is_reported_when_the_skill_is_served` |
-| Server instructions mention skills only when the module is advertised | Factory and Host | `The_server_instructions_point_at_skills_only_when_the_module_is_advertised` |
+| Server instructions mention skills only when the module is advertised | Factory and Orca | `The_server_instructions_point_at_skills_only_when_the_module_is_advertised` |
 | The module loads from configuration with its suggested policy | Factory | `The_module_loads_from_configuration_with_its_suggested_policy` |
 | The standard form: name, description, version, unknown keys | `StandardPublish.Prepare` | `StandardPublishTests.cs` and `StandardSkillTests.cs` (about 45 cases with theories, per the design record) |
 
@@ -194,12 +194,12 @@ Rollbacks are not re-checked. Every error code and warning is listed in the [aut
 
 Found by reading the code while writing this. Fixed since: a metadata-only change is refused at request time, and `find` names a broken label (`1464f70`); the format is checked, and a publish is locked across processes (see the invariants). The rest are open. Each open one is a candidate for a decision.
 
-1. **The store lock is a file lock on the store folder.** It holds across processes on a local disk. On a network share, file locks may not be enforced, so keep one publishing Host per store there.
+1. **The store lock is a file lock on the store folder.** It holds across processes on a local disk. On a network share, file locks may not be enforced, so keep one publishing Orca per store there.
 2. **The store is not in the SQLite backup.** [OPERATIONS.md](../OpenTail.Orca/OPERATIONS.md#what-to-back-up-and-how-to-upgrade) covers the database file only. The [runbook](../docs/guides/skills.md#backups-and-recovery) covers the store.
 3. **A cosmetic change to a stored version is accepted and changes nothing.** The stored text stays as it was first published, while the approval still moves the label. This is intended. It is listed so that it is not a surprise.
 4. **The report is read from its first 40 lines only**, so a binding line further down does not count. The change request shows only the first 20,000 characters of a report.
 5. **Matching is loose.** It is substring matching on words of three or more characters, so it can find skills the situation does not really concern. Every skill is listed anyway, and the agent decides.
-6. **The standard form differs from the reference validator.** The reference validator reads YAML with `strictyaml` (Python). The Host uses YamlDotNet's event parser. The two may disagree on edge inputs (per the design record, not yet checked).
+6. **The standard form differs from the reference validator.** The reference validator reads YAML with `strictyaml` (Python). Orca uses YamlDotNet's event parser. The two may disagree on edge inputs (per the design record, not yet checked).
 7. **Frontmatter detection is line-based.** Instructions that begin with a Markdown rule (`---`) and have another `---` line later are read as frontmatter, and are then refused or misread. Start the instructions with a heading.
 
 ## Tests

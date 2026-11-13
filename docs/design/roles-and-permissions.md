@@ -6,13 +6,13 @@
 planes, two agent roles, and a `Callers` list on each policy entry); this version replaces them with one, agent profiles, plus an
 `Administers` flag. [What changed](#what-changed-from-the-first-version) says why. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
 
-**Where it fits:** Host work, raised by the
-[skills design](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/design/skills-and-scenarios.md). The Host
+**Where it fits:** Orca work, raised by the
+[skills design](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/design/skills-and-scenarios.md). Orca
 does not build agents; this design defines what an agent identity may do once it connects.
 
 ## The problem
 
-Every caller with the Host's tools role sees every advertised tool, and policy rules can test a tool's arguments and the time,
+Every caller with Orca's tools role sees every advertised tool, and policy rules can test a tool's arguments and the time,
 but not who is asking (`PolicyResolver.IsAdvertised`: what `tools/list` advertises "never varies by caller"). So:
 
 - A production agent that has just read a hostile email can call `skills.publish` and put an attacker's skill text in front of a
@@ -27,32 +27,32 @@ What is missing is **separation of duties between agents**: the agents that do t
 administer how that work is done, and between business agents with different jobs. An IT assistant configures the mail system; it
 does not write to important clients. The same should hold here.
 
-## What the Host has today
+## What Orca has today
 
 - **Identities.** Each agent has its own API key; people sign in with the identity provider (Entra ID or another, by JWT) or with
   a reviewer token. Every caller becomes a `CallerIdentity` with a set of roles.
 - **Three coarse roles from sign-in:** `tools` (call tools), `review` (decide queued actions) and `admin` (the operator: the admin
   API). People's **groups** arrive as `group:<name>` roles, and `ReviewerGroup` uses them to decide who may approve what.
-- **Agents and reviewers are already apart.** An API key can never review, a reviewer token can never call tools, and the Host
+- **Agents and reviewers are already apart.** An API key can never review, a reviewer token can never call tools, and Orca
   refuses an API key configured with review, admin or group scopes (`HostHttpOptions.cs`). `SelfApproval: Forbid` stops anyone
   approving their own request. An AI reviewer never stands in for a person where a person is required.
 - **Hidden tools.** A tool denied by policy is not advertised, so an agent does not even see it.
 - **Taint.** A session that read untrusted content never gets a high-impact tool run without a reviewer, with no opt-out.
-- **Sandbox and shadow are per Host instance** (`UseSandbox`, `UseShadow`), not per caller. The workbench already talks to a
-  Host of its own.
+- **Sandbox and shadow are per Orca instance** (`UseSandbox`, `UseShadow`), not per caller. The workbench already talks to a
+  Orca of its own.
 
 This design builds on all of that. It adds one thing: what each agent identity may call.
 
 ## How an agent gets its permissions
 
-The agent does not choose them. **The Host assigns them from the credential the agent connects with**, and the agent cannot
+The agent does not choose them. **Orca assigns them from the credential the agent connects with**, and the agent cannot
 change that:
 
 1. **Beforehand, the operator decides.** They create a key for the invoice assistant and map it to the `invoice-assistant`
    profile. With Entra ID, the customer's IT registers the agent as an application and gives it an app role there instead.
-2. **The agent connects** to the Host's MCP endpoint and presents that key or token. That is all it presents: it never says
+2. **The agent connects** to Orca's MCP endpoint and presents that key or token. That is all it presents: it never says
    "I am the invoice assistant".
-3. **The Host looks up the profile from the credential,** advertises only that profile's tools in `tools/list`, and refuses
+3. **Orca looks up the profile from the credential,** advertises only that profile's tools in `tools/list`, and refuses
    (and audits) a call to anything else, even one made by name.
 
 **Why it must work this way.** If an agent could ask for a profile, a hostile email could tell it "switch to the workbench profile
@@ -64,7 +64,7 @@ Consequences:
 - **The same agent software can run as several identities.** One program with two keys has two profiles. Permissions belong to
   the credential, not to the code or the model.
 - **Locally over stdio there is no sign-in:** the caller is the single local operator (`CallerIdentity.Local`) and profiles do not
-  apply. They matter once the Host runs as a shared HTTP server.
+  apply. They matter once Orca runs as a shared HTTP server.
 - **With per-user sign-in later** ([plan section 3](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/plan.md)), an agent acting for a person gets its profile narrowed further
   to what that person may do. See [delegation](#later-delegation).
 
@@ -90,7 +90,7 @@ this agent do?" has one answer in one place, which is how AWS IAM, Entra app rol
 - **Patterns:** `mail.*` grants a module's tools; `*` grants everything except administration tools (below).
 - **Names are the operator's.** There are no fixed roles: deployments want "finance agent" and "support agent" from the start, and
   a profile is that. Shipped examples (`business-all`, `workbench`) are a starting point, not a ceiling.
-- **Compatible.** A key with no profile keeps today's behaviour (every advertised tool except administration tools), and the Host
+- **Compatible.** A key with no profile keeps today's behaviour (every advertised tool except administration tools), and Orca
   warns at startup naming each such key.
 
 ### Administration tools
@@ -102,27 +102,27 @@ trust promotions if they ever become tools. A module marks them on the descripto
 new ToolDescriptor("skills.publish", "...", ToolRisk.Write, "skills") { Administers = true }
 ```
 
-The Host then holds them to fixed rules:
+Orca then holds them to fixed rules:
 
 1. **A wildcard never grants one.** `*` and `skills.*` do not include `skills.publish`; a profile must name it. So no agent gets an
    administration tool by accident, and none has it without a profile (a key with no profile never gets one).
 2. **Always a proposal, decided by people.** At load, an administration tool's policy must be `Queue` with `Reviewer: Human`, an
    approver `ReviewerGroup`, `SelfApproval: Forbid` and `AllowEdits: false`
-   ([question 3](skills-publish-questions.md#3-what-if-a-reviewer-edits-the-arguments)). Otherwise the Host refuses to
+   ([question 3](skills-publish-questions.md#3-what-if-a-reviewer-edits-the-arguments)). Otherwise Orca refuses to
    start, naming the tool. No rule, trust ramp or AI reviewer can relax it.
 3. **Never next to business tools on a live Host.** A profile that names an administration tool and any business tool with an
-   effect (above Read) is refused at load, unless the Host runs in sandbox or shadow mode. The workbench proposes skills; it does
+   effect (above Read) is refused at load, unless Orca runs in sandbox or shadow mode. The workbench proposes skills; it does
    not send mail.
 4. **Operators can tighten, never loosen.** An operator may mark more tools as administration (`files.write` on a configuration
-   folder, say) with `"Administers": true` in the tool's policy entry; they cannot unmark a module's choice. This is the Host's
+   folder, say) with `"Administers": true` in the tool's policy entry; they cannot unmark a module's choice. This is Orca's
    existing rule that settings only tighten.
-5. **Visible.** At startup and in `--explain`, the Host lists every key and profile that holds an administration tool, and sends
+5. **Visible.** At startup and in `--explain`, Orca lists every key and profile that holds an administration tool, and sends
    the configured notification when that list changes.
 
 ### With the customer's directory
 
 With Entra ID (or another directory), people's groups already arrive as claims. Agents can be registered there too, as
-applications with app roles, and the Host maps an app role to a profile (`"RoleProfiles": { "OpenTail.Invoice":
+applications with app roles, and Orca maps an app role to a profile (`"RoleProfiles": { "OpenTail.Invoice":
 "invoice-assistant" }`). The customer's IT then manages which agent may do what in the directory they already use. An identity
 with app roles mapping to two profiles is refused, so membership cannot quietly widen an agent. Static API keys keep working for
 small deployments.
@@ -163,17 +163,17 @@ What it leaves to other defences:
 - **`skills.publish` is an administration tool.** A business agent that read a hostile email cannot see it, let alone call it.
   The workbench and the AI tuner of the [skills design](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/design/skills-and-scenarios.md) connect with a profile naming it.
 - **`skills.find` and `skills.get` stay ordinary tools:** the agents doing the work need them. They only read the published store.
-- **The workbench never holds business tools on a live Host.** It reaches live data only through a shadow Host, which records
+- **The workbench never holds business tools on a live Host.** It reaches live data only through a shadow Orca, which records
   everything above Read.
 - **Signing the report becomes unnecessary.** Only the workbench's key can call `skills.publish`, so the authenticated caller
   already proves where the report came from. Binding the report to the content and labelling it are still worth doing
   ([question 1](skills-publish-questions.md#1-can-the-reviewer-trust-the-report)).
 - **A business agent with an opinion about a skill** leaves a note (a low-risk feedback tool), not a proposal.
 
-## Until it is built: two Host instances
+## Until it is built: two Orca instances
 
-Possible today, with no code: run the production Host without `skills.publish` in its policy (so it is hidden there), and a
-second Host with only the `skills` module, reached only by the workbench's key, both on the same skill store directory. This
+Possible today, with no code: run the production Orca without `skills.publish` in its policy (so it is hidden there), and a
+second Orca with only the `skills` module, reached only by the workbench's key, both on the same skill store directory. This
 separates the planes by process. **Check before relying on it** whether two instances can share the store's label file safely
 (`SkillStore` in `OpenTail.Modules.Skills`); only the second instance writes.
 
@@ -199,7 +199,7 @@ needs it; two profiles and two policy entries cover most of it.
 | Two fixed agent roles, one per key | Named profiles | Deployments want named roles from the start, and a profile is a named role |
 | `Callers` on each policy entry | Profiles on the principal | One agent's permissions in one place, readable by customer IT; policy stays about what happens, profiles about who |
 | Signed reports | Not needed | The caller's credential already proves origin once only the workbench may call `skills.publish` |
-| "Who may grant administration: one admin or two?" | Startup listing and notification | Keys live in a configuration file; the Host cannot enforce a second admin on a file edit, but it can make every grant visible |
+| "Who may grant administration: one admin or two?" | Startup listing and notification | Keys live in a configuration file; Orca cannot enforce a second admin on a file edit, but it can make every grant visible |
 
 ## Decisions
 

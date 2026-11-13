@@ -1,4 +1,4 @@
-# Comparison: Microsoft's Agent Governance Toolkit (.NET) and the Host
+# Comparison: Microsoft's Agent Governance Toolkit (.NET) and Orca
 
 **Status:** findings recorded 2026-11-11. **Decision: defer adoption and conversion.** Nothing has been changed or converted. This
 document only records what the two systems do, where they differ, and why we are waiting.
@@ -11,12 +11,12 @@ This document is the reference, so the reasons can be checked later without redo
 
 - The toolkit's .NET library **does** have a human approval protocol: request, ordered stages, reviewers, a webhook transport with
   verified responses, an action digest, and a re-check right before execution. It is about 2,400 lines in `Approvals/`.
-- The Host already has a human approval queue. It covers taint, labels, profiles, self-approval and audit, and that queue is the
+- Orca already has a human approval queue. It covers taint, labels, profiles, self-approval and audit, and that queue is the
   single source of truth for an action. Adopting the toolkit's chain would mean two approval systems for one action.
 - The toolkit's approval store is an interface with only an in-memory reference implementation. Its kernel does not call the approval
   code at all; the application has to wire it in.
-- The Host has one real gap that the toolkit closes: when an approved action runs, the Host does not compare the policy and arguments
-  it was approved under. This should be fixed in the Host whatever we decide about the toolkit.
+- Orca has one real gap that the toolkit closes: when an approved action runs, Orca does not compare the policy and arguments
+  it was approved under. This should be fixed in Orca whatever we decide about the toolkit.
 - Decision: do not adopt or convert now. Revisit on the triggers at the end.
 
 ## Sources and pins
@@ -34,7 +34,7 @@ This document is the reference, so the reasons can be checked later without redo
 
 The version is from `Directory.Build.props` (line 3). The upstream README says "public preview ... may have breaking changes before GA".
 
-### The Host
+### Orca
 
 | | |
 |---|---|
@@ -85,7 +85,7 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 4. Before running the action, the application calls `ValidateForExecution`. It re-checks the digest, the policy version and the
    approval chain, and consumes a one-time approval.
 
-**The Host (inside one component):**
+**Orca (inside one component):**
 
 1. `ActionQueue.SubmitAsync` runs every check in order (profile, decoys, identity level, taint, policy, data flow) and decides
    Execute, Queue or Deny.
@@ -97,7 +97,7 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 
 ## Differences, by area
 
-| Area | Toolkit (.NET, local copy) | Host (4b8a8b7) | Difference |
+| Area | Toolkit (.NET, local copy) | Orca (4b8a8b7) | Difference |
 |---|---|---|---|
 | Decision outcomes | `allow`, `deny`, `warn`, `log`, `require_approval` (`Policy/PolicyDecision.cs` line 17; `PolicyAction`) | `Execute`, `Queue`, `Deny` (`OpenTail.Orca.Abstractions/Policy/ToolPolicy.cs` lines 3-11) | Same idea. Our `Queue` is their `require_approval`. They also have `warn` and `log` as outcomes; we don't. |
 | Decision point | No single point. `GovernanceKernel.EvaluateToolCall` (`GovernanceKernel.cs` line 246) returns a decision; the kernel has no approval references. Policy rules, context escalation and the MCP gateway (`Mcp/McpGateway.cs` lines 17, 155-157, `RequiresApproval`) produce a "needs approval" result, but nothing in `src/` outside `Approvals/` references `ApprovalCoordinator`, so nothing opens an approval. | `ActionQueue.SubmitAsync` (`OpenTail.Orca/Runtime/ActionQueue.cs` line 23) is the only place a call is decided. | Ours is enforced where the action is stored. Theirs is a library the application must call correctly. |
@@ -136,9 +136,9 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 **Defer adoption and conversion.** Reasons:
 
 1. **The valuable part is small.** The re-check before execution, the whole-action digest and the verified approval responses can be
-   built in the Host with less work than adopting and wiring the toolkit. The re-check is the one that matters now.
-2. **One approval system.** The Host's queue already carries taint, labels, profiles, self-approval and audit. Adopting the toolkit's
-   chain would mean two systems for the same action, or rewriting the Host's queue around the toolkit's objects.
+   built in Orca with less work than adopting and wiring the toolkit. The re-check is the one that matters now.
+2. **One approval system.** Orca's queue already carries taint, labels, profiles, self-approval and audit. Adopting the toolkit's
+   chain would mean two systems for the same action, or rewriting Orca's queue around the toolkit's objects.
 3. **Glue on both sides.** The toolkit's kernel does not drive approvals, so we would write the same wiring either way.
 4. **Maturity.** The core package 5.0.0 is stable on NuGet, but the toolkit's README calls its releases "production-quality public
    preview releases", and the companion packages are labelled Public Preview. The approval store has only an in-memory implementation in the copy. The digest's RFC 8785 conformance is
@@ -158,7 +158,7 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 - **Re-check before execution** (`ValidateForExecutionCore`): the policy version, the argument hash and the expiry, checked in the
   executor's claim. This is the gap; it should be fixed regardless.
 - **A digest over the whole action** (`ActionBinding.Digest`): agent, subject, operation, target and arguments, with the policy version.
-- **Verified approval responses** (`WebhookResponseVerifier`): needed if approvals ever come from outside the Host, for example from
+- **Verified approval responses** (`WebhookResponseVerifier`): needed if approvals ever come from outside Orca, for example from
   the A2A plan's review step.
 - **Explicit fail-closed flag** (`FailClosedOnTimeout`): our expiry already denies; the flag would make that visible in the record.
 
@@ -169,12 +169,12 @@ c072a021823bf59c3cdc4f190473c33b071bf34e3efa08ff96acbe95d1c90aa0  AGENTS.md
 - The toolkit's own tests (`tests/AgentGovernance.Tests/`, including `ApprovalProtocolTests.cs`): not read and not run.
 - The Python implementation and its parity.
 - The McpSecurityScanner's behaviour.
-- The Host's `ArgumentsHash` computation.
-- Whether the Host has any execution-time check outside the claim step.
+- Orca's `ArgumentsHash` computation.
+- Whether Orca has any execution-time check outside the claim step.
 
 ## How to re-check
 
 1. In the local copy: `sha256sum` the files listed above and compare with the table.
 2. Read `src/AgentGovernance/Approvals/ApprovalCoordinator.cs` from `ValidateForExecutionCore` to the end.
-3. In the Host: `grep -rn "PolicyHash" OpenTail.Orca` and confirm no comparison exists in the executor.
+3. In Orca: `grep -rn "PolicyHash" OpenTail.Orca` and confirm no comparison exists in the executor.
 4. Compare the two approval flows above with the current code.

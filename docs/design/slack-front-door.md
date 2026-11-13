@@ -13,9 +13,9 @@ a data source), which has its own blockers.
 A person in Slack hands a task to an agent and follows it in the same thread:
 
 - **Input:** a "Send to agent" message shortcut and a `/opentail` slash command, each opening a form: which skill or profile, the
-  goal, the inputs. The form creates a work item. The Host does not interpret free text (it never calls a model to do the work),
+  goal, the inputs. The form creates a work item. Orca does not interpret free text (it never calls a model to do the work),
   so the goal is stored as written and the agent interprets it.
-- **Thread:** the Slack thread is the work item's `thread`. The Host posts progress into it: claimed, waiting for approval, done
+- **Thread:** the Slack thread is the work item's `thread`. Orca posts progress into it: claimed, waiting for approval, done
   with a short summary.
 - **Approvals in the thread,** up to a risk ceiling, as the Teams bot does with `ChatMaxRisk`; anything higher links to the review
   page.
@@ -28,7 +28,7 @@ apply. An agent that reads Slack messages as tasks would make Slack the easiest 
 
 1. **The real person's identity, not the bot's.** A work item from Slack carries the requester's own identity and authority.
    Otherwise anyone in the channel delegates with the bot's rights (a confused deputy). Until per-user sign-in exists (work plan
-   section 3), only Slack users explicitly mapped to a Host identity by an operator could create work.
+   section 3), only Slack users explicitly mapped to Orca identity by an operator could create work.
 2. **Only the requester's words are instructions.** Other messages in the thread, pasted email, and anything in a Slack Connect
    channel (which includes people from other organisations) are outside content and taint the item.
 3. **Posting to a channel is an exit.** Everyone in the channel sees a reply, not only the requester, and a Slack Connect channel
@@ -45,7 +45,7 @@ is weak (the workflow's, not the person's), so it would be allowed only for low-
 1. **Work items do not exist yet.** Slack is only a front door to them ([section 17](work-and-continuations.md#order), step 2).
    Building it first would mean designing the inbox inside a chat bot.
 2. **Our likely customers use Teams.** Companies with an ERP and Microsoft 365 mostly have Teams already, at no extra cost, inside
-   Microsoft 365. Slack is more common in tech companies, startups and media, which are not who the Host is aimed at first. The
+   Microsoft 365. Slack is more common in tech companies, startups and media, which are not who Orca is aimed at first. The
    Teams bot already covers the same flow (cards, approvals, `ChatMaxRisk`).
 3. **Identity is not ready.** Rule 1 needs per-user sign-in (work plan section 3), which is still waiting. Without it, the only
    safe version is a hand-maintained mapping of Slack users, which does not scale past a pilot.

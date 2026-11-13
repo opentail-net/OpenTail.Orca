@@ -2,11 +2,11 @@
 
 **Status:** phases 1 and 2 built 2026-11-09, committed in `opentail-orca` (`dc957f7`) and `opentail-workbench` (`e83e469`). Decisions 1, 2, 5 and 6 are the owner's, confirmed 2026-11-09. Decisions 3, 4 and 7 were taken provisionally by Claude on the same day, for the owner to review. Written from reading `opentail-orca` at `6081d5b`, `opentail-workbench` at `6d3e220`, the [Agent Skills specification](https://agentskills.io/specification) (fetched 2026-11-09), and the reference validator `skills-ref` (its `validator.py` and `parser.py`, fetched 2026-11-09; its test fixtures are not yet read). The implementation record is at the end.
 
-**Where it fits:** the Host's skills module (`OpenTail.Modules.Skills`), with the workbench's package writer as the one consumer outside it. It adds no package, no repository, no catalog, no loader and no runtime. Skills stay where they are: the Host's store, its labels, its approval and its `skills.get`.
+**Where it fits:** Orca's skills module (`OpenTail.Modules.Skills`), with the workbench's package writer as the one consumer outside it. It adds no package, no repository, no catalog, no loader and no runtime. Skills stay where they are: Orca's store, its labels, its approval and its `skills.get`.
 
 ## The problem
 
-The Host keeps each version as `skill.json` plus a `SKILL.md` holding plain instructions, with no frontmatter. The workbench already writes standard `SKILL.md` files for native clients (`NativePackage.cs`), but nothing checks them against the standard. So:
+Orca keeps each version as `skill.json` plus a `SKILL.md` holding plain instructions, with no frontmatter. The workbench already writes standard `SKILL.md` files for native clients (`NativePackage.cs`), but nothing checks them against the standard. So:
 
 - A version can be published whose standard form is invalid, for example a summary too long for the 1024-character description limit. The problem shows up only when someone packages it.
 - The export logic has no test against the specification.
@@ -24,7 +24,7 @@ The fix is one reader, validator and formatter for the standard form, used at pu
 
 **Out:**
 
-- Loading and unloading. `skills.get` already serves a version. Unloading is the agent's decision, not the Host's.
+- Loading and unloading. `skills.get` already serves a version. Unloading is the agent's decision, not Orca's.
 - Discovery from folders, and resource files (`references/`, `assets/`). Neither is needed while every skill is one file.
 - Script execution. Never.
 - `allowed-tools` being acted on. See decision 3.
@@ -62,10 +62,10 @@ The fix is one reader, validator and formatter for the standard form, used at pu
 | `---` delimiters | Split anywhere | Must be on lines of their own |
 | `metadata` values | Not checked | Must be strings, as the spec says |
 
-**The Host store** (`OpenTail.Modules.Skills`):
+**Orca store** (`OpenTail.Modules.Skills`):
 
 - `SkillStore.Parse(metadataJson, instructions, id, version)` requires `id`, `version`, a non-empty `summary` and non-blank instructions. `appliesTo`, `tools`, `policies` and `owner` are optional. Its `instructions` is the whole `SKILL.md` text.
-- `SkillStore.IdPattern` is `^[a-z0-9]+(-[a-z0-9]+)*$`, with no length cap. `VersionPattern` is `^[1-9][0-9]{0,8}$`. A Host id is therefore always ASCII already.
+- `SkillStore.IdPattern` is `^[a-z0-9]+(-[a-z0-9]+)*$`, with no length cap. `VersionPattern` is `^[1-9][0-9]{0,8}$`. Orca id is therefore always ASCII already.
 - `SkillStore.Publish`: a version's files never change; a label moves only if `expectedFrom` still matches.
 - `SkillText.ContentHash` covers id, version, summary, appliesTo, tools, policy references, owner and instructions. Report bindings (`skill-report: <id>@<version> <hash>`) are checked against it at publish, and the workbench computes the same line (`Skill.BindingLine`).
 - `SkillsModule.PublishPreview` validates a request before it is queued, and refuses with `ArgumentException`.
@@ -73,7 +73,7 @@ The fix is one reader, validator and formatter for the standard form, used at pu
 **The workbench writer** (`src/OpenTail.Workbench/Formats/NativePackage.cs`):
 
 - `NativePackage.Write(skill, outFolder, checkIn)` writes `<outFolder>/<id>/SKILL.md`. Frontmatter: `name: <id>` and `description: <JSON string>`. Then the instructions, trimmed, with a check-in paragraph when `checkIn` is set.
-- `NativePackage.Description` joined the summary and `appliesTo` (see the table below). It has been replaced by the Host's `StandardSkill.Describe`, with the same wording.
+- `NativePackage.Description` joined the summary and `appliesTo` (see the table below). It has been replaced by Orca's `StandardSkill.Describe`, with the same wording.
 - The test `A_native_package_has_front_matter_a_check_in_and_the_instructions` (`tests/OpenTail.Workbench.Tests/DeliveryTests.cs`) asserts the start of the output, the description wording and the check-in text.
 
 **Consumers:** native clients read `name` and `description` to decide whether a skill applies. An agent following the check-in calls `skills.get`.
@@ -108,7 +108,7 @@ The three existing skills all have `appliesTo` entries (2, 3 and 3), and their s
   - **`SuggestSaveName(name)`** returns a suggested ASCII name, or none.
 - **`StandardPublish.Prepare(id, version, skillJson, instructions, isNewVersion, ignoreKeys)`** (`StandardPublish.cs`) decides what a publish request's instructions become. It throws `ArgumentException` with every refusal, each tagged with its code, or returns the stored `SkillVersion` and the warnings for the change request.
 
-YAML library: YamlDotNet 17.0.1, the version the workbench already pins, now also pinned in the Host's `Directory.Packages.props`. The Host had no YAML library before. A hand-written reader for the subset the standard needs was rejected: the plan's own rule is not to write a homemade YAML parser.
+YAML library: YamlDotNet 17.0.1, the version the workbench already pins, now also pinned in Orca's `Directory.Packages.props`. Orca had no YAML library before. A hand-written reader for the subset the standard needs was rejected: the plan's own rule is not to write a homemade YAML parser.
 
 ### Name rules: reading and saving
 
@@ -119,7 +119,7 @@ YAML library: YamlDotNet 17.0.1, the version the workbench already pins, now als
 | At most 64 code points | Yes | Yes |
 | Equals the directory name (NFKC on the directory name) | Yes | Yes |
 
-Because a Host id is already ASCII (`IdPattern`), the ASCII rule can only bite on a name that arrives inside a publish request's frontmatter, or in a file read from elsewhere. That is why the frontmatter rules below matter.
+Because Orca id is already ASCII (`IdPattern`), the ASCII rule can only bite on a name that arrives inside a publish request's frontmatter, or in a file read from elsewhere. That is why the frontmatter rules below matter.
 
 ### Suggested names
 
@@ -184,13 +184,13 @@ For a new version without frontmatter, the instructions are stored as sent, as t
 1. **Names: ASCII only on save.** Reading accepts any Unicode letter or digit, as the reference does. A refusal to save returns a suggested ASCII name to the caller.
 2. **Unknown top-level keys are errors.** The caller can acknowledge specific keys by name (`ignoreFrontmatterKeys`), and they are then reported as warnings. The mechanism is in "Unknown frontmatter keys".
 5. **An over-length description is refused, not truncated.**
-6. **`metadata.version` carries the Host's version**, as the spec's own example does.
+6. **`metadata.version` carries Orca's version**, as the spec's own example does.
 
 **Provisional: taken by Claude on 2026-11-09 for the owner to review, not yet confirmed:**
 
 3. **`allowed-tools` is never generated.** The standard says it pre-approves tools. Our `tools` list says what a skill uses; approval is policy's job, and skills never change policy. Generating `allowed-tools` from `tools` would tell a client to pre-approve `mail.send`. Implemented: `Format` never writes it, and an incoming one is a warning on publish, never acted on.
 4. **An empty `appliesTo` is refused at publish**, for new versions, and at export. The three existing skills are unaffected. Implemented in `Describe`, so it applies to both.
-7. **Frontmatter in a publish request is accepted**, with the rules in "Frontmatter in a publish request". The owner did not address it directly. The main alternative is to refuse frontmatter in publish requests until phase 4. That would leave decisions 1 and 2 with no input until then, because Host ids are already ASCII.
+7. **Frontmatter in a publish request is accepted**, with the rules in "Frontmatter in a publish request". The owner did not address it directly. The main alternative is to refuse frontmatter in publish requests until phase 4. That would leave decisions 1 and 2 with no input until then, because Orca ids are already ASCII.
 
 ## Phases
 
@@ -231,9 +231,9 @@ Implemented in `OpenTail.Orca.Tests/StandardSkillTests.cs` and `StandardPublishT
 
 ## Verification status
 
-- **Checked:** the spec, from its page. The reference validator's `validator.py` and `parser.py`, from GitHub on 2026-11-09, including its use of Python `len()`. The Host and workbench code at the commits above. The three workbench skills' `skill.json`.
+- **Checked:** the spec, from its page. The reference validator's `validator.py` and `parser.py`, from GitHub on 2026-11-09, including its use of Python `len()`. Orca and workbench code at the commits above. The three workbench skills' `skill.json`.
 - **Not checked:** the reference repository's test fixtures. Whether `skills-ref` runs here. Whether any production store has ids over 64 characters or skills with empty `appliesTo`; the production store is not in the repository. Whether `strictyaml` and YamlDotNet agree on the same inputs.
-- **Not run here:** the Host's own test project and the workbench's test project (see the implementation record).
+- **Not run here:** Orca's own test project and the workbench's test project (see the implementation record).
 - **Could differ:** the reference validator's behaviour at a later commit.
 
 ## Implementation record (2026-11-09)
@@ -256,13 +256,13 @@ Implemented in `OpenTail.Orca.Tests/StandardSkillTests.cs` and `StandardPublishT
 
 **Changed on purpose:** line endings. The old writer put CRLF on the frontmatter and check-in lines and bare LF on the body, so each file mixed the two. The new writer uses the platform's line ending throughout. Every exported file's bytes change, though the text does not. The workbench test that compared the instructions with the output would have failed on Windows, so it now normalises line endings first.
 
-**Second pass, same day, from scratch projects outside the repository.** The repository's own test projects need the private GitHub feed, which this machine does not have (the feed token is not set, and the connectivity packages are not in the local cache). So the Skills-related code was compiled from the repository's files, unchanged, against the Host core and the Skills module:
+**Second pass, same day, from scratch projects outside the repository.** The repository's own test projects need the private GitHub feed, which this machine does not have (the feed token is not set, and the connectivity packages are not in the local cache). So the Skills-related code was compiled from the repository's files, unchanged, against Orca core and the Skills module:
 
-- **Host:** the Skills-related test files of `OpenTail.Orca.Tests` (the 12 `SkillsModuleTests`, the 2 `SkillOutcomesTests`, and the 45 new cases) compile with warnings as errors and pass: 59 of 59. The rest of that project has not been run.
-- **Workbench:** all 51 tests of `OpenTail.Workbench.Tests` compile with warnings as errors. 29 pass, including `NativePackageTests`. The other 22 fail during setup, all with one error: the sandboxed Host needs an `email-imap` module type, which comes from a GitHub-only package. That is before any skill code runs. I did not run them against the code from before this change, so the claim that they are environmental rests on that error message.
+- **Orca:** the Skills-related test files of `OpenTail.Orca.Tests` (the 12 `SkillsModuleTests`, the 2 `SkillOutcomesTests`, and the 45 new cases) compile with warnings as errors and pass: 59 of 59. The rest of that project has not been run.
+- **Workbench:** all 51 tests of `OpenTail.Workbench.Tests` compile with warnings as errors. 29 pass, including `NativePackageTests`. The other 22 fail during setup, all with one error: the sandboxed Orca needs an `email-imap` module type, which comes from a GitHub-only package. That is before any skill code runs. I did not run them against the code from before this change, so the claim that they are environmental rests on that error message.
 - **CLI:** `workbench package` builds and runs. Its output is byte-identical to the harness's output, and the only text change from before is the `metadata` block in the three skills.
 
-**Still to run on the owner's machine:** the full `OpenTail.Orca.Tests` and `OpenTail.Workbench.Tests` projects, with the feed token, to cover the 22 workbench tests and the rest of the Host suite.
+**Still to run on the owner's machine:** the full `OpenTail.Orca.Tests` and `OpenTail.Workbench.Tests` projects, with the feed token, to cover the 22 workbench tests and the rest of Orca suite.
 
 **Not tests:** a `---` inside the body; an empty body on publish (`SkillStore.Parse` already refuses it); export as a unit test (a one-off before-and-after comparison was done instead).
 

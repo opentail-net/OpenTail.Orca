@@ -11,11 +11,11 @@ then a retryable `slow_down` with a retry time; in memory per process). Not buil
 the doubling delay (the wait is simply the time to the next token), smaller pages, notifications on level changes, automatic
 proof of key rotation. First
 written 2026-10-17. The point of
-writing it now is the [metrics groundwork](#groundwork-get-the-metrics-right-first): what the Host must record from today so that
+writing it now is the [metrics groundwork](#groundwork-get-the-metrics-right-first): what Orca must record from today so that
 limits, backoff and detection can be built later on real data. Written from reading
 [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca) at `230cdd0`. Moved here from `opentail-connectivity` on 2026-10-18; the work plan there keeps a short entry that links here. The owner's decisions of 2026-10-18 are under [decisions](#decisions).
 
-**Where it fits:** Host work, next to [roles and permissions](roles-and-permissions.md). Profiles decide **what** an agent may
+**Where it fits:** Orca work, next to [roles and permissions](roles-and-permissions.md). Profiles decide **what** an agent may
 do; this design watches **how it behaves** while doing it, and tightens as the behaviour turns suspicious. Profiles come first:
 they give each agent a stable identity to measure and the strongest [tripwire](#tripwires).
 
@@ -26,12 +26,12 @@ A compromised agent does not need a forbidden tool to do harm. It can use the to
 - **Data leaves through reads.** Once records are read they are in the model's context, and from there they can leak. Sending is
   guarded (taint holds high-impact tools for a reviewer), but reading is not: Read tools run straight through under
   `DefaultReadMode`. An agent can page through a whole customer table and nothing slows it.
-- **Fast attacks finish before anyone looks.** Every guard the Host has acts per call. None sees that one identity has made 4,000
+- **Fast attacks finish before anyone looks.** Every guard Orca has acts per call. None sees that one identity has made 4,000
   reads in ten minutes when it usually makes 40 a day.
 - **Volume costs the system.** A runaway or hostile agent hogs module workers, downstream API quotas and the database, at the
   expense of every other agent.
 
-## What the Host has today
+## What Orca has today
 
 | Mechanism | What it does | Limitation |
 |---|---|---|
@@ -59,8 +59,8 @@ and only deny when the evidence is strong. Only a person loosens.**
 | **Elevated** | Sustained throttling, a reviewer rejection, taint followed by high-impact attempts, a burst across many tools | Everything above Read is queued; reads above a size are queued | A person clears it |
 | **Suspended** | A [tripwire](#tripwires) fires, or Elevated keeps climbing | Every call denied, pending actions frozen, operator notified | A person clears it, usually after rotating the key |
 
-Throttled is the only level the Host leaves on its own, because it is about rate, not trust. Elevated and Suspended are judgements
-and follow the Host's existing rule: automatic changes only tighten; loosening is a human act, audited.
+Throttled is the only level Orca leaves on its own, because it is about rate, not trust. Elevated and Suspended are judgements
+and follow Orca's existing rule: automatic changes only tighten; loosening is a human act, audited.
 
 ### Incremental backoff
 
@@ -82,8 +82,8 @@ How it works, per identity:
    clients use: back off fast, recover gradually.
 4. **Beyond the cap, refuse with a retry time** instead of holding the call open: a retryable error (`slow_down`, with
    `retryAfter`), the MCP equivalent of HTTP 429. Holding thousands of delayed calls open would itself hog the system.
-5. **Optionally, smaller pages.** Where a module declares a page-size argument, the Host may clamp it while Throttled, so each
-   call returns less. Modules opt in; the Host never rewrites arguments it does not understand.
+5. **Optionally, smaller pages.** Where a module declares a page-size argument, Orca may clamp it while Throttled, so each
+   call returns less. Modules opt in; Orca never rewrites arguments it does not understand.
 
 Backoff is never shown to the model as a security signal: it sees only "slow down, retry after N seconds", the same message a busy
 API gives.
@@ -106,7 +106,7 @@ High-precision signals that justify Suspended directly:
 
 - **A call outside the agent's profile.** A healthy agent never sees those tools (they are not advertised), so it never names
   them. An agent that calls one was told about it by someone. This is why profiles come first.
-- **Decoy records (honeytokens).** A fake customer, invoice or file that no real task needs, registered with the Host. A read of
+- **Decoy records (honeytokens).** A fake customer, invoice or file that no real task needs, registered with Orca. A read of
   one moves the identity to Elevated; an attempt to send one out (its marker found in an outbound tool's arguments) suspends it.
   Cheap to plant, almost no false positives.
 - **Repeated attempts at denied actions** within a short window.
@@ -122,7 +122,7 @@ High-precision signals that justify Suspended directly:
 ### Baselines
 
 Agents suit this far better than people. A person's work varies by day and task; an invoice assistant does nearly the same thing
-every day. Tight baselines mean anomalies stand out and false alarms are rarer, which is a real advantage of the Host over
+every day. Tight baselines mean anomalies stand out and false alarms are rarer, which is a real advantage of Orca over
 behaviour analytics built for people.
 
 A baseline is per identity (or per profile, when several keys share one): typical calls, records and distinct entities per hour
@@ -131,7 +131,7 @@ Until an identity has two weeks of history, the profile's configured defaults ap
 
 ## Groundwork: get the metrics right first
 
-Everything above depends on data the Host does not record today. This part is worth building early, even with no enforcement,
+Everything above depends on data Orca does not record today. This part is worth building early, even with no enforcement,
 because baselines need weeks of history and the history must exist before the feature does.
 
 ### Result stats
@@ -145,8 +145,8 @@ public sealed record ResultStats(int? Records = null, int? Recipients = null, IR
 - **Records:** rows, messages, files or pages returned.
 - **Recipients:** for outbound tools, how many addresses.
 - **EntityKeys:** stable ids of the business records touched (customer id, invoice number), so "distinct customers read this week"
-  can be counted. The Host never stores them as given: it keeps a salted hash per deployment, and only to count distinct values.
-- **Bytes** need no module help: the Host measures the result it already stores (`ActionRecord.ResultJson`).
+  can be counted. Orca never stores them as given: it keeps a salted hash per deployment, and only to count distinct values.
+- **Bytes** need no module help: Orca measures the result it already stores (`ActionRecord.ResultJson`).
 
 Modules that do not report stats still get call counts and bytes. The Sql, Files, Csv, inbox and OpenAPI modules should report
 records first: they are where bulk reads happen.
@@ -159,7 +159,7 @@ have done?".
 
 ### Per-identity counters
 
-Exact, in the Host's own store, not in telemetry: sliding windows (hour, day, week) per identity of calls, cost units, records,
+Exact, in Orca's own store, not in telemetry: sliding windows (hour, day, week) per identity of calls, cost units, records,
 bytes and distinct entity hashes. These are what enforcement will read, so they must be transactional with the action, like the
 existing `Admissions`.
 
@@ -172,7 +172,7 @@ that cannot be added later without losing history: **build it with the stats.**
 ### Telemetry
 
 `HostTelemetry` gains counters for result records and bytes, tagged by tool, module and profile, and a counter of level changes
-by level and reason. Never tagged by identity: per-identity series would explode in number and belong in the Host's store, not in
+by level and reason. Never tagged by identity: per-identity series would explode in number and belong in Orca's store, not in
 the metrics backend.
 
 ### Audit
@@ -182,9 +182,9 @@ call), `level.cleared` (by whom). No argument values, as for all audit entries.
 
 ### Report-only mode
 
-Before anything enforces, the Host evaluates the ladder and writes what it **would** have done, with the reason, to the audit
+Before anything enforces, Orca evaluates the ladder and writes what it **would** have done, with the reason, to the audit
 trail and a daily report. Operators tune budgets on that report; enforcement is switched on per level once the report is quiet.
-The Host already works this way for skills (shadow mode); this is the same idea for limits.
+Orca already works this way for skills (shadow mode); this is the same idea for limits.
 
 ## Rules that make it hold
 
@@ -194,7 +194,7 @@ The Host already works this way for skills (shadow mode); this is the same idea 
 3. **Every change explains itself:** in `--explain --caller`, on the review page next to a queued action ("queued because this
    agent is Elevated: 3 rejections today"), and in the audit trail. An unexplained block gets switched off.
 4. **Suspension freezes, it does not delete.** Pending actions stay for a person to look at.
-5. **Counters fail closed for enforcement, open for metrics.** If the store cannot be read, an enforcing Host treats the identity
+5. **Counters fail closed for enforcement, open for metrics.** If the store cannot be read, an enforcing Orca treats the identity
    as Throttled; report-only mode just records the gap.
 
 ## Order

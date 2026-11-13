@@ -1,6 +1,6 @@
-# Running the Host where people and Teams can reach it
+# Running Orca where people and Teams can reach it
 
-The Teams bot, company sign-in on the review page and links in notifications all need the Host at a **public HTTPS address**. Choose by
+The Teams bot, company sign-in on the review page and links in notifications all need Orca at a **public HTTPS address**. Choose by
 stage:
 
 | | A. Trial through a tunnel | B. One server: Docker and Caddy | C. Your own platform |
@@ -17,7 +17,7 @@ share (see C).
 
 ## The container image
 
-`OpenTail.Orca.Server` is the ready-to-run Host (program `opentail-orca`). It references **every module and profile package**, so
+`OpenTail.Orca.Server` is the ready-to-run Orca (program `opentail-orca`). It references **every module and profile package**, so
 `modules.json` can enable any of them; being compiled in enables none.
 
 Released images are in the private registry `ghcr.io/opentail-net/opentail-orca:<version>`. To pull one, sign in once with a token
@@ -36,8 +36,8 @@ docker build -f OpenTail.Orca.Server/Dockerfile --secret id=github_packages_toke
 | port 8080 | Plain http for the proxy in front of it. |
 | environment | Secrets: reviewer tokens (`OPENTAIL_ADMIN_TOKENS`), the Teams bot secret, module credentials. Config files name the variables, never the values. One setting that is not a secret: `OPENTAIL_DB_SYNCHRONOUS` ([durability](OPERATIONS.md#surviving-a-power-cut)). |
 
-The container runs as the unprivileged `app` user. With no arguments it starts the Host from `/config`; with arguments it runs exactly
-those, which is how you run the Host's commands:
+The container runs as the unprivileged `app` user. With no arguments it starts Orca from `/config`; with arguments it runs exactly
+those, which is how you run Orca's commands:
 
 ```
 docker run --rm opentail-orca --new-api-key alice-agent                       # a key for an AI agent; paste the hash into http.json
@@ -47,7 +47,7 @@ docker run --rm -v /opt/opentail/config:/config opentail-orca \
     --policy /config/policy.json --modules /config/modules.json --adopt-policy github   # writes config/policy.d/github.json (rw mount)
 ```
 
-The Host refuses to start rather than start open. It needs sign-in (API keys or `Jwt`) and a `PublicBaseUrl`, it rejects plain http
+Orca refuses to start rather than start open. It needs sign-in (API keys or `Jwt`) and a `PublicBaseUrl`, it rejects plain http
 beyond loopback unless `TrustProxy` is set, and it stops if a module's credential variable is missing. The reason is in the log.
 
 ## A. Trial through a tunnel
@@ -64,9 +64,9 @@ Teams Toolkit uses the same tool.
    devtunnel host opentail
    ```
    It prints the address, e.g. `https://k8x2p1-5600.euw.devtunnels.ms`. Anonymous access is needed because Microsoft's Bot Framework
-   cannot sign in to a tunnel. The Host's own sign-in protects everything behind it. `devtunnel show opentail` shows when the tunnel
+   cannot sign in to a tunnel. Orca's own sign-in protects everything behind it. `devtunnel show opentail` shows when the tunnel
    expires.
-3. Run the Host on loopback, with the tunnel's address as `PublicBaseUrl` and sign-in configured. The Host refuses to start open when
+3. Run Orca on loopback, with the tunnel's address as `PublicBaseUrl` and sign-in configured. Orca refuses to start open when
    `PublicBaseUrl` is not a loopback address.
    ```json
    {
@@ -81,7 +81,7 @@ Teams Toolkit uses the same tool.
 4. Check `https://<tunnel address>/healthz`. Then follow [TEAMS-SETUP.md](TEAMS-SETUP.md) with the tunnel address as the public address.
 
 What to expect: the first time a browser opens the address, Dev Tunnels shows a warning page; press Continue once. The Bot Framework's
-requests are not a browser's and are not affected. The Host is only reachable while `devtunnel host` and the Host both run. Stop the tunnel when the trial is over.
+requests are not a browser's and are not affected. Orca is only reachable while `devtunnel host` and Orca both run. Stop the tunnel when the trial is over.
 Cloudflare's quick tunnels (`cloudflared tunnel --url http://127.0.0.1:5600`) also work for a look at the review page, but their
 address changes on every start, which does not suit Teams.
 
@@ -103,21 +103,21 @@ internet, and Docker with the compose plugin.
 5. `docker compose up -d`, then `curl https://approvals.contoso.com/healthz`. Caddy fetches the certificate on the first request; that
    can take a few seconds.
 
-Port 8080 is not published. Only Caddy reaches the Host, and that is what `TrustProxy` relies on: with it set, the Host believes
+Port 8080 is not published. Only Caddy reaches Orca, and that is what `TrustProxy` relies on: with it set, Orca believes
 `X-Forwarded-*` headers from anyone who can reach port 8080.
 
 | Task | Command (in `compose/`) |
 |---|---|
 | Logs | `docker compose logs -f host` (the startup lists every module, its tools and warnings) |
 | Change configuration | Edit `config/`, then `docker compose restart host` |
-| Upgrade | Pull the new version and set it in `OPENTAIL_IMAGE` (or rebuild), then `docker compose up -d`. The Host migrates its database on start and keeps a backup copy of the file next to it. |
+| Upgrade | Pull the new version and set it in `OPENTAIL_IMAGE` (or rebuild), then `docker compose up -d`. Orca migrates its database on start and keeps a backup copy of the file next to it. |
 | Back up | `docker compose stop host`, then `docker run --rm -v opentail_host-data:/data -v "$PWD":/backup alpine cp -a /data/. /backup/opentail-data/`, then `docker compose start host`. See [OPERATIONS.md](OPERATIONS.md#what-to-back-up-and-how-to-upgrade). |
 
 ## C. Your own platform
 
 * **Kubernetes:** one replica (`replicas: 1`, strategy `Recreate`), a `ReadWriteOnce` volume on block storage at `/data`, the config
   folder from a ConfigMap at `/config`, secrets from a Secret as environment variables, and HTTP probes on `/healthz`, which answers
-  whatever Host header the probe sends: 503 when the maintenance sweep has stopped (restart it), 200 when healthy or merely degraded. Put the ingress in front with TLS, and set `TrustProxy`. Allow no other way into the pod,
+  whatever Orca header the probe sends: 503 when the maintenance sweep has stopped (restart it), 200 when healthy or merely degraded. Put the ingress in front with TLS, and set `TrustProxy`. Allow no other way into the pod,
   for example with a NetworkPolicy.
 * **A VM without containers:** `dotnet publish OpenTail.Orca.Server -c Release -o /opt/opentail/app`, run it as a service (systemd) with
   the same arguments, and use any reverse proxy for TLS.

@@ -15,21 +15,21 @@ call `skills.publish` at all is a separate design: [roles and permissions](roles
 
 **Today.** `skills.publish` takes a `report` argument: free Markdown from whoever calls the tool. The preview puts it into the
 change request as it is (`OpenTail.Modules.Skills/SkillsModule.cs:166`), next to the caller's `reason`, and the reviewer reads
-both first. The Host does not know where the report came from or which version it describes.
+both first. Orca does not know where the report came from or which version it describes.
 
 **Why it matters.** The before-and-after numbers are what the reviewer decides on. A report showing "100% / 100%, held-out up"
 reads the same whether the workbench produced it or someone typed it. It can also be wrong honestly: the report of version 4
-attached to a proposal of version 5. The Host's v6 plan sets the principle for AI reviewers: the reviewer sees the action, built
-by the Host, never the requester's case for it. A self-reported report is the requester's case.
+attached to a proposal of version 5. Orca's v6 plan sets the principle for AI reviewers: the reviewer sees the action, built
+by Orca, never the requester's case for it. A self-reported report is the requester's case.
 
 **Options.**
 
 | Option | What it gives | What it costs |
 |---|---|---|
-| A. Label it | The preview says "supplied by the requester, not checked by the Host" | Nothing; but a confident report still persuades |
-| B. Bind it to the content | The report states the skill id, version and a hash of its `SKILL.md`, `skill.json` and policy hashes; the Host checks these match the proposed version and refuses the proposal if not | Small; catches mismatches and honest mistakes, not forgery |
-| C. Sign it | The workbench signs the report and its bindings with a key the Host knows; the preview shows "produced by workbench *name* for exactly this content", or refuses | Key management, one key per workbench; proves origin, not correctness: a compromised workbench can sign anything |
-| D. The Host fetches or computes it | The Host gets the report from the workbench by run id, or runs the comparison itself | A new trust link from the Host to the workbench, or evaluation inside the Host, which the skills design keeps out of it |
+| A. Label it | The preview says "supplied by the requester, not checked by Orca" | Nothing; but a confident report still persuades |
+| B. Bind it to the content | The report states the skill id, version and a hash of its `SKILL.md`, `skill.json` and policy hashes; Orca checks these match the proposed version and refuses the proposal if not | Small; catches mismatches and honest mistakes, not forgery |
+| C. Sign it | The workbench signs the report and its bindings with a key Orca knows; the preview shows "produced by workbench *name* for exactly this content", or refuses | Key management, one key per workbench; proves origin, not correctness: a compromised workbench can sign anything |
+| D. Orca fetches or computes it | Orca gets the report from the workbench by run id, or runs the comparison itself | A new trust link from Orca to the workbench, or evaluation inside Orca, which the skills design keeps out of it |
 
 **Recommendation (revised 2026-10-17):** B, with A for anything B cannot check. Add `reportHash` and the bindings to the
 report's header and verify them in the preview, so the change request says plainly which numbers match the proposed content.
@@ -58,20 +58,20 @@ approved described something else.
 | Option | What it gives | What it costs |
 |---|---|---|
 | A. Compare and set | `skills.publish` takes an `expectedFrom` argument (the version the label points at now; the workbench fills it in). The preview refuses if it is already wrong; the publish refuses at execution if the label moved: "the label moved since this was reviewed; resubmit" | Small, inside the Skills module; the caller sends one more argument |
-| B. Supersede | When a publish for a skill and label is executed, other pending publishes for the same skill and label are marked stale and need resubmitting | A queue feature in the Host; useful for any tool where only the latest proposal makes sense |
-| C. Refresh the preview at approval | The Host recomputes a tool's preview when someone opens it to decide, and shows what changed since it was queued | A general Host feature; it also helps question 3 and any tool whose preview depends on current state |
+| B. Supersede | When a publish for a skill and label is executed, other pending publishes for the same skill and label are marked stale and need resubmitting | A queue feature in Orca; useful for any tool where only the latest proposal makes sense |
+| C. Refresh the preview at approval | Orca recomputes a tool's preview when someone opens it to decide, and shows what changed since it was queued | A general Orca feature; it also helps question 3 and any tool whose preview depends on current state |
 
-**Recommendation:** A now, because it is small and closes the hole. B or C later, as general Host features.
+**Recommendation:** A now, because it is small and closes the hole. B or C later, as general Orca features.
 
 **To decide:**
 - [ ] A now, as proposed?
 - [ ] Is a deliberate rollback still expressed the same way (publish an earlier version with `expectedFrom` set to the current
   one)? Proposed: yes, so a rollback is as explicit as an update.
-- [ ] B or C, or both, as Host features, and when?
+- [ ] B or C, or both, as Orca features, and when?
 
 ## 3. What if a reviewer edits the arguments?
 
-**Today.** A reviewer can approve with changes, editing the arguments (on the review page and the Teams card). The Host checks
+**Today.** A reviewer can approve with changes, editing the arguments (on the review page and the Teams card). Orca checks
 edited arguments against Deny rules (`ActionQueue.cs:226`), but the stored preview is not rebuilt. For `skills.publish`, an edit
 to `instructions`, `version` or `label` would run without the diff the reviewer saw matching it, and a signed report (question
 1) would no longer cover the content.
@@ -83,12 +83,12 @@ less than it seems to, and the audit trail shows an approval of something nobody
 
 | Option | What it gives | What it costs |
 |---|---|---|
-| A. No edits on this tool | A per-tool policy setting (for example `AllowEdits: false`) the Host enforces; the reviewer can approve, reject or request changes, and the proposer resubmits a new version | A small Host policy feature; the default for administration tools in the [roles design](roles-and-permissions.md) |
-| B. Rebuild the preview after an edit | The edited arguments get a fresh preview, and a second reviewer (or the same one) confirms it | More Host work, and a second look for every edit |
+| A. No edits on this tool | A per-tool policy setting (for example `AllowEdits: false`) Orca enforces; the reviewer can approve, reject or request changes, and the proposer resubmits a new version | A small Orca policy feature; the default for administration tools in the [roles design](roles-and-permissions.md) |
+| B. Rebuild the preview after an edit | The edited arguments get a fresh preview, and a second reviewer (or the same one) confirms it | More Orca work, and a second look for every edit |
 
 **Recommendation:** A. A skill change should always be a new, complete version with its own report, which is what "request
 changes" already produces. The same setting suits other administration tools.
 
 **To decide:**
-- [ ] `AllowEdits: false` as a Host policy setting, and the default for `skills.publish`?
+- [ ] `AllowEdits: false` as Orca policy setting, and the default for `skills.publish`?
 - [ ] Should the same apply to every tool whose preview carries a diff or a signed attachment?

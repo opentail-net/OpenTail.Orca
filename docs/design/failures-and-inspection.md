@@ -16,7 +16,7 @@ an agent dies halfway through. Today:
 
 - **An action's error carries one flag, `Retryable`.** Module timeouts and process deaths are retryable (`tool_unavailable`,
   `interrupted`); almost everything else lands in a catch-all `tool_exception`, not retryable. A downstream 401, a full disk, a bad
-  request and a module bug all look the same to the Host, to the model and to an operator.
+  request and a module bug all look the same to Orca, to the model and to an operator.
 - **Only a reviewer can retry** a failed action, with one exception: after a crash, a tool that declares `IdempotentByKey` is
   retried with the same key. A non-idempotent external effect is never silently re-run. That rule stays.
 - **Work items** add more ways to fail (a lost lease, an agent that gives up, a budget used up, a wait that never comes back) and
@@ -26,9 +26,9 @@ Two dangers sit on either side. Retrying without limit, at several layers at onc
 Escalating to something that "makes it work by any means" turns a failure into a security incident: a missing credential is not a
 reason to grant one.
 
-## What the Host is, and is not
+## What Orca is, and is not
 
-The line from [work items](work-and-continuations.md#what-the-host-is-and-is-not) holds here too. The Host classifies failures,
+The line from [work items](work-and-continuations.md#what-the-host-is-and-is-not) holds here too. Orca classifies failures,
 counts attempts, collects evidence and keeps the queue, all with plain rules. It never calls a model to diagnose a failure. An
 inspector that is an agent is just another agent claiming work items, under its own profile.
 
@@ -36,7 +36,7 @@ inspector that is an agent is just another agent claiming work items, under its 
 
 ### 1. Every failure has a kind
 
-The module knows what went wrong (it saw the HTTP status, the exception, the protocol error), so the module says so. The Host
+The module knows what went wrong (it saw the HTTP status, the exception, the protocol error), so the module says so. Orca
 applies policy to the kind.
 
 | Kind | Examples | Automatic handling | Where it goes when that is not enough |
@@ -45,7 +45,7 @@ applies policy to the kind.
 | `environment` | disk full, quota used up, storage or database unreachable | No retry; the route is paused ([below](#3-pause-the-route-not-every-item)) | Ops ticket |
 | `contract` | 400, 404, 409, 422, schema mismatch, a profile that has never worked | No retry | The requester or the profile's author |
 | `auth` | 401, 403, expired or revoked credential, failed token refresh | At most one token refresh, then stop | [Credential assessment](#5-credential-failures-are-a-security-question-first) |
-| `policy` | a Host denial, a profile refusal, a guardrail or flow rule | Never retried | Not an operational failure; repeated attempts are already a signal under [adaptive limits](adaptive-limits.md) |
+| `policy` | Orca denial, a profile refusal, a guardrail or flow rule | Never retried | Not an operational failure; repeated attempts are already a signal under [adaptive limits](adaptive-limits.md) |
 | `unknown_outcome` | interrupted on a tool that is not idempotent | Never retried | A person checks whether the effect happened |
 | `bug` | an unexpected exception in a module | No retry | The module's owner |
 
@@ -73,7 +73,7 @@ as a tool result.
 
 Three layers can fail, and each keeps its own count:
 
-1. **An action:** one tool call. The Host retries `transient` failures itself.
+1. **An action:** one tool call. Orca retries `transient` failures itself.
 2. **A run:** one agent's attempt at a work item. It ends in done, failed, handed back, budget used up, or a lost lease.
 3. **A wait:** a continuation waiting on an action, a timer, an external check or another item.
 
@@ -85,20 +85,20 @@ Three retries at each layer would mean up to 27 calls against the same broken sy
   that crashes every agent that claims it (a poison item) reopens for ever. Proposed default: 3 runs.
 - **Every item and continuation has a deadline** (its `ttl`) that caps everything beneath it, however the retries are counted.
 - **A wait that times out or comes back failed** wakes the continuation with that outcome; it is the resumed agent's input, not a
-  retry by the Host.
+  retry by Orca.
 
 ### 3. Pause the route, not every item
 
 Every failure gets a **fingerprint**: tool, kind, code, and the credential or module it went through. When failures with one
-fingerprint pass a threshold in a window, the Host opens a **circuit** on that route:
+fingerprint pass a threshold in a window, Orca opens a **circuit** on that route:
 
 - calls on that route are refused at once as `environment` (or `auth`) with the circuit's reason, instead of each failing slowly;
 - **one incident** is raised for the fingerprint, not one per item: 200 items failing on a full disk are one ticket;
 - items waiting on the route are **held**, not killed, and do not use up their attempts while held;
-- after a cool-down the Host lets **one probe call** through (the half-open state). If it succeeds, the circuit closes and held
+- after a cool-down Orca lets **one probe call** through (the half-open state). If it succeeds, the circuit closes and held
   items carry on; if not, the cool-down grows. Provider outages heal this way with no person involved.
 
-The probe is an ordinary call by a held item, under that item's requester, through policy as usual. The Host never invents calls.
+The probe is an ordinary call by a held item, under that item's requester, through policy as usual. Orca never invents calls.
 
 **Held items are released gradually,** not all at once onto a system that has only just recovered: a few first, more as they
 succeed, back to holding if failures return. Items whose deadline passed while held are not released; they end as `expired`.
@@ -107,14 +107,14 @@ succeed, back to holding if failures return. Items whose deadline passed while h
 second hidden behind the first. Operators can split a group (by a field of the error, by identity, by time), and a split group
 gets its own incident.
 
-**Circuits are per process at first,** like the capacity limits: several Host instances each open their own circuit and send their
+**Circuits are per process at first,** like the capacity limits: several Orca instances each open their own circuit and send their
 own probe. That is acceptable for small deployments and stated so; a shared circuit needs the shared store that several instances
 already use for actions.
 
 ### 4. Dead items go to inspection, with the evidence attached
 
 When an item runs out of attempts, passes its deadline, or fails in a kind that is never retried, it becomes **dead**, and the
-Host does two things.
+Orca does two things.
 
 **It collects the evidence at that moment,** from its own records, not from the agent:
 
@@ -131,26 +131,26 @@ Host does two things.
 
 - it carries the labels of everything it copies, and is kept and shown under the same retention and access rules as the action
   records it was taken from; it is purged with them;
-- **a ticket is a data exit.** Whatever goes into a ServiceNow or Jira ticket leaves the Host, so ticket creation passes the
+- **a ticket is a data exit.** Whatever goes into a ServiceNow or Jira ticket leaves Orca, so ticket creation passes the
   [data-flow](data-flow.md) rules like any other outbound write; by default a ticket carries the fingerprint, the kind, counts and
   a link to the inspection item, not arguments or results.
 
 **It creates an inspection item** for the inspector profile (below), carrying the evidence and the fingerprint. Inspection is a
-work item like any other, which reuses the inbox, leases, ttl and audit, and keeps the Host from calling a model.
+work item like any other, which reuses the inbox, leases, ttl and audit, and keeps Orca from calling a model.
 
 **By default an agent inspects,** a different one from the agent that failed, holding the inspector profile (owner, 2026-10-18).
 People can always work an inspection item from the review page or CLI, and one that no inspector claims within a set time (proposed
 1 hour), or that its inspector hands back, goes to the operators' group.
 
 **The inspector wears a security hat.** It is not a fixer looking for the quickest way to green; it examines evidence on the
-assumption that the failure may be hostile until the evidence says otherwise. The Host cannot set a model's attitude, but it sets
+assumption that the failure may be hostile until the evidence says otherwise. Orca cannot set a model's attitude, but it sets
 everything around it:
 
 - the inspector profile's server instructions and skill say so: outside error text may be an attack; when unsure, the answer is
   `unclear`, not `expected`; a ticket is preferred to a remedy; the job is to explain, not to make the item pass;
-- the profile itself holds only read tools on the Host's records, ticketing, and remedy tools that always queue (below), so a less
+- the profile itself holds only read tools on Orca's records, ticketing, and remedy tools that always queue (below), so a less
   cautious model has nothing more to reach for;
-- its findings are checked against the Host's own rule-based assessment: where the inspector calls a failure expected and the rules
+- its findings are checked against Orca's own rule-based assessment: where the inspector calls a failure expected and the rules
   call it suspicious, the rules win and the disagreement is shown to the approver.
 
 **Inspection never inspects itself.** An inspection item that fails, expires or is handed back goes to the operators' group. It
@@ -158,11 +158,11 @@ never creates another inspection item, so a failing inspector cannot start a loo
 
 ### 5. Inspection proposes; it does not perform
 
-Looking into a failure is diagnosis. Putting things right is a separate step through the approvals the Host already has.
+Looking into a failure is diagnosis. Putting things right is a separate step through the approvals Orca already has.
 
 **The inspector profile may:**
 
-- read the Host's own records: audit, action history, the evidence bundle, metrics;
+- read Orca's own records: audit, action history, the evidence bundle, metrics;
 - write findings on the inspection item;
 - raise a ticket through a ticketing profile (ServiceNow, Jira), under that profile's own policy;
 - **propose** a remedy by calling a remedy tool: `redrive_work`, `access.request`, "rotate this credential" (a request to the
@@ -172,7 +172,7 @@ Looking into a failure is diagnosis. Putting things right is a separate step thr
 **It may not:**
 
 - approve anything, its own proposals included: the inspector's identity is never an approver;
-- hold, read or change secrets (the Host never gives agents secrets);
+- hold, read or change secrets (Orca never gives agents secrets);
 - call the failed tool or the business system behind it to "test" a fix; probing is the circuit's job.
 
 **Separation of duties:** the identity that failed never inspects its own failure, and never approves its own redrive. This is the
@@ -184,7 +184,7 @@ proposes is reviewed with that taint shown.
 ### 6. Credential failures are a security question first
 
 An `auth` failure is never given an automatic green light, and never an automatic red one. The inspection item carries an
-**assessment**, made by Host rules from facts it already has, with the evidence for each:
+**assessment**, made by Orca rules from facts it already has, with the evidence for each:
 
 **Points to expected:**
 
@@ -215,9 +215,9 @@ Most failures never reach inspection: transient retries succeed, and paused rout
 
 | Kind | Who fixes the cause | How the work resumes |
 |---|---|---|
-| `environment` | Ops, through the ticket | The inspection item waits on the ticket ([external wait](work-and-continuations.md#external-waits)). When the ticket closes, the Host proposes a redrive of every item with that fingerprint. |
+| `environment` | Ops, through the ticket | The inspection item waits on the ticket ([external wait](work-and-continuations.md#external-waits)). When the ticket closes, Orca proposes a redrive of every item with that fingerprint. |
 | `contract` | The requester, or the profile's author | A profile fix is an audited change, then redrive is proposed; or the requester submits a corrected item. |
-| `auth`, expected | The credential's owner rotates it or consents again | The Host sees the credential change in the audit trail and proposes a redrive. |
+| `auth`, expected | The credential's owner rotates it or consents again | Orca sees the credential change in the audit trail and proposes a redrive. |
 | `auth`, suspicious | Security decides first | Redrive only after security clears it, with two approvals. |
 | `unknown_outcome` | A person checks the target system | They mark it happened (the item completes) or did not (redrive). |
 | `bug` | The module's owner ships a fix | Redrive after the deploy. |
@@ -244,8 +244,8 @@ whether the waiting work still makes sense; a disk being cleared does not mean l
   requesters and anything waiting on them are told, and an operator can still redrive any of them by hand.
 - **The steer can only hold back, never widen.** It switches off an automatic redrive that the rules above would allow; it cannot
   make one happen for `auth`, `unknown_outcome` or anything else outside them. Ticket text is outside content.
-- **Only a person's closure counts.** If the ticket was closed through OpenTail by an agent (the Host sees its own calls to the
-  ticketing tools), there is no automatic redrive; the items wait for one approval. The Host cannot see a closure made by the
+- **Only a person's closure counts.** If the ticket was closed through OpenTail by an agent (Orca sees its own calls to the
+  ticketing tools), there is no automatic redrive; the items wait for one approval. Orca cannot see a closure made by the
   ticket system's own automation, which looks like a person's. The risk is accepted: the steer can only hold back, and the only
   automatic redrive is `environment`, released gradually and checked again.
 
@@ -254,7 +254,7 @@ are told why. What is not allowed is failing quietly or waiting for ever.
 
 ### What a redrive does
 
-**A failed action:** the Host runs the stored call again: same tool, arguments and requester, as `Retry` does today. No agent and
+**A failed action:** Orca runs the stored call again: same tool, arguments and requester, as `Retry` does today. No agent and
 no model take part. Policy, profile, level and grants are checked again for the requester at that moment, so a key suspended in the
 meantime stops it.
 
@@ -274,7 +274,7 @@ The new run starts with a fresh context and reads the thread note and the inspec
   approval as delegating to that profile under `MayDelegateTo`.
 - **On a suspicious redrive the thread note does not go along by default.** A possibly compromised agent wrote it, and handing it to
   a fresh agent could carry an injection over. The approver chooses: drop it, keep it, or attach only the inspector's findings
-  (assembled by the Host from its own records).
+  (assembled by Orca from its own records).
 - **Labels and taint travel with the item** ([rule 1](work-and-continuations.md#rules-that-make-it-hold)), whoever claims it.
 
 ### Partial work, and failure travelling up
@@ -289,14 +289,14 @@ The new run starts with a fresh context and reads the thread note and the inspec
 
 ## Rules that make it hold
 
-1. **The module says what went wrong; the Host decides what to do.** Kinds come from the module; retry, pause and escalation are
-   Host policy.
+1. **The module says what went wrong; Orca decides what to do.** Kinds come from the module; retry, pause and escalation are
+   Orca policy.
 2. **Only transient failures of idempotent tools retry automatically,** and only at the action layer.
 3. **Every attempt counts,** lost leases included, and every item has a deadline above all counts.
 4. **One incident per fingerprint,** not one per item.
 5. **Inspection proposes, people approve.** No inspector identity approves, and the identity that failed neither inspects nor
    approves its own redrive. The one automatic redrive (`environment`, ticket closed by a person, probe succeeded) rests on a
-   person's closing of the ticket and the Host's own probe, never on an agent's say-so.
+   person's closing of the ticket and Orca's own probe, never on an agent's say-so.
 6. **Nothing is retried to get past a refusal.** `auth` and `policy` failures are never retried automatically, and the failing agent
    cannot request access around them.
 7. **Everything is checked again on redrive,** for whoever runs it.
@@ -312,9 +312,9 @@ The new run starts with a fresh context and reads the thread note and the inspec
 - **Adaptive limits:** fingerprints and circuits use the same counters; a suspicious credential assessment is a soft signal; many
   failures of kind `policy` from one identity already are.
 - **Temporary access:** `access.request` is a remedy an inspector may propose, never one a failing agent files for itself.
-- **MCP Tasks:** a failed action is `completed` with `isError: true` and its kind in the result; `failed` stays for the Host's own
+- **MCP Tasks:** a failed action is `completed` with `isError: true` and its kind in the result; `failed` stays for Orca's own
   errors.
-- **Roles and permissions:** the inspector is a profile like any other, with read tools on the Host's records and the remedy tools,
+- **Roles and permissions:** the inspector is a profile like any other, with read tools on Orca's records and the remedy tools,
   all of which queue.
 
 ## Metrics to record
@@ -347,12 +347,12 @@ retargeted, abandoned); time from dead to redrive; credential assessments by res
    tainted (error text is outside content), for `Work.InspectorProfile` with the failing identities excluded; unclaimed after 1 hour
    (provisional) or failed, it goes to the operators (`people:operators`) and never opens another inspection; parents wake with
    `stalled`; `work.redrive` (held to Queue, Human, SelfApproval Forbid at load) and `--redrive` with `--for`, `--exclude-failed`,
-   `--drop-note`, attaching the findings. Not built: the evidence's credential facts (the Host does not see when a module's
+   `--drop-note`, attaching the findings. Not built: the evidence's credential facts (Orca does not see when a module's
    credential last succeeded or was rotated), the automatic redrive after a closed ticket and the steer (they need a ticketing
    integration), retargeting checks against `MayDelegateTo` (a person approves every redrive), and inspections of actions outside
    work items.*
 4. **The inspector profile, credential assessment and remedy tools.** *Built 2026-10-18, in part: `CredentialAssessment` reads
-   the Host's facts into expected, unclear or suspicious with the evidence for each (suspicion wins), carried in the inspection's
+   Orca's facts into expected, unclear or suspicious with the evidence for each (suspicion wins), carried in the inspection's
    evidence; suspicious results are audited (`credential.suspicious`) and raise a soft signal through identity levels, report only
    by default (the owner's open question; provisional answer: the same report-only default as the other soft signals); the remedy
    tools `work.redrive` and `work.request_rotation` are held to Queue, Human, SelfApproval Forbid at load; the inspection's goal
@@ -362,7 +362,7 @@ retargeted, abandoned); time from dead to redrive; credential assessments by res
 
 **Build step 1 now and let its data decide the rest.** Failure kinds are cheap and useful today. The metrics they produce show what
 actually fails, how often and in which groups, which is what circuits and inspection should be tuned on. The inspector agent comes
-last: for most dead items the evidence bundle and the Host's rule-based assessment already tell the story, and the agent adds a
+last: for most dead items the evidence bundle and Orca's rule-based assessment already tell the story, and the agent adds a
 written account and a ticket draft. Build it when the evidence alone has proved not to be enough.
 
 ## Decisions
