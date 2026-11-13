@@ -1,14 +1,24 @@
 # Reviewer gate: the plan for AI reviewers on Orca
 
-Status: **the one plan for Orca's reviewer gate.** It merges the earlier gate proposal (2026-11-13) with `docs/MCP-HOST-V6-PLAN.md`, which is now a pointer to this file. It has been revised against an external review of the merged draft (section 13). Phase R1 of V6 is done; everything else is proposed and nothing else is built (section 8). Owner decisions are in section 9, and three of them block implementation (section 0). Line numbers are from reads on 2026-11-13. Section numbers are kept, because other documents cite them.
+Status: **the one plan for Orca's reviewer gate, version 3 (2026-11-13).** It merges the gate proposal with `docs/MCP-HOST-V6-PLAN.md`, which is now a pointer to this file. Version 3 answers a second external review of version 2 (section 13). Phase R1 of V6 is done. Everything else is proposed and nothing else is built (section 8). Owner decisions are in section 9. Section 0 lists what must be settled before any implementation starts.
 
-## 0. The three questions that must be settled first
+**Repository and paths.** This plan lives in `OpenTail.Orca`, the renamed Host (`opentail-host`, still public and unchanged). Code paths are written as they are in `OpenTail.Orca`, for example `OpenTail.Orca/Runtime/ReviewerRunner.cs`. Line numbers were read on 2026-11-13 in the old repo at `4937917`; the rename changed names, not structure, so the lines match.
 
-The external review asked three questions, and implementation should not start until they are answered. The answers below are this plan's recommendations. The owner confirms them in section 9.
+## 0. What must be settled before implementation
 
-1. **What can an AI reviewer reject, including actions configured as Human-only?** Any action the AI is *assigned* to, when the policy allows AI refusals (`AiMayRefuse`, D-21). An AI may never approve a Human-only action, and never approve a reviewer-group action. A refusal and an approval are two separate authorities, and this plan treats them that way (5.4).
-2. **What distinguishes the five verdicts?** For the first release: yes now (approve), no now (refuse), and yes with undo (approve after a window). "No with undo" is deferred, and so is "no and block the sender", which needs a human to confirm it (5.3). Each scheduled outcome is typed, so a rejection can never run as an approval (5.3, 5.6).
-3. **How is an AI reviewer restricted to exactly the actions it may review?** Each AI reviewer is a named identity with an explicit list of assigned policies or tools. It can list, read and decide only assigned actions. Several named reviewers are allowed, each with its own assignment (5.2, D-20).
+The first review asked three questions. Version 3 answers them, and the second review added blocking requirements. Each answer is this plan's recommendation until the owner confirms it in section 9.
+
+1. **What can an AI reviewer refuse, including Human-only actions?** Any action it is assigned to, when the policy allows refusals (`AiMayRefuse`, D-21). Refusal crosses the Human-only boundary and the reviewer-group boundary (D-26). Approval never does. Approval is always subject to every existing check: Human-only, reviewer group, taint, risk ceiling, budget and four eyes.
+2. **What distinguishes the five verdicts?** For the first release: yes now (approve), no now (refuse), and yes with undo (approve, then a scheduled run). "No with undo" is deferred, and so is "no and block the sender", which needs a human to confirm it. Each scheduled outcome is typed, so a rejection can never run as an approval.
+3. **How is an AI reviewer restricted to exactly its assigned actions?** Each AI reviewer is a named identity with an explicit assignment. Assignment is enforced at three boundaries: list and read, the queue decision itself, and the in-process runner. Filtering a list is not enough (5.2).
+
+**Blocking requirements the second review added:**
+- the in-process runner must offer refusal-capable reviewers the Human-only actions they are assigned (`OpenTail.Orca/Runtime/ReviewerRunner.cs:35` excludes them today);
+- assignment is enforced in the queue, not only in the list endpoint;
+- refusal budgets use the same atomic accounting as approval budgets;
+- an approved, delayed action can never bypass its delay, including through the final human approval;
+- the policy recheck runs inside the claim transaction, not before it (F18);
+- an `unknown_outcome` is never retried, by anyone, through any route.
 
 ## 1. What is asked, and the premise
 
@@ -19,28 +29,30 @@ The external review asked three questions, and implementation should not start u
 3. retrying, slicing and side doors do not pay;
 4. how often the reviewer is wrong is measured against people, continuously, and it loses its authority when it slips.
 
+**An AI approval is delegated authority, not human oversight.** Records, screens and documents must say so. An approval by an AI is recorded and shown as an AI decision, with the reviewer's identity, model and prompt version (D-29). It is never shown as a person's decision.
+
 **What the owner asks (2026-11-13).**
 - One reviewer gate for every tool and every channel (MCP, A2A, and any later channel). Agreed in principle.
 - AI reviewers may decide actions, within limits. The owner chooses, per action, whether to approve directly or to oversee the AI.
-- Five verdicts for an AI reviewer: yes now, yes with undo, no now, no with undo, and no and block the sender. Section 0 says which ones ship first.
+- Five verdicts for an AI reviewer: yes now, yes with undo, no now, no with undo, and no and block the sender. Section 0 says which ship first.
 - The owner's time is the scarce resource. Approval by a person should be the exception, not each step.
 
-**The one tension to settle.** V6 puts measurement before authority: shadow mode, then sampling, then demotion. The owner's stated view is "AI saves time" and "I am not training AI". Decision D-9 settles this.
+**The tension to settle.** V6 puts measurement before authority: shadow mode, then sampling, then demotion. The owner's stated view is "AI saves time", and "I am not training AI". Decision D-9 settles this.
 
-**Scope.** Orca's reviewer gate. The Teams bot's own behaviour, the pair of sessions and the A2A kit are out of scope, except where they touch the gate.
+**Scope.** The Orca reviewer gate. The Teams bot's own behaviour, the pair of sessions and the A2A kit are out of scope, except where they touch the gate.
 
 ## 2. Contracts this must satisfy
 
 | # | Member | Where | Promise | Who relies on it |
 |---|---|---|---|---|
 | 1 | `ReviewAuthority.Check(r, decision, subject, groups, people)` | `OpenTail.Orca/Policy/ReviewAuthority.cs:52-80` | Says who may make this decision. Refuses an AI on a Human-only action (57-59), **whatever the decision**. Refuses an AI on a group action (61-63), **whatever the decision**. Refuses a non-member of the group (64). Refuses self-approval under `Forbid` (67-74). Refuses an unknown identity on a several-approver action (76-77). | `ActionQueue.ReviewAsync`, before any state change |
-| 2 | `AiReviewRules.Check(r, decision, risk, editsArguments, history)` | `OpenTail.Orca/Policy/AiReviewRules.cs:22-48` | The AI limits. Pure. Order: destructive, risk ceiling, taint, refusals, then edits, four eyes and budget for approvals. The ceiling and taint apply to **refusals too** (27-32). | `ActionQueue.AiVerdictAsync`; `ReviewerRunner` |
+| 2 | `AiReviewRules.Check(r, decision, risk, editsArguments, history)` | `OpenTail.Orca/Policy/AiReviewRules.cs:22-48` | The AI limits. Pure. An early Destructive check (27-28) applies to **every** decision. Then the ceiling (29-30) and the taint rule (31-32), which apply to refusals as well. Then refusals (34-36). Then edits, four eyes and budget, for approvals only. | `ActionQueue.AiVerdictAsync`; `ReviewerRunner` |
 | 3 | `AiReviewRules.IsAiRefusal`, `IsAiApproval` | `AiReviewRules.cs:60-64` | Which past reviews count as AI refusals and AI approvals. `Retry` counts as an approval. | `AiHistoryAsync` |
-| 4 | `ActionQueue.ReviewAsync(actionId, review)` | `OpenTail.Orca/Runtime/ActionQueue.cs`, from about line 360 | The only path that changes an action's decision. Stamps edit digests, runs `ReviewAuthority` and then the AI check, then switches on the decision. The Retry branch (497-501) does **not** check `Retryable` or the failure kind (F14). | `AdminServer` `/actions/{id}/review` (`AdminServer.cs:241`, which accepts `retry`, 260); `TeamsBot.cs:281`; `ReviewerRunner.cs:60` |
-| 5 | `ActionQueue.AiVerdictAsync`, `AiHistoryAsync` | `ActionQueue.cs:529-560` | Adds store history to `AiReviewRules.Check`: refusals up the `ParentActionId` chain, and approvals inside the `AiBudget` window. | `ReviewAsync`; `ReviewerRunner` |
-| 6 | `ActionQueue.StopAsync`, `RunDueDelayedAsync`, `ExpireDueAsync` | `ActionQueue.cs` around 596-660 | A delayed action is `Pending` with `RunAt`. `RunDueDelayedAsync` computes the late allowance as `RunAt - CreatedAt` (about line 608), moves the action to Approved and calls `ClaimAndRunAsync` (about 624). Stop is open to the requester or the reviewer group. | Scheduler; `AdminServer` `/actions/{id}/stop` (`AdminServer.cs:307`) |
+| 4 | `ActionQueue.ReviewAsync(actionId, review)` | `OpenTail.Orca/Runtime/ActionQueue.cs`, from about line 360 | The only path that changes an action's decision. Stamps edit digests, runs `ReviewAuthority`, then the AI check, then switches on the decision. The Approve case calls `ExecuteAsync` at once when quorum is reached (F4). The Retry branch (about 497-501) checks neither `Retryable` nor the failure kind (F14). The Reject branch calls `levels.RejectedAsync` and the trust demotion for AI-session requesters (F19). | `AdminServer` `/actions/{id}/review` (`OpenTail.Orca/Admin/AdminServer.cs:241`, which accepts `retry`, 260); `TeamsBot.cs:281`; `ReviewerRunner.cs:60` |
+| 5 | `ActionQueue.AiVerdictAsync`, `AiHistoryAsync` | `ActionQueue.cs:529-560` | Adds store history to `AiReviewRules.Check`: refusals up the `ParentActionId` chain, and approvals inside the `AiBudget` window. The count is taken before the decision is written (F8). | `ReviewAsync`; `ReviewerRunner` |
+| 6 | `ActionQueue.StopAsync`, `RunDueDelayedAsync`, `ExpireDueAsync` | `ActionQueue.cs` around 596-660 | A delayed action is `Pending` with `RunAt`. `RunDueDelayedAsync` computes the late allowance as `RunAt - CreatedAt` (about 608), moves the action to Approved and calls `ClaimAndRunAsync` (about 624). It does not check suspension. Stop is open to the requester or the reviewer group. | Scheduler; `AdminServer` `/actions/{id}/stop` (`AdminServer.cs:307`) |
 | 7 | `IReviewer` | `OpenTail.Orca.Abstractions/Actions/Interfaces.cs:124-128` | `Name`, and `ReviewAsync(action)` returning a review or null (abstain). | `ReviewerRunner` only. The only implementation in the projects read is `DelegateReviewer` (`ReviewerRunner.cs:13`). |
-| 8 | `ReviewerRunner.RunOnceAsync` | `OpenTail.Orca/Runtime/ReviewerRunner.cs:28-62` | Offers only actions whose snapshot says `Ai` or `Either` (35) and that `AiVerdictAsync` allows (36). Stamps the identity as `ai:<name>` (54), and the input hash. Audits `ai_review`. | Runs in-process only |
+| 8 | `ReviewerRunner.RunOnceAsync` | `OpenTail.Orca/Runtime/ReviewerRunner.cs:28-62` | Line 35 offers only actions whose snapshot says `Ai` or `Either`, so every Human-only action is excluded before any reviewer sees it (F17). Line 36 asks `AiVerdictAsync` with `Reject`. Stamps the identity as `ai:<name>` (54), and the input hash. Audits `ai_review`. | Runs in-process only |
 | 9 | `Subjects.Ai`, `Subjects.IsAi` | `OpenTail.Orca.Abstractions/Identity/CallerIdentity.cs:28-38` | `ai:<name>` is the AI subject. `IsAi` is the prefix test the rules use. | Every AI rule |
 | 10 | HTTP reviewer identity | `AdminServer.cs:141-160`, roles at `AdminServer.cs:51-60` | A reviewer token yields `admin:<name>` (155-157). Roles are `opentail.review`, `opentail.admin` and `group:*`. No HTTP credential yields `ai:`. | The review endpoint |
 | 11 | `ToolPolicy` defaults | `OpenTail.Orca.Abstractions/Policy/ToolPolicy.cs` | `Reviewer` Human (46). `RequiredApprovals` 1 (55). `SelfApproval` Allow (57). `DefaultDelay` 10 minutes (71). `AiMaxRisk` null, which means Write (90, and `AiReviewRules.cs:16`). `AiMaxRejections` 2 (93). `AiBudget` null (96). | Everything above |
@@ -48,12 +60,12 @@ The external review asked three questions, and implementation should not start u
 | 13 | `PolicyResolver` delays | `OpenTail.Orca/Policy/PolicyResolver.cs:196-206` | A rule's delay or a trust ramp's delay is applied to Execute decisions. | `ActionQueue` |
 | 14 | A2A startup checks | `OpenTail.Orca.A2A/A2AFrontDoor.cs:56-84`, warning at 133-134 | The reply must be Human, Queue or Deny, with no edits, no Execute rule and no non-Human rule (68-79). An Execute submit gets a warning. **There is no reviewer check on the submit.** | Startup |
 | 15 | A2A tool risks | `OpenTail.Orca.A2A/A2ASubmitModule.cs:28, 35` | `a2a.submit` is Write. `a2a.reply` is ExternalEffect. | Both gates |
-| 16 | Teams chat decisions | `OpenTail.Orca.Http/Teams/TeamsBot.cs:223, 366-374` | A chat decision is allowed up to `ChatMaxRisk` (default ExternalEffect). Its subject is `teams:<id>`, a human. | The human path; must stay |
+| 16 | Teams chat decisions | `OpenTail.Orca.Http/Teams/TeamsBot.cs:223, 366-379` | A chat decision is allowed up to `ChatMaxRisk` (default ExternalEffect). With `ApprovePartnerRepliesInChat` off, an Approve on a partner reply is refused (`ChatMayApprove`, 379). Its subject is `teams:<id>`, a human. | The human path; must stay |
 | 17 | One queue for every channel | `OpenTail.Orca/Mcp/QueuedToolFunction.cs`; `OpenTail.Orca.A2A/A2ARequestHandler.cs`, `A2ASubmitModule.cs`, `A2AWork.cs` | MCP and A2A calls both reach the queue. | Channel parity (5.1) |
-| 18 | `ActionExecutor.ClaimAndRunAsync` and `RecheckRefusal` | `OpenTail.Orca/Runtime/ActionExecutor.cs:394` and `:400-443` | Every run, delayed or approved, goes through `ClaimAndRunAsync`, which calls `RecheckRefusal` (the only call site, 400). The recheck compares the policy hash and the binding digest. Whether it also checks suspension is **not verified**. | Delayed runs, approved runs |
-| 19 | **Planned:** `ModelReviewer : IReviewer` over `Microsoft.Extensions.AI`'s `IChatClient` | V6 R2; not built | An in-process reviewer. Orca depends only on the abstractions (V6 section 4, R2). | Route A (5.2) |
+| 18 | `ActionExecutor.ClaimAndRunAsync` and `RecheckRefusal` | `OpenTail.Orca/Runtime/ActionExecutor.cs:394` and `:400-443` | Every run, delayed or approved, goes through `ClaimAndRunAsync`. It calls `RecheckRefusal` (the only call site, 400) **before** the claim transaction (`ChangeAdmittedAsync`, Approved to Executing). The recheck compares the policy hash and the binding digest. Whether it checks suspension is **not verified**. | Delayed runs, approved runs |
+| 19 | **Planned:** `ModelReviewer : IReviewer` over `Microsoft.Extensions.AI`'s `IChatClient` | V6 R2; not built | An in-process reviewer. The Host depends only on the abstractions (V6 section 4, R2). | Route A (5.2) |
 | 20 | **Planned:** `AiReviewer` section in `http.json` | V6 R2; not built | Provider, endpoint, model, the name of the environment variable holding the key, poll interval and timeout. The key never appears in the file. | Deployment |
-| 21 | **Planned:** AI reviewer assignment, `AiMayRefuse`, `AiRefusalBudget`, `ApproveDelay`, scheduled outcome | this plan, 5.2 to 5.6; not built | See those sections. Names are proposals. | Route B and the verdicts |
+| 21 | **Planned:** assignments, `AiMayRefuse`, `AiRefusalBudget`, `ApproveDelay`, typed scheduled outcome | this plan, 5.2 to 5.6; not built | See those sections. Names are proposals. | Route B and the verdicts |
 
 ## 3. Existing behaviour, branch by branch
 
@@ -69,16 +81,16 @@ The external review asked three questions, and implementation should not start u
 | A6 | `RequiredApprovals > 1`, subject unknown | Refused | `review_refused` |
 | A7 | Otherwise | Allowed | none here |
 
-**Reviewer modes, as the code enforces them (F15).** Human-policy with a human: allowed. Human-policy with an AI: refused (A1). `Ai`-policy with a human: allowed (no row refuses it). `Ai`-policy with an AI: allowed. `Either`: the same as `Ai`. So `Ai` and `Either` behave identically today, and humans can always decide an `Ai` action.
+**Reviewer modes, as the code enforces them (F15).** Human-policy with a human: allowed. Human-policy with an AI: refused (A1). `Ai`-policy with a human: allowed. `Ai`-policy with an AI: allowed. `Either`: the same as `Ai`. So `Ai` and `Either` behave identically today, and humans can always decide an `Ai` action.
 
 ### Table B: `AiReviewRules.Check` (order matters; the first refusal wins)
 
-| Row | Condition | Result, for any decision unless noted |
+| Row | Condition | Result |
 |---|---|---|
-| B1 | Effective risk Destructive, or the tool is no longer loaded | Refused |
-| B2 | Risk above the ceiling (`AiMaxRisk`, default Write) | Refused, **including reject** (V6 R1: intended; see F3) |
-| B3 | Action tainted and risk ExternalEffect | Refused, **including reject** (V6 R1: intended; see F2) |
-| B4 | Refusals in the chain at or above `AiMaxRejections` (default 2; 0 turns it off) | Refused, **including reject** |
+| B1 | Effective risk Destructive, or the tool is no longer loaded | Refused, **any decision** (the early check applies to refusals too; see F20) |
+| B2 | Risk above the ceiling (`AiMaxRisk`, default Write) | Refused, **any decision**, including reject (F3) |
+| B3 | Action tainted and risk ExternalEffect | Refused, **any decision**, including reject (F2) |
+| B4 | Refusals in the chain at or above `AiMaxRejections` (default 2; 0 turns it off) | Refused, **any decision**, including reject |
 | B5 | Approve or Retry with edited arguments | Refused |
 | B6 | Approve or Retry, `SelfApproval = Forbid` | Refused |
 | B7 | Approve or Retry, `AiBudget` used up in its window | Refused |
@@ -92,9 +104,9 @@ The external review asked three questions, and implementation should not start u
 | C2 | Approve with edits, tool has `AllowEdits: false` | Refused: `edit_refused` |
 | C3 | Approve with edits that hit a Deny rule | Refused: `edit_refused` |
 | C4 | Approve, approvals still short of `RequiredApprovals` | Recorded. Stays Pending. |
-| C5 | Approve, enough approvals | Approved, then `ExecuteAsync` **at once**. No delay on this path. |
+| C5 | Approve, enough approvals | Approved, then `ExecuteAsync` **at once**. No delay on this path (F4, F21). |
 | C6 | Retry | Failed becomes Approved and runs again at once. **No check of `Retryable` or the failure kind** (F14). |
-| C7 | Reject | Rejected, resolved as Denied. Trust is demoted if it had failed. An AI session's requester is recorded with `levels`. |
+| C7 | Reject | Rejected, resolved as Denied. Trust is demoted if it had failed. An AI session's requester is recorded with `levels` (F19). |
 | C8 | RequestChanges | ChangesRequested |
 
 ### Table D: delayed execution
@@ -121,15 +133,15 @@ Each was verified in the code cited, except where marked.
 
 **F3. The ceiling also stops AI refusals.** Row B2 applies to any decision. V6 intends this ("not even reject"). D-3.
 
-**F4. "Yes, with undo" has no path for queued approvals.** The undo window applies to Execute rules only (`PolicyConfig.cs:217, 247`; `docs/design/undo-window.md`). An approved queued action runs at once (C5). 5.3, 5.6.
+**F4. "Yes, with undo" has no path for queued approvals.** The undo window applies to Execute rules only (`PolicyConfig.cs:217, 247`; `docs/design/undo-window.md`). The Approve case runs the action at once when quorum is reached (C5, F21). 5.3, 5.6.
 
-**F5. "No, with undo" has no safe path.** A rejection is final at once (C7). A delayed rejection cannot reuse the delayed-run path, because `RunDueDelayedAsync` executes whatever is due: it approves and runs the action (verified; see F12 and 5.3). It is deferred (section 6, P4).
+**F5. "No, with undo" has no safe path.** A rejection is final at once (C7). A delayed rejection cannot reuse the delayed-run path, because `RunDueDelayedAsync` executes whatever is due: it approves and runs the action (verified). It is deferred (section 6, P4).
 
 **F6. "No and block the sender" has no AI path.** Suspension is a human command (`--suspend`, in `OPERATIONS.md`) and an automatic level (`--levels`). An AI block would be new authority. 5.3, D-4, D-22.
 
 **F7. The A2A submit pin is not in code.** The design says `a2a.submit` is `Reviewer: Human` (`docs/design/a2a.md:62`). `A2AFrontDoor.cs` checks only the reply (70-79). The submit gets only a warning for Execute (133-134). Fix in P0, with a regression test (5.5).
 
-**F8. The AI budget is not atomic.** `AiHistoryAsync` counts approvals before the decision is written. V6 R1 records the same fact and accepts one runner per Orca as the supported shape. Nothing enforces that shape. Multiple Orca processes would race on the same budget. 5.8, D-11.
+**F8. The AI budget is not atomic.** `AiHistoryAsync` counts approvals before the decision is written. V6 R1 records the same fact and accepts one runner per Host as the supported shape. Nothing enforces that shape. Multiple processes would race on the same budget. The same applies to refusal budgets (F23). 5.8, D-11.
 
 **F9. A missing policy snapshot falls back to defaults.** `AiReviewRules` treats a null policy as the defaults: ceiling Write, two refusals, no four eyes. `ReviewAuthority` guards on `policy is not null`. Whether a queued action can have a null `PolicySnapshot` is **not verified**. It matters at creation and also for an existing action an AI reviews. 5.9.
 
@@ -137,21 +149,35 @@ Each was verified in the code cited, except where marked.
 
 **F11. A retry of an interrupted action appears unguarded.** The recovery path marks an interrupted run as Failed and retryable, and retries it automatically only if the tool is idempotent by key (`ActionExecutor.cs:197-236`). The Retry branch (`ActionQueue.cs:497-501`) does not check that. **Read from code; not reproduced.** 5.9.
 
-**F12. ReviewAuthority blocks AI refusals before AiReviewRules is consulted.** Row A1 and row A2 refuse an AI on Human-only and group actions, whatever the decision. So any change to `AiReviewRules` alone cannot let an AI refuse a Human-only action. The external review is right. 5.4 changes both.
+**F12. ReviewAuthority blocks AI refusals before AiReviewRules is consulted.** Rows A1 and A2 refuse an AI on Human-only and group actions, whatever the decision. So any change to `AiReviewRules` alone cannot let an AI refuse a Human-only action. 5.4 changes both.
 
-**F13. The late allowance uses `CreatedAt`, not the start of the delay.** `RunDueDelayedAsync` uses `RunAt - CreatedAt` (about `ActionQueue.cs:608`). For a queued action approved after hours, the allowance is hours. The review is right. The delay start and duration must be stored separately. 5.6.
+**F13. The late allowance uses `CreatedAt`, not the start of the delay.** `RunDueDelayedAsync` uses `RunAt - CreatedAt` (about 608). For a queued action approved after hours, the allowance is hours. The delay start and duration must be stored separately. 5.6.
 
-**F14. The Retry path does not check retryability, and the HTTP endpoint accepts a retry.** The HTTP review endpoint maps `retry` to `ReviewDecision.Retry` (`AdminServer.cs:260`). The queue's Retry branch (497-501) moves a Failed action to Approved and runs it, with no check of `Retryable` or the failure kind. The review page may hide the button, but the endpoint does not enforce that. **Read from code; not reproduced.** The failures design says only a reviewer retries, and an unknown outcome is never retried (`docs/design/failures-and-inspection.md`, lines 20-21, 49). The queue must enforce that, not the page. 5.9.
+**F14. The Retry path does not check retryability, and the HTTP endpoint accepts a retry.** The HTTP review endpoint maps `retry` to `ReviewDecision.Retry` (`AdminServer.cs:260`). The queue's Retry branch moves a Failed action to Approved and runs it, with no check of `Retryable` or the failure kind. The review page may hide the button, but the endpoint does not enforce that. **Read from code; not reproduced.** The failures design says only a reviewer retries, and an unknown outcome is never retried (`docs/design/failures-and-inspection.md`, lines 20-21, 49). The queue must enforce that for everyone (5.9).
 
-**F15. `Ai` and `Either` behave identically, and humans can decide `Ai` actions.** See section 3, Table A. The policy names suggest a difference the code does not enforce. D-19.
+**F15. `Ai` and `Either` behave identically, and humans can decide `Ai` actions.** See section 3, Table A. The policy names suggest a difference the code does not enforce. D-28.
 
-**F16. The reply pin and the AI refusal conflict today.** The A2A startup check requires `Reviewer: Human` on the reply (`A2AFrontDoor.cs:70-71`). So an AI cannot refuse a partner reply at all, even after P2. The fix separates approval authority from refusal authority, and the startup check must say so (5.4, 5.5).
+**F16. The reply pin and the AI refusal conflict today.** The A2A startup check requires `Reviewer: Human` on the reply (`A2AFrontDoor.cs:70-71`). So an AI cannot refuse a partner reply at all. The fix separates approval authority from refusal authority, and the startup check must say so (5.4, 5.5).
+
+**F17. The in-process runner never offers a Human-only action to an AI.** `ReviewerRunner.cs:35` admits only `Ai` and `Either` policies. A refusal-capable reviewer therefore never sees a Human-only action, and changing `ReviewAuthority` or `AiReviewRules` alone does not make refusals work. P2 must change the runner's eligibility as well, offering the action under refusal authority only.
+
+**F18. The policy recheck runs before the claim transaction, not inside it.** `ClaimAndRunAsync` calls `RecheckRefusal` (about line 400), then `ChangeAdmittedAsync` moves Approved to Executing with the `approval_consumed` audit (about 405-414). A policy change between the two can be missed. **Verified in the code.** The recheck must move inside the claim transaction, or the claim must compare the policy hash it checked (5.9).
+
+**F19. A refusal can penalise the requester.** The Reject branch calls `levels.RejectedAsync` for AI-session requesters, and `trust.DemoteIfFailedAsync` for any reject of a failed action (`ActionQueue.cs`, Reject case). So "a refusal has no external effect" is accurate for the action but not for the requester's identity level. D-27 decides whether an AI refusal penalises.
+
+**F20. The Destructive check blocks refusals.** Row B1 (`AiReviewRules.cs:27-28`) applies to every decision. A refusal of a Destructive action has no effect, so the ban on AI decisions about Destructive actions should apply to approvals only (5.4).
+
+**F21. The quorum-reached approval runs the action at once.** The Approve case returns `ExecuteAsync` as soon as approvals reach `RequiredApprovals`. Any delay requirement for queued approvals must be placed here, and no reviewer, including the final human approver, may bypass it through the ordinary approval path (5.3, 6 P3).
+
+**F22. Teams documentation contradicted the implementation.** `OPERATIONS.md` said nothing could be approved from a card. Cards approve within `ChatMaxRisk`, and only partner replies move to the page when the switch is off. **Corrected in version 3.**
+
+**F23. The refusal budget has the same race as the approval budget.** `AiRefusalBudget` (proposed) counted before the refusal is written would let two reviewers, or two processes, each see the same remaining allowance and both refuse. It uses the same mechanism as F8 (5.8).
 
 ### 4.2 Threats from V6 (eight cheats)
 
 | # | Cheat | Defence | Status |
 |---|---|---|---|
-| 1 | Persuasion or injection: an email says "approved by finance" | The reviewer gets a packet Orca builds; content is fenced as data; reviewer-directed text is detected deterministically and escalates (5.12) | R2: not built |
+| 1 | Persuasion or injection: an email says "approved by finance" | The reviewer gets a packet the Host builds; content is fenced as data; reviewer-directed text is detected deterministically and escalates (5.12) | R2: not built |
 | 2 | Reviewer shopping: reject, reword, resubmit | After `AiMaxRejections` AI refusals along the chain, only a person decides (R1, done). The packet carries every attempt and reason (R2). Linking a fresh submission of the same intent is R2 | R1 done; R2 open |
 | 3 | Salami slicing: twenty small payments | `AiBudget` caps AI approvals by count (R1, done). By amount is open. The budget must be shared across processes (F8) | Partly done |
 | 4 | Side doors: the same effect through a tool with weaker policy | A tool with no policy entry is denied and not advertised. R5 tests it | Design holds; R5 open |
@@ -165,77 +191,89 @@ Each was verified in the code cited, except where marked.
 - An AI that changes policy, budgets, credentials, suspensions or levels. Those stay human acts (5.2).
 - A "yes" by timeout. An undo window that runs by itself is a timeout approval, which ADR-0030 calls unsuitable for a governance boundary (5.6, D-12).
 - A retry after an interrupted run (F11), a retry through the endpoint (F14), and a missing policy snapshot (F9).
-- An AI refusal used to obstruct legitimate work (the external review's point). Refusals need their own limit (5.4).
+- A policy change between the recheck and the claim (F18).
+- An AI refusal used to obstruct legitimate work. Refusals need their own limit (5.4).
+- A refusal that penalises the requester's identity level without a human decision (F19).
 
 ## 5. Target design
 
 ### 5.1 One authority model, keyed on risk, taint and assignment, not on channel
 
-Every decision goes through `ActionQueue`. A channel adds no verdict rules of its own. The same action must receive the same governance decision whether it arrives through MCP, A2A, Teams, HTTP or the in-process runner (section 7).
+Every decision goes through `ActionQueue`. A channel adds no verdict rules of its own. The same action must receive the same governance decision whether it arrives through MCP, A2A, Teams, HTTP or the in-process runner (section 7, channel parity).
 
 ### 5.2 AI reviewers: identity, assignment and two hosts
 
-**One authority model, two hosts.** The external review asked whether the in-process reviewer and the externally authenticated reviewer are two integration models. This plan says they are one authority model with two places to run the reviewer logic:
+**One authority model, two hosts.** This plan has one authority model with two places to run the reviewer logic:
 - **Route A, in-process (V6 R2): the default.** `ModelReviewer : IReviewer` runs inside Orca. The runner stamps the identity as `ai:<name>`. No HTTP credential exists, so F1 does not arise. The provider key is an environment variable named in `http.json`.
-- **Route B, external session.** The same named AI reviewer, authenticated over HTTP with a dedicated `ai` credential. The reviewer logic may run in an external session. The authority is the same: the same assignment, the same limits, the same audit. Route B is not built. It needs F1 fixed.
+- **Route B, external session.** The same named AI reviewer, authenticated over HTTP with a dedicated `ai` credential. The reviewer logic may run in an external session. The authority is the same: the same assignment, limits and audit. Route B is not built. It needs F1 fixed and the mechanism below.
 
 Two integration models that grant authority separately are not acceptable. There is one assignment table and one set of limits.
 
-**Named AI reviewers and assignment (D-20).** Each AI reviewer is a named identity, `ai:<name>`, with an explicit assignment: a list of policy names or tool names it may review. Its rules:
-- it lists, reads and decides only the actions assigned to it. The list endpoint filters to them; the decision endpoint refuses any other action (F12-style refusal, audited);
-- it can read arguments only for assigned actions;
-- several named reviewers may exist. A compromised reviewer then affects only its own assignments;
-- it may not carry `opentail.admin`, a group role, or `mcp:tools`;
-- a dedicated `ai` credential role is used. It is not an extension of the MCP API-key scopes, which keeps the existing separation between agent credentials and reviewer credentials.
+**Named AI reviewers and assignment (D-20).** Each AI reviewer is a named identity, `ai:<name>`, with an explicit assignment: the policy names and tool names it may review. Assignment is enforced at **three** boundaries, and each has its own test:
+1. **List and read.** The list endpoint and the read endpoint return only assigned actions. An unassigned action is reported as not found.
+2. **The queue decision.** `ActionQueue.ReviewAsync` refuses a decision on an unassigned action, whatever the caller, including a direct call that skips the list. The refusal is audited as `review_refused`.
+3. **The in-process runner.** `ReviewerRunner` never sends unassigned action content to a model. The packet for an unassigned action is never built.
+
+Filtering the list is not enough. An AI reviewer must not be able to submit a decision for an unassigned action by any route.
+
+**The external credential, outside the agent's reach (P1).** An agent must not be able to call its own approval route. The mechanism:
+- the `ai` credential is issued to a named reviewer identity, never to an agent profile, and an agent profile may not list the reviewer role;
+- its secret is shown once and stored only as a hash in the HTTP config, rotated by an operator;
+- the agent's credentials are refused at the reviewer endpoints (403), even when the agent's profile would otherwise allow the tool;
+- a security test submits a decision from an agent credential and from an `ai` credential on an action the agent requested, and expects refusal in both cases.
+
+Several named reviewers may exist (D-20). A compromised reviewer then affects only its own assignments.
+
+It may not carry `opentail.admin`, a group role, or `mcp:tools`.
 
 **Under both routes**, an AI reviewer cannot change policy, budgets, credentials, suspensions or levels. Those stay human acts, as in Signet's split of approver powers.
 
-**AI history on the review page.** Every AI decision shows the reviewer identity, model, prompt version and the checks it named. This is required for the owner's overseer role (5.13). Whether the page does this today is **not verified** (section 10).
+**AI history on the review page (D-29).** Every AI decision shows the reviewer identity, model, prompt version and the checks it named, labelled as an AI decision. Whether the page does this today is **not verified** (section 10).
 
 ### 5.3 The five verdicts, mapped to primitives and phased
 
 | Verdict | Mechanism | First release? | Status |
 |---|---|---|---|
 | Yes, now | Approve (C5), under B1 to B8 | **Yes** | Exists |
-| No, now | Refuse (5.4), under the refusal rules | **Yes**, once `AiMayRefuse` exists (P2) | New authority (F12) |
-| Yes, with undo | Approve recorded; the run deferred with its own typed schedule and its own allowance (5.6) | **Yes**, after the typed schedule exists (P3) | New for queued approvals (F4) |
-| No, with undo | A typed scheduled rejection | **No.** Deferred (P4), conditional on the human-override semantics. | New (F5). The external review recommends dropping it. |
-| No, and block | A block proposal; a person confirms before it takes effect (5.3, D-4, D-22) | **No**, later (P5) | New (F6) |
+| No, now | Refuse (5.4), under the refusal rules | **Yes**, once `AiMayRefuse` exists (P2) | New authority (F12, F17) |
+| Yes, with undo | Approve recorded; a typed scheduled run with its own allowance (5.6) | **Yes**, after the scheduled execution path exists (P3) | New for queued approvals (F4, F21) |
+| No, with undo | A typed scheduled rejection | **No.** Deferred (P4), conditional on the human-override semantics. | New (F5). The review recommends dropping it. |
+| No, and block | A block proposal; a person confirms before it takes effect (D-4, D-22) | **No**, later (P5) | New (F6) |
 
-**Typed scheduled outcomes.** A delayed action carries an explicit `ScheduledOutcome`: `Approve` or `Reject`. `RunDueDelayedAsync` must dispatch on it. A `Reject` outcome never goes through `ClaimAndRunAsync`. Today the path executes whatever is due (F5, F12), so the typing is a precondition for P4, and P3 must not start without it.
+**Typed scheduled outcomes.** A scheduled action carries an explicit `ScheduledOutcome`: `Approve` or `Reject`. The scheduler must execute only an `Approve` outcome. A `Reject` outcome never goes through `ClaimAndRunAsync`. Today the path executes whatever is due (F5), so the typing is a precondition for P4, and P3 must not start without it.
 
 ### 5.4 Positive and negative authority, separated
 
-The external review's central point, adopted:
+- **Approval authority** (positive): an AI may approve only what is untainted, within its risk ceiling, within its budget, with no edits, not under `SelfApproval: Forbid`, and never a Human-only or reviewer-group action. This is today's rule set.
+- **Refusal authority** (negative): an AI may reject or request changes on any action it is assigned, when the policy says `AiMayRefuse: true` (D-21). It may refuse Human-only actions (D-26), tainted external actions (D-2 option B), and actions in a reviewer group (D-26). It ignores the risk ceiling (D-3). A refusal has no external effect on the action.
+- **Destructive scope.** The ban on AI decisions about Destructive actions applies to **approvals only** (F20). The early Destructive check in `AiReviewRules.Check` must be scoped to approval decisions, or it would block the refusals this plan allows.
+- **Refusal limits.** A refusal can obstruct legitimate work. Refusals are limited by `AiRefusalBudget` per requester and tool, and by `AiMaxRejections` along the chain. Both are counted atomically (5.8). When either is used up, a person decides.
+- **No penalties from an AI refusal by default (D-27).** An AI refusal does not change the requester's identity level or trust. The existing human reject behaviour is unchanged. This keeps "a refusal has no external effect" true for the requester as well as the action (F19).
+- **Implementation.** `ReviewAuthority` rows A1 and A2 become decision-aware: an AI may refuse, and may not approve. `AiReviewRules` changes in the same step (F12). `ReviewerRunner` line 35 changes to offer refusal-capable reviewers their assigned Human-only actions, under refusal authority only (F17).
 
-- **Approval authority** (positive): an AI may approve only what is untainted, within its risk ceiling, within its budget, with no edits, not under `SelfApproval: Forbid`, and never a Human-only or reviewer-group action. This is today's rule set, unchanged.
-- **Refusal authority** (negative): an AI may reject or request changes on any action it is assigned, when the policy says `AiMayRefuse: true` (D-21). This includes Human-only actions, and tainted external actions (D-2 option B), and it ignores the risk ceiling (D-3). A refusal has no external effect.
-- **Refusal limits** (the external review's point that a refusal can obstruct work): a refusal budget per requester and tool, `AiRefusalBudget` (proposed), plus `AiMaxRejections` along the chain. When either is used up, a person decides.
-- **Human-only actions:** `ReviewAuthority` rows A1 and A2 must become: the AI may refuse; it may not approve. The check depends on the decision, not only on the subject. This changes `ReviewAuthority`, and `AiReviewRules` must change in the same step (F12). Changing `AiReviewRules` alone does not work.
-
-**The A2A reply.** The startup check (`A2AFrontDoor.cs:70-71`) currently requires `Reviewer: Human` on the reply. Under this plan the check becomes: the reply's approval is human, and an AI may refuse it when `AiMayRefuse` is set. The startup check changes in P2, not in P7, so the P2 test (an AI refusing a tainted reply) can pass (F16).
+**The A2A reply.** The startup check (`A2AFrontDoor.cs:70-71`) currently requires `Reviewer: Human` on the reply. Under this plan it becomes: the reply's approval is human, and an AI may refuse it when `AiMayRefuse` is set. The startup check changes in P2, so the P2 test (an AI refusing a tainted reply) can pass (F16).
 
 ### 5.5 A2A
 
-- **P0: add the missing submit pin** (F7). `a2a.submit` must be `Reviewer: Human` by default, enforced at startup like the reply, with a regression test. It is added now, because it is a gap in the existing design. It is not a relaxation.
-- **P2: the reply's startup check** changes to "approval is human; an AI may refuse" (5.4).
+- **P0: add the missing submit pin** (F7). `a2a.submit` must be `Reviewer: Human` by default, enforced at startup like the reply, with a regression test. It is added now because it is a gap in the existing design. It is not a relaxation.
+- **P2: the reply's startup check** changes to "approval is human; AI may refuse" (5.4), with a startup test that an AI approval on a reply is refused and an AI refusal is allowed.
 - **P7: relaxing the human-only approval** for submits or replies, only where D-6 and D-7 explicitly authorise it.
 
 Which A2A actions can receive AI refusals, and which always need a human approval, is decided in D-6 and D-7.
 
-### 5.6 Undo windows: separate accounting and recovery
+### 5.6 Undo windows: the scheduled execution path
 
 The undo window is built as an Execute rule with a `DelayFor` (`docs/design/undo-window.md`, 2026-10-18). The owner decided on 2026-10-18: a default of 10 minutes, and anyone in the reviewer group may stop an action. This plan does not change those decisions.
 
-A "yes, with undo" on a queued approval is new. Its design:
+A "yes, with undo" on a queued approval is new. These requirements are mandatory:
 
-- **A per-tool setting, `ApproveDelay`** (proposed name). Today `DelayFor` is accepted on Execute rules only (`PolicyConfig.cs:217, 247`). The setting is allowed on Queue rules, and validated the same way.
-- **Stored delay start and duration.** The action records `DelayStartedAt` and `DelayDuration` when the window opens. The late allowance is `DelayDuration`, not `RunAt - CreatedAt` (F13).
-- **Recovery across restarts.** The undo-window design already says the run-at time survives restarts and due actions run on start (`undo-window.md`, lines 79-80). This plan keeps that.
-- **The requester is suspended during the window.** The run is held for a person. It does not run. This is the rule to write and test; today `RunDueDelayedAsync` does not check suspension, and whether `ClaimAndRunAsync` does is **not verified**.
-- **The action expires during the window.** `ExpireAfter` takes precedence: the action is Expired and does not run.
-- **The policy changes during the window.** `ClaimAndRunAsync` calls `RecheckRefusal`, which compares the policy hash and the binding digest (`ActionExecutor.cs:400-443`). A changed policy refuses the run, and the refusal is audited. The action goes to a person.
-- **Outside the allowance** (a long outage): held for a person, as D4 does.
+- **The final approval schedules, it does not execute.** When an approval reaches `RequiredApprovals` and `ApproveDelay` applies, the action enters a scheduled state (Pending with a typed `Approve` schedule), and `ExecuteAsync` is not called. This replaces the immediate call at `ActionQueue.ReviewAsync` (F21).
+- **No bypass.** No reviewer, including the final human approver, can skip the delay through the ordinary approval path. A human may stop the action, or run it now, through an explicit override that is audited as a separate action. It is never a silent bypass.
+- **Typed execution.** The scheduler executes only an `Approve` outcome (5.3).
+- **Recheck at run time.** Before execution the scheduler rechecks expiry, suspension, the policy version and the action binding, inside the claim transaction (F18, 5.9).
+- **Persisted timing.** The schedule records `DelayStartedAt` and `DelayDuration`, separately from `CreatedAt` (F13). The schedule survives a restart.
+- **Overdue schedules go to a person.** A schedule that is overdue beyond its allowance is held for a human, never executed automatically (D4).
+- **Per-tool setting, `ApproveDelay`** (proposed name). `DelayFor` is accepted on Execute rules only (`PolicyConfig.cs:217, 247`). The setting is allowed on Queue rules and validated the same way.
 
 Timeout approval: an undo window that runs by itself is a timeout approval. ADR-0030 calls that unsuitable for a governance boundary. For reversible actions the risk is small. For partner replies it is not, and D-12 decides it.
 
@@ -245,15 +283,19 @@ Timeout approval: an undo window that runs by itself is a timeout approval. ADR-
 - Every new channel goes through `ActionQueue`. A test per channel checks that an AI cannot approve a Human-only action through it.
 - The same action gets the same decision through MCP, A2A, Teams, HTTP and the runner (section 7).
 
-### 5.8 Shared AI budget (F8)
+### 5.8 Shared budgets: approvals and refusals (F8, F23)
 
-A per-action transaction is not enough. The budget itself is shared across actions and across Orca processes. It must be one counter updated with a conditional statement in the store: increment only if the count is below the limit, in one step. Two processes cannot both take the last approval. This is a shared-counter design, not a per-action transaction. D-11 chooses between it and a startup check that refuses more than one runner.
+A per-action transaction, or a count taken before the decision, is not enough. The budgets are shared across actions and across Orca processes.
 
-### 5.9 Fail-closed checks before execution (F9, F11, F14)
+- Each budget is one counter updated by a conditional statement in the store: increment only if the count is below the limit, in one step, **in the same transaction that records the decision**. Approval budgets and refusal budgets use the same mechanism.
+- Two reviewers, or two processes, cannot both take the last unit. The test runs two decisions concurrently against one remaining unit and expects exactly one to succeed.
+- D-11 chooses between this and a startup check that refuses more than one runner per Host. The startup check is weaker and is not preferred.
 
-- **F14, retry enforcement in the queue, not the page.** The Retry branch refuses unless `Retryable` is set and the failure kind allows a retry. An AI reviewer can never retry an `unknown_outcome`, or a non-idempotent operation. The kinds and the rules are in `docs/design/failures-and-inspection.md` (lines 44-50). The endpoint and the queue must agree.
-- **F11.** Reproduce it first. The fix is the same rule as F14: an interrupted, non-idempotent action is never retried silently or by an AI.
-- **F9, missing snapshot.** A queued action with no policy snapshot is refused at creation, and an existing action with no snapshot is refused when an AI tries to review it. Verify first (section 10).
+### 5.9 Fail-closed checks before execution (F9, F11, F14, F18)
+
+- **Retry, for everyone (F14, F11).** An `unknown_outcome` is never retried by anyone, human, AI, through the endpoint or through the queue. It can be retried only when reconciliation proves the original effect did not happen, or the tool is idempotent by key. The Retry branch enforces `Retryable` and the failure kind itself, so the rule holds whatever the page shows. The kinds and rules are in `docs/design/failures-and-inspection.md` (lines 44-50), and the queue must match the recovery path in `ActionExecutor`.
+- **The recheck is inside the claim (F18).** `RecheckRefusal` moves into the transaction that moves Approved to Executing, or the claim compares the policy hash it checked. A policy change between the check and the claim must refuse the run, with an audit entry. This needs a test that changes the policy between the two steps.
+- **Missing snapshot (F9).** A queued action with no policy snapshot is refused at creation. An existing action with no snapshot is refused when an AI tries to review it. Verify first (section 10).
 
 ### 5.10 History-conditioned rules
 
@@ -277,7 +319,7 @@ The packet is built by Orca, never by the requester:
 - similar recent actions, which also links a fresh submission of a rejected intent (V6 V2 query);
 - this requester's recent history with this tool.
 
-The requester's conversation is never included, and there is no channel through which the requester can address the reviewer.
+The requester's conversation is never included, and there is no channel through which the requester can address the reviewer. The packet is built only for an action the reviewer is assigned (5.2, boundary 3).
 
 **Pre-scan:** a deterministic check for reviewer-directed text: imperative approval language, claims of prior approval, role markers, invisible or bidirectional Unicode, and encoded blobs in plain-text fields. A hit goes into the packet and makes the reviewer escalate. It never decides by itself.
 
@@ -287,12 +329,12 @@ The requester's conversation is never included, and there is no channel through 
 
 **Dual review (optional):** two reviewers, preferably from different vendors, must both approve. Any disagreement means a person decides.
 
-### 5.13 Overseer and verdict review (the owner's role)
+### 5.13 Overseer, audit vocabulary and verdict review (the owner's role)
 
-The owner can be the approver or the overseer:
-- **Approver:** `Reviewer: Either` lets a person decide any item the AI leaves. Its meaning is decided in D-19.
-- **Overseer:** the owner sees each AI decision on the review page, with reviewer, model and prompt version (5.2). The owner can stop a delayed action, or hold it so it becomes an ordinary queued action. `--review-report` shows approval rate and time to decide per reviewer (`OPERATIONS.md`).
-- **Measurement:** `docs/design/more-extensions.md` ("Watching the reviewers") already designs per-reviewer measurement. R3 and R4 should use it, not a second design.
+- **Approver:** `Reviewer: Either` lets a person decide any item the AI leaves. Its meaning is decided in D-28.
+- **Overseer:** the owner sees each AI decision on the review page, labelled as an AI decision with reviewer, model and prompt version (5.2). The owner can stop a scheduled action, or hold it so it becomes an ordinary queued action. `--review-report` shows approval rate and time to decide per reviewer (`OPERATIONS.md`).
+- **Audit vocabulary (D-29).** An AI approval is recorded with the `ai:` actor and an AI-specific event, never with a person's name. Documents describe AI approval as delegated authority. The documents do not describe it as human oversight.
+- **Measurement:** `docs/design/more-extensions.md` ("Watching the reviewers") already designs per-reviewer measurement. R3 and R4 use it, not a second design.
 - **Kill switch:** `--suspend <subject>` refuses every call from an identity until a person clears it. Whether it applies to `ai:` subjects is **not verified**.
 
 A sent reply cannot be undone by a later review. For irreversible actions, the owner's control is the rule set, the hold and the kill switch.
@@ -306,43 +348,47 @@ A sent reply cannot be undone by a later review. For irreversible actions, the o
 
 ## 6. Phases
 
-Order: the external review's order, with V6's R5 and R2 placed where they depend on it. Nothing is started until section 0 is settled.
+Order: the review's order, with V6's R5 and R2 placed where they depend on it. Each phase has acceptance tests. Nothing is started until section 0 is settled.
 
 **Done**
 - **R1.** The AI path's limits (V6, done 2026-10-16). Verified present in code.
 
-**P0. Immediate: characterise and close the existing gaps (no owner decision needed for the fixes)**
-- Characterise tables A to D with tests that pin current behaviour.
-- **F7:** add the A2A submit pin, with a regression test.
-- **F14, F11:** queue-side retry enforcement, and the reproduction of F11 first.
-- **F9:** verify whether a snapshot can be null, then fail closed at creation and at review.
-- **R5, the red-team corpus** (V6 said it is next). It needs no model.
+**P0. Immediate: characterise and close the existing gaps**
+- *Characterise* tables A to D with tests that pin current behaviour.
+- *A2A submit pin* (F7). Acceptance: startup refuses a submit whose reviewer is not Human, unless the owner has changed D-6.
+- *Retry for everyone* (F14, F11). Acceptance: a manual retry, an AI retry and a direct HTTP retry of an `unknown_outcome` are all refused; a retry of an idempotent-by-key tool is allowed; a retry of a non-retryable failure is refused.
+- *Missing snapshot* (F9). Acceptance: an action without a snapshot cannot be queued, and an AI review of such an action is refused.
+- *Recheck inside the claim* (F18). Acceptance: a policy change between the recheck and the claim refuses the run, with an audit entry.
+- *R5, the red-team corpus* (V6 said it is next). It needs no model.
 
 **P1. Reviewer types, credentials, assignment (blocking)**
-- Decide D-19 (what `Ai` and `Either` mean), D-20 (named reviewers with assignments).
-- The `ai` credential role, the assignment table, filtered list and decision endpoints, and the refusals for unassigned actions (5.2). Tests for each refusal.
-- Show the AI reviewer, model and prompt version on the review page (5.2, 5.13).
+- Decide D-19 (what `Ai` and `Either` mean), D-20 (named reviewers with assignments), D-26 (groups and refusals), D-27 (refusal penalties), D-30 (credential mechanism).
+- The `ai` credential role, the assignment table, and enforcement at the three boundaries (5.2). Acceptance: an unassigned action is refused at list, read, decision and in the runner; an agent credential is refused at the reviewer endpoints; an `ai` credential cannot call MCP tools; an `ai` credential cannot approve an action it requested itself.
+- AI history on the review page, labelled as AI (5.2, D-29). Acceptance: the review page shows reviewer, model and prompt version on an AI decision (if not already true, this is a feature to build).
 
 **P2. Decision-aware refusals (blocking)**
-- `AiMayRefuse` and `AiRefusalBudget` (D-21). `ReviewAuthority` and `AiReviewRules` change together (5.4, F12).
-- The A2A reply's startup check changes to "approval is human; AI may refuse" (5.5). The P2 test, an AI refusing a tainted reply, now passes.
+- `AiMayRefuse` and `AiRefusalBudget` (D-21). `ReviewAuthority` and `AiReviewRules` change together (5.4, F12). `ReviewerRunner` line 35 changes (F17).
+- Destructive ban scoped to approvals (F20). Acceptance: an AI refuses a Destructive action; an AI cannot approve it.
+- The refusal budget is atomic (5.8, F23). Acceptance: two concurrent refusals against one remaining unit yield exactly one refusal.
+- No penalties from AI refusals by default (D-27, F19). Acceptance: an AI refusal leaves the requester's level and trust unchanged.
+- The A2A reply's startup check changes to "approval is human; AI may refuse" (5.5, F16). Acceptance: the startup refuses an AI approval on a reply and accepts an AI refusal.
 - Request-changes follows the same rules as reject.
 
 **P3. Yes, with undo for queued approvals (high; only after P1 and P2 pass)**
-- The typed `ScheduledOutcome` (5.3), `ApproveDelay` (5.6), the stored delay start and duration (F13), and the suspension, expiry and policy-change rules (5.6).
-- Tests: restart during the window, late run held, suspended requester held, policy change refused, expiry precedence.
+- The scheduled path (5.6): the final approval schedules; no bypass; typed `Approve` outcome; recheck inside the claim; persisted timing; overdue to a person; `ApproveDelay` (D-23).
+- Acceptance: a final human approval schedules and does not execute; the delay cannot be skipped through the approval path; the scheduler refuses a `Reject` outcome; a restart during the window keeps the schedule and runs it when due; a late run is held; a suspended requester is held; an expired action does not run; a policy change refuses the run.
 
 **P4. Delayed rejection (conditional; not in the first release)**
-- Only after the human-override semantics are written down. The external review recommends dropping it.
+- Only after the human-override semantics are written down. The review recommends dropping it (D-24).
 
 **P5. AI block proposal (later)**
-- The identity definition (D-22), a human confirmation, expiry, reversal, and audit (D-4).
+- The identity definition (D-22), a human confirmation, expiry, reversal, and audit (D-4). Acceptance: no block takes effect without a person's confirmation.
 
-**P6. Shared AI budget (high)**
-- The conditional shared counter (5.8). D-11.
+**P6. Shared budgets (high)**
+- The conditional shared counter (5.8). D-11. Acceptance: the concurrency tests in P2 and P0 pass across two processes, not only in one.
 
 **R2. A model-backed reviewer (after P1)**
-- `ModelReviewer` over a fake `IChatClient`: the packet, pre-scan, strict output, stance, optional dual review, and the `AiReviewer` config (V6 R2). Route A (5.2). Then one real-model run once the owner picks a provider (D-13).
+- `ModelReviewer` over a fake `IChatClient`: the packet, pre-scan, strict output, stance, optional dual review, and the `AiReviewer` config (V6 R2). Route A (5.2). Acceptance: the plumbing tested with a fake client (approve, reject, escalate, malformed output, timeout, injection hit), and one manual run against a real model. Then one real-model run once the owner picks a provider (D-13).
 
 **Measurement (after R2; decide per D-9)**
 - **R3, shadow mode**, if D-9 chooses it (V6 R3).
@@ -354,47 +400,49 @@ Order: the external review's order, with V6's R5 and R2 placed where they depend
 **Overseer (any time after P1)**
 - Verify the kill switch covers `ai:` subjects, and the review page labels AI decisions (section 10).
 
-## 7. Test matrix
+## 7. Tests
 
-**The decision matrix.** For tables A and B, generate every combination of:
-- reviewer mode: Human, Ai, Either;
-- reviewer group: absent, present with the subject in it, present with the subject outside it;
-- required approvals: one or several;
-- SelfApproval: Allow or Forbid;
-- edited or unedited arguments;
-- risk (Read, Write, ExternalEffect, Destructive, unloaded), taint (yes or no), decision (approve, reject, request changes, retry), subject (human, AI, unknown);
-- history: refusals at or below the maximum; budget used or not;
-- failure state: none, retryable, non-retryable, unknown outcome;
-- policy snapshot: present or missing;
-- requester: active or suspended;
-- reviewer identity: none, one AI reviewer, several AI reviewers with different assignments.
+The matrix as written in version 2 was too large to be useful. The tests are now decision tables, one per area, plus pairwise coverage for ordinary combinations, plus targeted tests for the dangerous interactions. Each table row has an expected result, written down before the code changes.
 
-Each combination has one expected verdict, written down before the code changes.
+**Decision tables (one per area):**
+- *ReviewAuthority* (tables A): reviewer mode, reviewer group (absent, member, non-member), approval count, SelfApproval, decision, subject kind.
+- *AiReviewRules* (table B): risk (Read, Write, ExternalEffect, Destructive, unloaded), taint, decision, edits, history, budget.
+- *Scheduling* (table D and 5.6): final approval, `ApproveDelay` on or off, stop, run now, expiry, suspension, policy change, restart, overdue.
+- *Retry* (5.9): failure kind (none, transient, environment, contract, unknown outcome, bug), idempotent by key or not, reconciled or not, actor (human, AI, HTTP).
+- *Identity and assignment* (5.2): reviewer identity (none, one AI, several AIs), assignment (assigned, unassigned), route (list, read, decision, runner), credential (agent, `ai`, admin).
 
-**Additional tests:**
-- simultaneous AI approvals consuming the same budget, across two processes (F8);
-- expiry and restart during an undo window (5.6);
-- a retry of an `unknown_outcome` by an AI is refused, through the queue and through the endpoint (F14);
-- a double approval counts once;
-- a delayed rejection can never execute an action (P4, when built);
-- the red-team corpus (R5) runs in CI with the fake model.
+**Pairwise coverage** for the ordinary combinations within each table. This is a tool-generated covering array, not the full product.
 
-**Channel parity.** The same action, reviewed or submitted through MCP, A2A, Teams, HTTP and the in-process runner, gets the same governance decision. This is a separate test set, not a sample.
+**Targeted interaction tests (the dangerous ones):**
+- a Human-only refusal by an assigned AI (allowed), and the same AI's approval of it (refused);
+- a reviewer-group action refused by an AI, and approved by an AI (refused);
+- a tainted external action refused by an AI, and approved by an AI (refused);
+- two AI reviewers each assigned to different actions, and each trying an action assigned to the other (both refused);
+- two concurrent budget consumptions against one remaining unit, in one process and across two processes;
+- suspension during a scheduled window;
+- expiry during a scheduled window;
+- a policy change between the recheck and the claim;
+- a restart during a scheduled window;
+- an `unknown_outcome` retried by an AI, by a human and through HTTP (all refused).
+
+**Channel parity.** The same action, reviewed or submitted through MCP, A2A, Teams, HTTP and the in-process runner, gets the same governance decision. This is a separate test set, not a sample of the tables.
+
+**Red team.** The corpus (R5) runs in CI with the fake model.
 
 ## 8. Built and not built
 
-**Built:** `ReviewAuthority` (A1 to A7); `AiReviewRules` (B1 to B8), which is V6's R1; the queue's decision paths (C1 to C8); delayed execution, stop and hold (D1 to D5, and the undo window); `ClaimAndRunAsync` with `RecheckRefusal` on every run; the `ReviewerRunner` framework for an in-process `IReviewer`; `ai:` subjects minted in-process only; the `ai_review` audit.
+**Built:** `ReviewAuthority` (A1 to A7); `AiReviewRules` (B1 to B8), which is V6's R1; the queue's decision paths (C1 to C8); delayed execution, stop and hold (D1 to D5, and the undo window); `ClaimAndRunAsync` with `RecheckRefusal`, which runs before the claim (F18); the `ReviewerRunner` framework for an in-process `IReviewer`; `ai:` subjects minted in-process only; the `ai_review` audit.
 
-**Not built:** the retry guard (F14, F11); the missing-snapshot guard (F9); the A2A submit pin (F7); named AI reviewers with assignment (5.2); the `ai` credential role (F1, Route B); `AiMayRefuse` and the refusal budget (5.4, F12, F16); the typed scheduled outcome (5.3); `ApproveDelay` and approve-with-undo (F4); delayed rejection (F5); an AI block (F6); a shared AI budget (F8); the AI history on the review page (5.2); a model-backed reviewer (R2); the red-team corpus (R5); shadow mode and sampling (R3, R4); the MCP channel defences (5.11); history-conditioned rules (5.10). No model-backed `IReviewer` exists in the projects read.
+**Not built:** the retry guard for everyone (F14, F11); the missing-snapshot guard (F9); the A2A submit pin (F7); the recheck inside the claim (F18); named AI reviewers with assignment and its three boundaries (5.2); the `ai` credential role (F1, Route B); `AiMayRefuse`, the refusal budget and the runner change (5.4, F12, F16, F17, F23); the Destructive scoping (F20); the typed scheduled outcome and the scheduled execution path (5.3, 5.6, F4, F21); `ApproveDelay`; delayed rejection (F5); an AI block (F6); a shared budget (F8); the AI history on the review page (5.2); a model-backed reviewer (R2); the red-team corpus (R5); shadow mode and sampling (R3, R4); the MCP channel defences (5.11); history-conditioned rules (5.10). No model-backed `IReviewer` exists in the projects read.
 
 ## 9. Decisions for the owner
 
-Recommended defaults are in bold. Items marked "decided" were settled earlier. Section 0 lists the three that block implementation.
+Recommended defaults are in bold. Items marked "decided" were settled earlier. Section 0 lists the blocking ones.
 
 | # | Decision | Options | Recommended |
 |---|---|---|---|
 | D-1 | One authority model for every channel | yes, no | **Yes.** Agreed in principle on 2026-11-13; record it. |
-| D-2 | An AI refusal on a tainted external action | A: a person decides; **B: AI may refuse, never approve**; C: AI may approve with an added check | **B** |
+| D-2 | An AI refusal on a tainted external action | A: a person decides, as V6 says; **B: AI may refuse, never approve**; C: AI may approve with an added check | **B** |
 | D-3 | AI refusals and the risk ceiling | V6: refusals are capped by the ceiling; **proposed: refusals ignore the ceiling** | **Ignore the ceiling** |
 | D-4 | An AI blocking a sender | **propose only, a person confirms**; an automatic block that expires (then state the expiry) | **Propose only** |
 | D-5 | Undo window default | **10 minutes, stop by the reviewer group** | **Decided 2026-10-18.** No change. |
@@ -402,8 +450,8 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-7 | AI decisions on partner replies | an AI refusal under D-2 = B; an AI approval stays with a person unless D-2 = C | **As stated** |
 | D-8 | A retry counts as an AI approval (F10) | **keep counting it**; count separately | **Keep** |
 | D-9 | Measurement before AI authority | (a) V6 as written: shadow (R3) then sampling (R4); **(b) decide directly for named low-risk tools, with sampling (R4) and demotion from day one**; (c) decide directly, no sampling | **(b).** The owner's view is against training-style shadowing. Without any measurement, a wrong AI approval has no measured basis. |
-| D-10 | How an AI reviewer runs (route) | **(a) in-process model reviewer (Route A) as the default**; (b) external session (Route B) | **(a)**, with Route B allowed only under the one authority model in 5.2 |
-| D-11 | AI budget atomicity (F8) | **(a) one shared conditional counter**; (b) one runner per Orca, enforced at startup | **(a)** |
+| D-10 | How an AI reviewer runs (route) | **(a) in-process model reviewer (Route A) as the default**; (b) external session (Route B) | **(a)**, with Route B allowed only under the one authority model in 5.2 and the credential mechanism in 5.2 |
+| D-11 | Shared budget atomicity (F8, F23) | **(a) one shared conditional counter, counted in the decision's transaction**; (b) one runner per Host, enforced at startup | **(a)** |
 | D-12 | "Yes, with undo" on irreversible actions such as partner replies (a timeout approval, per ADR-0030) | reversible actions only; irreversible too, with the risk accepted in writing; hold for a person's confirmation | **Reversible only**, unless the owner accepts the risk in writing |
 | D-13 | First model provider (V6) | **OpenAI-compatible endpoint first, Anthropic next**; both | **OpenAI-compatible first** |
 | D-14 | Default AI ceiling (V6) | Read; **Write**; ExternalEffect | **Write**, with ExternalEffect per tool after evidence. The code default is Write. |
@@ -411,23 +459,29 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-16 | Sampling rate in Decide mode (V6) | 5%; **10%, at least one a day per tool**; 20% | **10%.** Applies if D-9 = (a) or (b). |
 | D-17 | Same model family as the requester (V6) | refuse; **warn**; ignore | **Warn** |
 | D-18 | Reasons to the requester (V6) | full; **full, attempts counted**; generic | **Full, attempts counted** |
-| D-19 | What `Reviewer: Ai` and `Reviewer: Either` mean (F15) | (a) `Ai`: AI only, a person may still decide; `Either`: AI or a person, the same as `Ai` today; (b) `Ai`: AI only, a person may decide only by changing the policy; `Either`: AI or a person | **(a)**, written into POLICY.md, so the names match the behaviour |
+| D-19 | Which of `Ai` and `Either` allows a person to approve (F15) | (a) **`Ai`: AI approves; a person may refuse but not approve. `Either`: an AI or a person may approve**; (b) keep today's behaviour, where the two are identical | **(a).** It gives the two names different meanings, without changing the enum. |
 | D-20 | One AI reviewer or several (5.2) | one global reviewer; **several named reviewers, each with an assignment** | **Several named reviewers** |
 | D-21 | AI refusals (5.4) | **`AiMayRefuse` per tool, default false; a refusal budget per requester and tool**; refusals unlimited | **Per-tool opt-in with a budget** |
 | D-22 | An AI-proposed block (D-4): who is blocked | an A2A partner; an agent identity; **both, with the identity recorded**; expiry default | **Identity recorded; expiry 24 hours, renewed by a person** |
 | D-23 | Name and default of the queued-approval undo setting (`ApproveDelay`) | **`ApproveDelay`, default off, per tool**; a different name | **As stated, default off** |
-| D-24 | "No with undo" in the first release (the external review's suggestion) | keep as P4; **drop from the first release** | **Drop** |
-| D-25 | The reviewer's route, one authority model (external review, point 2) | **one authority model, two hosts** (5.2); two separate grant mechanisms | **One authority model** |
+| D-24 | "No with undo" in the first release | keep as P4; **drop from the first release** | **Drop** |
+| D-25 | The reviewer's route, one authority model | **one authority model, two hosts** (5.2); two separate grant mechanisms | **One authority model** |
+| D-26 | Refusal across the Human-only and reviewer-group boundaries (second review, point 1) | **refusals may cross both boundaries; approvals never do**; refusals only inside the boundaries | **Refusals may cross both** |
+| D-27 | Penalties from an AI refusal (F19) | **none by default**; the existing level and trust effects; an operator setting | **None by default** |
+| D-28 | What distinguishes `Ai` from `Either` (F15) | (a) as in D-19; (b) drop the redundant value | **As in D-19**; if the owner prefers fewer values, (b) is a later contract change |
+| D-29 | How AI decisions are recorded and labelled (second review, point on honesty) | **the `ai:` actor and an AI event; labelled AI on the review page; documents say "delegated authority", never "human oversight"** | **As stated** |
+| D-30 | The external reviewer credential (5.2, P1) | **issued to a named reviewer identity, stored as a hash, shown once, rotated by an operator; agent profiles may not hold the reviewer role** | **As stated** |
+| D-31 | The refusal budget's unit and scope | **per requester and tool**; per tool only | **Per requester and tool** |
 
 ## 10. Not verified
 
 - Whether a queued action can have a null `PolicySnapshot` (F9).
-- Whether `ClaimAndRunAsync` or `RecheckRefusal` checks requester suspension (5.6).
+- Whether `ClaimAndRunAsync`'s store supports a policy-hash compare inside the claim transaction (5.9). The store API was not read in full.
+- Whether `RunDueDelayedAsync` or `ClaimAndRunAsync` checks requester suspension (5.6).
 - Whether the review page labels AI decisions, and shows model and prompt version (5.2, 5.13). The owner asked this earlier.
 - Whether `--suspend` applies to `ai:` subjects (5.13).
-- Whether the approval and the execution start share one transaction (5.8).
 - Whether an interrupted retry is reachable and harmful (F11), and whether the endpoint's retry (F14) can be reproduced. Both are read from code, and neither has been run.
-- How an external approver session would get an `ai` credential in practice: who issues it, and how it is rotated.
+- How an external approver session would get an `ai` credential in practice (D-30).
 - Whether `Microsoft.Extensions.AI` is referenced by Orca today. V6 says it depends only on the abstractions; not checked.
 
 ## 11. Implementation log and history
@@ -437,42 +491,33 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | R1 | 2026-10-16 (V6 status; commit not recorded here) | AI reviewer limits in `AiReviewRules`, enforced by the queue and used by the runner: `AiMaxRisk` (default Write, never Destructive), taint, no edits, not the second pair of eyes, `AiMaxRejections`, `AiBudget`, and the `ai_review` audit with model and prompt version. `AiReviewLimitsTests`; POLICY.md *AI reviewers*. |
 | Undo window | 2026-10-18 | Execute with a delay, Stop, run-now and hold. `docs/design/undo-window.md`. |
 | Gate plan | 2026-11-13 | First written as a separate proposal, without reading V6. Merged with V6 the same day, with V6 kept as a pointer. |
-| Gate plan, revised | 2026-11-13 | Revised after an external review of the merged draft (section 13). No code changed. |
+| Gate plan, version 2 | 2026-11-13 | Revised after the first external review. No code changed. |
+| Gate plan, version 3 | 2026-11-13 | Revised after the second external review; moved into `OpenTail.Orca`. Teams sentence in `OPERATIONS.md` corrected. No code changed. |
 
 ## 12. Self-review of this revision
 
-- Every section of V6 is carried into this plan: the premise, status, cheat table, R1 to R5, the boundaries, the decision table, the order and the history.
-- Each point of the external review was checked against the code before it was accepted. Section 13 records the disposition of each.
-- The earlier contracts and findings are kept. The additions F12 to F16 and the changes to `ReviewAuthority` are based on reads of the cited lines.
-- Where V6 and the earlier proposal disagreed (D-2, D-3, D-9, D-10, D-11), the plan records both positions as decisions.
-- The external review's three blocking questions are answered in section 0. The answers are recommendations until the owner confirms them.
+- Every point of the second review was checked before it was accepted. Section 13 records each disposition.
+- The code claims that were new in this revision were read: the runner's eligibility filter (`ReviewerRunner.cs:35`), the claim order in `ClaimAndRunAsync` (the recheck before `ChangeAdmittedAsync`), the Teams sentence in `OPERATIONS.md`, and the Destructive check in `AiReviewRules.cs:27-28`.
+- The two claims in the review that I did not repeat are not in this plan: that changing `AiReviewRules` alone cannot make refusals work (true, and now covered in F12 and F17), and that a shared counter is required (accepted, 5.8).
 - Not done: no tests were run, no code was changed, and no second reader has checked this revision. The findings marked "read from code; not reproduced" need a reproduction before any fix relies on them.
 
-## 13. External review of the merged draft: disposition
+## 13. External reviews: disposition
 
-An external review (ChatGPT, pasted 2026-11-13) reviewed the draft, rated it 7 out of 10, and said it needs revision before implementation. Each point was checked against the code before this revision.
+**First review (merged draft, 2026-11-13).** Seven points on the refusal design, the delayed rejection, the identity, the Ai/Either modes, the retry path and the test matrix. All were accepted and handled in version 2 (F12 to F16; 5.2 to 5.6; 7). No point was rejected.
+
+**Second review (version 2, 2026-11-13).** Points, and where handled:
 
 | Review point | Disposition | Where handled |
 |---|---|---|
-| 1. AI refusals blocked by `ReviewAuthority` and by `AiReviewRules`; the P2 test cannot pass against the A2A reply pin | **Accepted.** Confirmed in code (A1, A2; B2, B3, B4). | F12, F16; 5.4, 5.5; P2 |
-| 2. Delayed rejection could execute an action; `RunAt - CreatedAt` allowance | **Accepted.** Confirmed: `RunDueDelayedAsync` executes what is due, and computes `RunAt - CreatedAt`. | F5, F13; 5.3, 5.6; D-24 |
-| 3. AI identity needs action-level assignment; one or several reviewers; a dedicated credential | **Accepted.** | 5.2; D-20 |
-| 4. `Reviewer: Ai` and `Reviewer: Either` are indistinguishable; humans can decide `Ai` actions | **Accepted.** Confirmed in Table A. | F15; D-19 |
-| 5. The Retry path does not verify `Retryable`; the endpoint accepts a retry; AI must not repeat an unknown outcome | **Accepted.** Confirmed in the queue and endpoint. Not reproduced. | F14, F11; 5.9; P0 |
-| F9. Fail closed for an existing action, not only at creation | **Accepted** | 5.9; P0 |
-| F8. Atomic accounting across actions and processes | **Accepted** | 5.8; D-11 |
-| D-4. Define the blocked identity, expiry, reversal, confirmation | **Accepted** | D-22; P5 |
-| D-5. A per-tool setting for queued approvals | **Accepted.** `DelayFor` is Execute-only (confirmed). | 5.6; D-23 |
-| D-6, D-7. Which A2A actions receive AI refusals | **Accepted** | 5.5; D-6, D-7 |
-| AI history on the review page | **Accepted.** Not verified in the page. | 5.2; section 10 |
-| Two integration models: complement or replace? | **Accepted.** One authority model, two hosts. | 5.2; D-25 |
-| Test matrix: more dimensions and channels | **Accepted** | Section 7 |
-| A2A submit guard in P0, not P7 | **Accepted** | 5.5; P0 |
-| Implementation order | **Accepted**, with R5 and R2 placed where they depend on it | Section 6 |
-| Drop "No with undo" from the first release | **Accepted** | D-24; 5.3 |
-| Index: the new plan is not listed in `docs/design/README.md` | **Accepted.** Added. | `docs/design/README.md` |
-| The three blocking questions | **Accepted as the structure of section 0** | Section 0 |
-| A dedicated AI credential, not an extension of MCP keys | **Accepted.** Already the plan (route B). | 5.2 |
-| "Refusals can obstruct legitimate work; refusals need their own limits" | **Accepted** | 5.4; D-21 |
-
-No point was rejected. Two points were already in the plan in substance (the dedicated credential, and the review page showing AI history); they are restated so the review's wording is covered.
+| 1. The in-process runner never offers Human-only actions to an AI | **Accepted.** Confirmed at `ReviewerRunner.cs:35`. | F17; 5.4; P2 |
+| 1 (cont.). Do reviewer groups restrict refusals too, or only approvals? | **Accepted as a decision.** Recommended: refusals may cross groups; approvals never. | 0; 5.4; D-26 |
+| 2. Assignment must be enforced at the queue boundary, and in the runner; the external credential must be out of the agent's reach | **Accepted.** Three boundaries, each with a test. | 5.2; P1 |
+| 3. The refusal budget needs atomic accounting | **Accepted.** | F23; 5.8; P2, P6 |
+| 4. The queued approval delay needs an explicit execution path, including the final approval, typed outcomes, recheck, persistence, overdue handling and the policy race | **Accepted.** Confirmed at the quorum-reached `ExecuteAsync` call (F21). The policy race is F18. | F18, F21; 5.6; P3 |
+| 5. Retry must be blocked for unsafe outcomes for everyone, including HTTP | **Accepted.** | 5.9; P0 |
+| 6. Refusal rules must state their full scope: the Destructive ban applies to approvals only; refusals may change requester penalties | **Accepted.** Confirmed at `AiReviewRules.cs:27-28` (F20) and the Reject branch (F19). | F19, F20; 5.4; D-27 |
+| 7. Ai and Either are indistinguishable | **Accepted.** Confirmed. | F15; D-19; D-28 |
+| 8. The test matrix is too large | **Accepted.** Replaced with decision tables, pairwise coverage and targeted tests. | 7 |
+| The Teams update | **Accepted.** The `OPERATIONS.md` sentence was wrong; corrected. | F22; `OpenTail.Orca/OPERATIONS.md` |
+| Honesty: AI approval is not human oversight | **Accepted.** | 1; 5.13; D-29 |
+| Second review's own point: the review refers to the old repo | **Noted.** The plan now lives in `OpenTail.Orca`, and paths are updated. The code is unchanged in structure. | Header |

@@ -316,8 +316,10 @@ The switch `ApprovePartnerRepliesInChat` (default `true`) takes **Approve** and 
 Reject and request changes still work from Teams, and other tools are unchanged.
 
 Each waiting action arrives as a card: what will happen, its risk, whether it was held after outside content, and an **Open** button to
-the review page at `PublicBaseUrl/#<action id>`. Nothing can be approved from the card: approving happens on the page, after sign-in, so
-Teams never calls Orca and the page can stay inside the company network (`PublicBaseUrl` only has to work for the reviewers). The
+the review page at `PublicBaseUrl/#<action id>`. A listed reviewer can approve from the card when the action's risk is within `ChatMaxRisk`,
+and can reject or request changes the same way. A partner reply is approved on the page when `ApprovePartnerRepliesInChat` is off. Only
+the Entra users listed as reviewers can decide from the card, and the page needs sign-in too, so the page can stay inside the company network
+(`PublicBaseUrl` only has to work for the reviewers). The
 workflow URL is a secret (anyone with it can post to the channel): keep it in the environment, never in the file.
 
 Delivery is from a durable outbox in the same database, retried 30 s, 60 s, ... up to 1 h, dead after 6 attempts (`notification_dead` in
