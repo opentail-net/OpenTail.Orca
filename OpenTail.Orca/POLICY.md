@@ -411,6 +411,8 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 * decide a tool it is not named for in `AiReviewers`, when the tool has that list. Such an action is never shown to that reviewer.
 * approve a request from its own identity, or from its own person in `People`: four eyes apply to an AI as well (a refusal is not restricted).
 
+**Oversight.** An admin sees each AI reviewer's record on the review page's *AI reviewers* tab: what it decided, what came of each decision, what the queue refused it, and the model and checks it reported. An admin can suspend a reviewer, or clear the suspension, and must give a reason either way; each act is audited. A suspended reviewer's decisions are refused, refusals included, and it is offered nothing. No automatic rule suspends an AI reviewer.
+
 The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits.
 A person may decide such an action, as they can any action: the AI's limits bind the AI, not the people above it. The runner does not offer an AI what it may not decide. Each AI decision, whichever channel brings it, is audited as `ai_review` under its `ai:` subject, and the review page labels it as an AI
 decision. The audit and the page show the model and

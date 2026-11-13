@@ -267,7 +267,7 @@ internal static class AdminPage
             const body = el('div'); d.append(body);
             try { await (adminViews[adminTab])(body); say(''); } catch (e) { say(e.message, true); }
           }
-          const adminTabs = [['jobs', 'Jobs'], ['agents', 'Agents'], ['people', 'People and keys'], ['policy', 'Policy versions'], ['health', 'Health'], ['usage', 'Usage'], ['telemetry', 'Telemetry'], ['audit', 'Audit'], ['proposals', 'Proposals']];
+          const adminTabs = [['jobs', 'Jobs'], ['agents', 'Agents'], ['people', 'People and keys'], ['policy', 'Policy versions'], ['health', 'Health'], ['usage', 'Usage'], ['telemetry', 'Telemetry'], ['audit', 'Audit'], ['proposals', 'Proposals'], ['aiReviewers', 'AI reviewers']];
           const jobVerbs = { 'cancel': 'Cancel', 'run-now': 'Run now', 'redrive': 'Redrive', 'delete': 'Delete', 'stop-source': 'Stop the source' };
           const jobKinds = { work: 'Agent work', resume: 'Waiting to resume', queue: 'Queue' };
           const jobConfirm = {
@@ -426,6 +426,40 @@ internal static class AdminPage
                 r.rows.map(u => [u.day, u.subject, u.profile || '', u.tool, u.calls, u.succeeded, u.failed, u.denied, u.rejected, u.records, u.recipients]), [4, 5, 6, 7, 8, 9, 10]));
             },
           };
+          // The AI reviewers panel: each reviewer's record beside its state, and the admin's suspend and clear. Every act needs a reason.
+          async function aiReviewersView(b) {
+            const o = await api('/api/admin/ai-reviewers');
+            b.append(el('h3', 'AI reviewers'));
+            b.append(el('p', 'What each AI reviewer has decided, and what came of it. A suspension stops its decisions at once, refusals included. Only an admin can suspend or clear one, and each act records its reason.', 'muted'));
+            if (!o.reviewers.length) { b.append(el('p', 'No AI reviewer is configured, and none has decided anything yet.', 'muted')); return; }
+            for (const r of o.reviewers) {
+              const s = el('section');
+              const head = el('h4', r.name + ' ');
+              head.append(el('span', r.suspended ? 'suspended' : 'active', r.suspended ? 'tag bad' : 'tag'));
+              s.append(head);
+              const d = r.decisions;
+              s.append(el('p', d.total + ' decisions: ' + d.approve + ' approved, ' + d.reject + ' rejected, ' + d.requestChanges + ' asked for changes, ' + d.retry + ' retried. ' + r.refused + ' refused by the queue (outside its limits, not assigned to it, or suspended).', 'muted'));
+              if (r.suspended) s.append(el('p', 'Suspended: ' + r.suspension.note + ' (since ' + new Date(r.suspension.since).toLocaleString() + ').', 'err'));
+              const reason = el('input'); reason.placeholder = 'Reason (required)'; reason.style.maxWidth = '360px';
+              const go = el('button', r.suspended ? 'Clear suspension' : 'Suspend this reviewer');
+              go.addEventListener('click', async () => {
+                if (!reason.value.trim()) { say('Give a reason first: the record shows it.', true); return; }
+                try {
+                  await api('/api/admin/ai-reviewers/' + encodeURIComponent(r.name) + (r.suspended ? '/clear' : '/suspend'), { method: 'POST', body: JSON.stringify({ reason: reason.value.trim() }) });
+                  say(r.suspended ? r.name + ' is cleared.' : r.name + ' is suspended: its decisions stop now.');
+                  showAdmin('aiReviewers');
+                } catch (e) { say(e.message, true); }
+              });
+              const controls = el('p'); controls.append(reason, ' ', go); s.append(controls);
+              if (r.recent.length) {
+                s.append(el('h5', 'Recent decisions'));
+                s.append(table(['When', 'Tool', 'Action', 'Decided', 'Now', 'Why', 'Checks it named'], r.recent.map(x => [
+                  new Date(x.at).toLocaleString(), x.tool, x.actionId, x.decision, x.status, x.reason || '', (x.checks || []).join('; ')])));
+              } else s.append(el('p', 'No decisions yet.', 'muted'));
+              b.append(s);
+            }
+          }
+          adminViews.aiReviewers = aiReviewersView;
           // Telemetry recorded in this process since it started: no collector needed. Spans link to their action.
           const fmt = (n) => Math.abs(n) >= 100 ? Math.round(n).toLocaleString() : (Math.round(n * 10) / 10).toString();
           const bounds = [1, 5, 10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000];

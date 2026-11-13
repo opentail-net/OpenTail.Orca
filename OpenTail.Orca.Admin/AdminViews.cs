@@ -30,6 +30,7 @@ internal static class AdminViews
                 : Results.Json(new { error = "This view needs the admin role." }, statusCode: StatusCodes.Status403Forbidden));
 
         admin.MapGet("/overview", () => Results.Text(Overview(host).ToJsonString(), "application/json"));
+        AiReviewerPanel.Map(admin, host, options);
 
         admin.MapGet("/policy-versions", () =>
         {
