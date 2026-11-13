@@ -99,9 +99,9 @@ public class A2aSliceTests
     }
 
     private static async Task<Rig> StartAsync(TempDb db, string policy = Policy, A2aOptions? a2a = null, ApiKeyEntry[]? keys = null,
-        int rate = 0, int maxBody = 1024 * 1024, bool extension = true)
+        int rate = 0, int maxBody = 1024 * 1024, bool extension = true, Func<TimeSpan, CancellationToken, Task>? poll = null)
     {
-        var extensions = extension ? new IHttpDeploymentExtension[] { new A2AFrontDoor() } : Array.Empty<IHttpDeploymentExtension>();
+        var extensions = extension ? new IHttpDeploymentExtension[] { new A2AFrontDoor { PollDelay = poll } } : Array.Empty<IHttpDeploymentExtension>();
         var options = new HostHttpOptions
         {
             ApiKeys = keys ?? DefaultKeys,
@@ -353,19 +353,6 @@ public class A2aSliceTests
     }
 
     [Fact]
-    public async Task Blocking_sends_are_UnsupportedOperation_and_leave_no_row_behind()
-    {
-        using var db = new TempDb();
-        await using var rig = await StartAsync(db);
-        using var client = rig.Client(TokenA);
-        var omitted = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Send("m-omit", "Blocking.", immediate: null)));
-        Assert.Equal(A2AErrorCode.UnsupportedOperation, omitted.ErrorCode);
-        var explicitFalse = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Send("m-false", "Blocking.", immediate: false)));
-        Assert.Equal(A2AErrorCode.UnsupportedOperation, explicitFalse.ErrorCode);
-        Assert.Equal(0, rig.Table.Count());
-    }
-
-    [Fact]
     public async Task A_file_part_and_an_oversized_goal_are_refused_and_audited_and_a_tenant_leaves_no_trace()
     {
         using var db = new TempDb();
@@ -418,13 +405,11 @@ public class A2aSliceTests
     }
 
     [Fact]
-    public async Task ListTasks_and_streaming_are_UnsupportedOperation_in_this_slice()
+    public async Task Streaming_is_UnsupportedOperation_in_this_slice()
     {
         using var db = new TempDb();
         await using var rig = await StartAsync(db);
         using var client = rig.Client(TokenA);
-        var listed = await Assert.ThrowsAsync<A2AException>(() => client.ListTasksAsync(new ListTasksRequest { PageSize = 10 }));
-        Assert.Equal(A2AErrorCode.UnsupportedOperation, listed.ErrorCode);
         var streamed = await Assert.ThrowsAsync<A2AException>(async () =>
         {
             await foreach (var _ in client.SendStreamingMessageAsync(Send("m-stream", "Stream.")))
@@ -907,6 +892,283 @@ public class A2aSliceTests
         var noProfileReply = Policy.Replace("\"clerk\": { \"Tools\": [ \"a2a.submit\", \"a2a.reply\", \"work.*\" ] }", "\"clerk\": { \"Tools\": [ \"a2a.submit\", \"work.*\" ] }");
         using (var db = new TempDb())
             Assert.Contains("a2a.reply", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: noProfileReply, keys: DefaultKeys)).Message);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------- blocking sends and ListTasks (batch 03b-3)
+
+    /// <summary>The A2A section with a short blocking wait and this cap. The waits are counted in polls, so a test's poll delay decides the
+    /// timing and no test sleeps.</summary>
+    private static A2aOptions WithWait(TimeSpan wait, int cap = 4) =>
+        EnabledA2a with { BlockingWait = wait, MaxBlockingWaitsPerPartner = cap };
+
+    /// <summary>A poll delay that does not wait. <paramref name="onPoll"/> runs at each poll, numbered from 1.</summary>
+    private static Func<TimeSpan, CancellationToken, Task> NoWait(Func<int, Task>? onPoll = null)
+    {
+        var polls = 0;
+        return async (_, _) =>
+        {
+            polls++;
+            if (onPoll is not null) await onPoll(polls);
+        };
+    }
+
+    /// <summary>The newest task id of a partner, read from the table (the blocking send's own answer is not in hand while it waits).</summary>
+    private static string TaskIdOf(Rig rig, string partner)
+    {
+        using var c = new SqliteConnection($"Data Source={rig.DbPath};Mode=ReadOnly");
+        c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT task_id FROM a2a_tasks WHERE partner_id=$p ORDER BY created_at DESC LIMIT 1";
+        cmd.Parameters.AddWithValue("$p", partner);
+        return (string)cmd.ExecuteScalar()!;
+    }
+
+    private static async Task ApproveSubmitAsync(Rig rig, string partner, string taskId, ReviewDecision decision, string? reason = null) =>
+        await rig.Host.Queue.ReviewAsync((await SubmitOfAsync(rig, partner, taskId)).Id,
+            new ActionReview("rita", decision, reason, DateTimeOffset.UtcNow));
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task A_blocking_send_answers_COMPLETED_with_the_reply_when_approval_and_completion_all_happen_inside_the_wait(bool? immediate)
+    {
+        using var db = new TempDb();
+        Rig? rig = null;
+        var poll = NoWait(async n =>
+        {
+            var r = rig!;
+            var task = TaskIdOf(r, PartnerA);
+            if (n == 1) await ApproveSubmitAsync(r, PartnerA, task, ReviewDecision.Approve);
+            else if (n == 2) await CompleteAsInboxAsync(r, "Paid on 3 Nov.");
+            else if (n == 3) await r.Host.Queue.ReviewAsync((await ReplyOfAsync(r, PartnerA, task)).Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        });
+        rig = await StartAsync(db, a2a: WithWait(TimeSpan.FromSeconds(5)), poll: poll);
+        await using var owned = rig;
+        using var client = rig.Client(TokenA);
+
+        var answer = (await client.SendMessageAsync(Send("m-blocking", "Check the invoice.", immediate))).Task!;
+
+        Assert.Equal(TaskState.Completed, answer.Status.State);
+        Assert.Equal("Paid on 3 Nov.", Assert.Single(answer.Artifacts!).Parts.Single().Text);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM a2a_tasks"));
+    }
+
+    [Fact]
+    public async Task A_blocking_send_that_outlives_the_wait_answers_an_error_naming_the_task_and_the_task_keeps_running()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, a2a: WithWait(TimeSpan.FromSeconds(1)), poll: NoWait());
+        using var client = rig.Client(TokenA);
+
+        var timedOut = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Send("m-slow", "Slow.", immediate: false)));
+
+        var taskId = TaskIdOf(rig, PartnerA);
+        Assert.Equal(A2AErrorCode.InternalError, timedOut.ErrorCode);
+        Assert.Contains(taskId, timedOut.Message);
+        Assert.Equal(TaskState.Submitted, (await client.GetTaskAsync(new GetTaskRequest { Id = taskId })).Status.State);
+        Assert.Equal(ActionStatus.Pending, (await SubmitOfAsync(rig, PartnerA, taskId)).Status);
+
+        // A retry with the same messageId and content waits on the same task: one row, one action.
+        var again = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Send("m-slow", "Slow.", immediate: null)));
+        Assert.Contains(taskId, again.Message);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM a2a_tasks"));
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM actions WHERE tool='a2a.submit'"));
+    }
+
+    [Fact]
+    public async Task A_blocking_send_rejected_during_the_wait_answers_the_task_in_REJECTED_without_the_reviewers_reason()
+    {
+        using var db = new TempDb();
+        Rig? rig = null;
+        rig = await StartAsync(db, a2a: WithWait(TimeSpan.FromSeconds(5)),
+            poll: NoWait(n => n == 1 ? ApproveSubmitAsync(rig!, PartnerA, TaskIdOf(rig!, PartnerA), ReviewDecision.Reject, "Internal: blocked customer") : Task.CompletedTask));
+        await using var owned = rig;
+        using var client = rig.Client(TokenA);
+
+        var answer = (await client.SendMessageAsync(Send("m-reject-wait", "Rejected while waiting.", immediate: false))).Task!;
+
+        Assert.Equal(TaskState.Rejected, answer.Status.State);
+        Assert.DoesNotContain("blocked customer", JsonSerializer.Serialize(answer, A2AJsonUtilities.DefaultOptions));
+    }
+
+    [Fact]
+    public async Task A_blocking_client_that_aborts_mid_wait_leaves_the_task_unchanged_and_gives_its_waiting_place_back()
+    {
+        using var db = new TempDb();
+        using var cts = new CancellationTokenSource();
+        var armed = true;
+        Rig? rig = null;
+        // The first poll aborts the client and then waits, so the server sees the abort as a cancelled wait. Later polls do nothing.
+        rig = await StartAsync(db, a2a: WithWait(TimeSpan.FromSeconds(5), cap: 1), poll: async (_, ct) =>
+        {
+            if (!armed) return;
+            armed = false;
+            cts.Cancel();
+            await Task.Delay(TimeSpan.FromSeconds(10), ct);
+        });
+        await using var owned = rig;
+        using var client = rig.Client(TokenA);
+
+        var aborted = client.SendMessageAsync(Send("m-abort", "Abort me.", immediate: false), cts.Token);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => aborted);
+
+        var taskId = TaskIdOf(rig, PartnerA);
+        Assert.Equal(ActionStatus.Pending, (await SubmitOfAsync(rig, PartnerA, taskId)).Status);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM a2a_tasks"));
+
+        // The waiting place is back: a new blocking send is answered as a wait (its error), not refused as too many. The server may still be
+        // finishing the aborted request, so this retries briefly.
+        A2AException? answered = null;
+        for (var attempt = 0; attempt < 200 && answered is null; attempt++)
+        {
+            try
+            {
+                await client.SendMessageAsync(Send("m-after-abort", "After the abort.", immediate: false));
+            }
+            catch (A2AException ex) when (ex.Message.Contains("Too many", StringComparison.Ordinal))
+            {
+                await Task.Delay(20);
+            }
+            catch (A2AException ex)
+            {
+                answered = ex;
+            }
+        }
+        Assert.NotNull(answered);
+        Assert.Contains("still in progress", answered!.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task The_cap_refuses_a_second_blocking_send_before_any_row_and_another_partner_is_not_affected()
+    {
+        using var db = new TempDb();
+        Rig? rig = null;
+        A2AClient client = null!;
+        A2AClient otherClient = null!;
+        var busy = false;
+        var outerPolls = 0;
+        A2AException? secondRefusal = null;
+        A2AException? otherPartnerAnswer = null;
+        rig = await StartAsync(db, a2a: WithWait(TimeSpan.FromSeconds(5), cap: 1), poll: NoWait(async _ =>
+        {
+            // The nested sends below make their own polls; those do nothing here.
+            if (busy) return;
+            outerPolls++;
+            if (outerPolls == 1)
+            {
+                busy = true;
+                try { await client.SendMessageAsync(Send("m-second", "Second.", immediate: false)); }
+                catch (A2AException ex) { secondRefusal = ex; }
+                try { await otherClient.SendMessageAsync(Send("m-other", "Other partner.", immediate: false)); }
+                catch (A2AException ex) { otherPartnerAnswer = ex; }
+                busy = false;
+            }
+            else if (outerPolls == 2)
+            {
+                await ApproveSubmitAsync(rig!, PartnerA, TaskIdOf(rig!, PartnerA), ReviewDecision.Reject, "Internal");
+            }
+        }));
+        await using var owned = rig;
+        client = rig.Client(TokenA);
+        otherClient = rig.Client(TokenB);
+
+        var first = (await client.SendMessageAsync(Send("m-first", "First.", immediate: false))).Task!;
+
+        Assert.Equal(TaskState.Rejected, first.Status.State);
+        Assert.NotNull(secondRefusal);
+        Assert.Contains("Too many", secondRefusal!.Message, StringComparison.Ordinal);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM a2a_tasks WHERE partner_id='" + PartnerA + "'"));
+        Assert.Contains(((SqliteAuditSink)rig.Host.Audit).ReadChain(), e => e.Event == "a2a.refused" && e.Detail == "too_many_waits");
+        Assert.NotNull(otherPartnerAnswer);
+        Assert.Contains("still in progress", otherPartnerAnswer!.Message, StringComparison.Ordinal);
+
+        // Once the first send has answered, the partner's place is free again: the next blocking send waits, rather than being refused.
+        var later = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Send("m-later", "Later.", immediate: false)));
+        Assert.Contains("still in progress", later.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task ListTasks_pages_the_callers_tasks_newest_first_and_never_shows_another_partners_task()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var a = rig.Client(TokenA);
+        using var b = rig.Client(TokenB);
+        var created = new List<string>();
+        for (var i = 0; i < 5; i++)
+            created.Add((await a.SendMessageAsync(Send("m-list-" + i, "Task " + i))).Task!.Id);
+        var foreign = (await b.SendMessageAsync(Send("m-foreign", "Partner B's task."))).Task!;
+
+        var sizes = new List<int>();
+        var seen = new List<string>();
+        var token = "";
+        for (var page = 0; page < 10; page++)
+        {
+            var listed = await a.ListTasksAsync(new ListTasksRequest { PageSize = 2, PageToken = token });
+            sizes.Add(listed.Tasks.Count);
+            Assert.Equal(5, listed.TotalSize);
+            seen.AddRange(listed.Tasks.Select(t => t.Id));
+            token = listed.NextPageToken;
+            if (string.IsNullOrEmpty(token)) break;
+        }
+
+        Assert.Equal(new[] { 2, 2, 1 }, sizes);
+        Assert.Equal(created.AsEnumerable().Reverse(), seen);
+        Assert.DoesNotContain(foreign.Id, seen);
+        Assert.Empty((await a.ListTasksAsync(new ListTasksRequest { ContextId = foreign.ContextId })).Tasks);
+    }
+
+    [Fact]
+    public async Task ListTasks_refuses_a_bad_page_size_token_or_status_filter_with_InvalidParams()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var a = rig.Client(TokenA);
+        _ = await a.SendMessageAsync(Send("m-one", "One."));
+
+        foreach (var bad in new[]
+                 {
+                     new ListTasksRequest { PageSize = 0 },
+                     new ListTasksRequest { PageSize = 101 },
+                     new ListTasksRequest { PageToken = "not-a-token!" },
+                     new ListTasksRequest { PageToken = "bm9wZQ" },
+                     new ListTasksRequest { Status = TaskState.Working },
+                 })
+        {
+            var refused = await Assert.ThrowsAsync<A2AException>(() => a.ListTasksAsync(bad));
+            Assert.Equal(A2AErrorCode.InvalidParams, refused.ErrorCode);
+        }
+    }
+
+    [Fact]
+    public async Task ListTasks_shows_a_completed_tasks_artifact_only_when_IncludeArtifacts_is_true()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var a = rig.Client(TokenA);
+        var (taskId, _) = await ApprovedTaskAsync(rig, a, PartnerA, "m-art", "Check the invoice.");
+        await CompleteAsInboxAsync(rig, "Paid.");
+        _ = await a.GetTaskAsync(new GetTaskRequest { Id = taskId });
+        await rig.Host.Queue.ReviewAsync((await ReplyOfAsync(rig, PartnerA, taskId)).Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+
+        var hidden = await a.ListTasksAsync(new ListTasksRequest { IncludeArtifacts = false });
+        Assert.Equal(TaskState.Completed, hidden.Tasks[0].Status.State);
+        Assert.True(hidden.Tasks[0].Artifacts is null or { Count: 0 });
+
+        var shown = await a.ListTasksAsync(new ListTasksRequest { IncludeArtifacts = true });
+        Assert.Equal("Paid.", Assert.Single(shown.Tasks[0].Artifacts!).Parts.Single().Text);
+    }
+
+    [Fact]
+    public void Startup_refuses_a_blocking_wait_outside_1_second_to_5_minutes_and_a_cap_outside_1_to_64()
+    {
+        foreach (var wait in new[] { TimeSpan.Zero, TimeSpan.FromMinutes(10) })
+        {
+            using var db = new TempDb();
+            Assert.Contains("BlockingWait", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, a2a: WithWait(wait))).Message);
+        }
+        using (var db = new TempDb())
+            Assert.Contains("MaxBlockingWaits", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, a2a: WithWait(TimeSpan.FromSeconds(30), cap: 0))).Message);
     }
 
     /// <summary>Builds the options and the Host, and starts the extension's startup checks; it must throw.</summary>

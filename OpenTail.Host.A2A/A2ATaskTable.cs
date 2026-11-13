@@ -121,6 +121,56 @@ internal sealed class A2ATaskTable
         return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    /// <summary>One page of a partner's tasks, newest first by creation, then by task id. Only rows of this partner are read: the partner id is
+    /// always in the query, and no filter widens it. <paramref name="after"/> is the last row of the previous page (keyset paging).</summary>
+    public IReadOnlyList<Row> ListPage(string partnerId, string? contextId, (DateTimeOffset At, string TaskId)? after, int limit)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        var where = new List<string> { "partner_id=$p" };
+        cmd.Parameters.AddWithValue("$p", partnerId);
+        if (contextId is not null)
+        {
+            where.Add("context_id=$x");
+            cmd.Parameters.AddWithValue("$x", contextId);
+        }
+        if (after is { } a)
+        {
+            where.Add("(created_at < $ca OR (created_at = $ca AND task_id < $ct))");
+            cmd.Parameters.AddWithValue("$ca", a.At.ToString("O", CultureInfo.InvariantCulture));
+            cmd.Parameters.AddWithValue("$ct", a.TaskId);
+        }
+        cmd.Parameters.AddWithValue("$n", limit);
+        cmd.CommandText = "SELECT task_id, partner_id, context_id, message_id, content_hash, skill_id, submit_action_id, created_at, updated_at, " +
+                          "work_item_id, reply_action_id FROM a2a_tasks WHERE " + string.Join(" AND ", where) +
+                          " ORDER BY created_at DESC, task_id DESC LIMIT $n";
+        var rows = new List<Row>();
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) rows.Add(ReadRow(r));
+        return rows;
+    }
+
+    /// <summary>How many tasks this partner has, under the same context filter as <see cref="ListPage"/>.</summary>
+    public int PartnerCount(string partnerId, string? contextId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = contextId is null
+            ? "SELECT COUNT(*) FROM a2a_tasks WHERE partner_id=$p"
+            : "SELECT COUNT(*) FROM a2a_tasks WHERE partner_id=$p AND context_id=$x";
+        cmd.Parameters.AddWithValue("$p", partnerId);
+        if (contextId is not null) cmd.Parameters.AddWithValue("$x", contextId);
+        return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private static Row ReadRow(SqliteDataReader r) => new(
+        r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5),
+        r.IsDBNull(6) ? null : r.GetString(6),
+        DateTimeOffset.Parse(r.GetString(7), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        DateTimeOffset.Parse(r.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        r.IsDBNull(9) ? null : r.GetString(9),
+        r.IsDBNull(10) ? null : r.GetString(10));
+
     private SqliteConnection Open()
     {
         var c = new SqliteConnection(_connectionString);

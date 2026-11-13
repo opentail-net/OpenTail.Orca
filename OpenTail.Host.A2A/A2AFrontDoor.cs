@@ -23,6 +23,10 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
     // The tools are registered before the host exists, so their bodies reach the work through this, bound in MapEndpoints.
     private A2AWork? _work;
 
+    /// <summary>The delay between polls of a blocking send. Tests supply one that does not wait, so they need no real seconds; null means a
+    /// real delay.</summary>
+    internal Func<TimeSpan, CancellationToken, Task>? PollDelay { get; init; }
+
     public void AddModules(OpenTailHostBuilder builder, HostHttpOptions options)
     {
         if (options.A2A is not { Enabled: true } config) return;
@@ -62,6 +66,10 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         foreach (var (id, skill) in config.Skills)
             if (!policy.Agents.ContainsKey(skill.Inbox))
                 errors.Add($"A2A skill '{id}' names inbox profile '{skill.Inbox}', which the policy's \"Agents\" does not define.");
+        if (config.BlockingWait < TimeSpan.FromSeconds(1) || config.BlockingWait > TimeSpan.FromMinutes(5))
+            errors.Add("A2A BlockingWait must be from 1 second to 5 minutes (the default is 00:00:30).");
+        if (config.MaxBlockingWaitsPerPartner is < 1 or > 64)
+            errors.Add("A2A MaxBlockingWaitsPerPartner must be from 1 to 64 (the default is 4).");
         foreach (var key in options.ApiKeys.Where(k => k.Scopes?.Contains(Roles.A2aCall) == true))
         {
             if (key.Profile is null || !policy.Agents.TryGetValue(key.Profile, out var agent))
@@ -94,7 +102,8 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         var work = new A2AWork(host, config, tasks);
         _work = work;
         host.Work.Completed += work.OnCompleted;
-        var handler = new A2ARequestHandler(host, config, app.ServiceProvider.GetRequiredService<IHttpContextAccessor>(), tasks, work);
+        var pause = PollDelay ?? ((delay, ct) => Task.Delay(delay, ct));
+        var handler = new A2ARequestHandler(host, config, app.ServiceProvider.GetRequiredService<IHttpContextAccessor>(), tasks, work, pause);
         app.MapA2A(handler, Path)
             .RequireAuthorization(policy => policy.RequireAuthenticatedUser().RequireRole(Roles.A2aCall))
             .Add(endpoint => endpoint.FilterFactories.Add((_, next) => async invocation =>

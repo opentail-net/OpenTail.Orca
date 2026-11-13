@@ -64,6 +64,13 @@ public sealed record A2aOptions
 
     /// <summary>The inbox skills a partner may use, by skill id (the slice needs exactly one usable skill for the caller).</summary>
     public IReadOnlyDictionary<string, A2aSkill> Skills { get; init; } = new Dictionary<string, A2aSkill>(StringComparer.Ordinal);
+
+    /// <summary>How long a blocking send (returnImmediately false or omitted) waits for a terminal state before it answers an error. 1 second
+    /// to 5 minutes; the default is 30 seconds.</summary>
+    public TimeSpan BlockingWait { get; init; } = TimeSpan.FromSeconds(30);
+
+    /// <summary>How many blocking sends one partner may have waiting at once. 1 to 64; the default is 4.</summary>
+    public int MaxBlockingWaitsPerPartner { get; init; } = 4;
 }
 
 /// <summary>An A2A skill the operator offers. <see cref="Inbox"/> names the profile whose work the skill's requests go to.</summary>

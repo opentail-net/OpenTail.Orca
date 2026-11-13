@@ -144,14 +144,30 @@ the summary is queued as an `a2a.reply` for a person: approve it and the partner
 it and the task is `FAILED` with no text. The partner gets a task id, and sees `SUBMITTED`, `WORKING`, `COMPLETED`, `REJECTED`, `FAILED`
 or `CANCELED`, with generic text only.
 
-**Not served yet:** no agent card (no `/.well-known` route); no blocking sends (`returnImmediately` false or omitted is refused with
-UnsupportedOperation, and leaves no row; they come with the blocking wait); no `ListTasks`, streaming, resubscribe, push notifications or
-extended card (each refused with UnsupportedOperation); no file parts; no continuation of a task.
+  **Blocking sends** (`returnImmediately` false or omitted) create the task exactly as `true` does, then wait for a terminal state, up to
+  `BlockingWait`. A terminal task in time is answered as `GetTask` would answer it, with the artifact when it is COMPLETED. If the wait passes
+  first, the caller gets a JSON-RPC `InternalError` whose text names the task id and says to read it with `GetTask`; the task is not
+  cancelled and keeps running, and a retry with the same `messageId` and content waits on the same task. Nothing is answered as SUBMITTED or
+  WORKING. A client that disconnects stops waiting and changes nothing. A partner may have `MaxBlockingWaitsPerPartner` waits at once; a
+  further blocking send is refused with `InternalError` before any task is created, and audited as `a2a.refused` with reason
+  `too_many_waits`. A client that does not want to wait sends with `returnImmediately` true.
+
+  **ListTasks** returns only the caller's tasks, even when a `contextId` of another partner is given (the answer is then empty). `pageSize`
+  is 1 to 100 (default 50); outside that range is `InvalidParams`. Tasks come newest first by creation time, then task id, not by status
+  update time (see `docs/design/a2a.md`). `pageToken` is opaque; a token that does not parse is `InvalidParams`; `nextPageToken` is empty on
+  the last page; `totalSize` counts the caller's tasks under the same `contextId` filter. `includeArtifacts` true includes a completed task's
+  answer. `status` and `statusTimestampAfter` are refused with `InvalidParams` (state is derived, not stored). `historyLength` is ignored,
+  because there is no history.
+
+**Not served yet:** no agent card (no `/.well-known` route); no streaming, resubscribe, push notifications or extended card (each refused
+with UnsupportedOperation); no file parts; no continuation of a task.
 
 * **Config.** The `A2A` object in `http.json`: `"Enabled"`, `"Partners"` (a list of `{ "Id", "DisplayName" }`; `--new-partner "<name>"`
   prints a new `Id`, a UUID kept for good) and `"Skills"`: each skill id maps to `{ "Name", "Description", "Inbox" }`, where `Inbox` names a
   profile in the policy's `"Agents"`. Exactly one skill must be usable by the caller, and a skill is usable by a profile that lists
   `a2a.submit` by name (a wildcard does not count). With none or several, the request is refused with "not available".
+  `BlockingWait` (a duration, 1 second to 5 minutes, default `00:00:30`) and `MaxBlockingWaitsPerPartner` (1 to 64, default 4) set the
+  blocking sends below.
 * **Scope.** `a2a:call` is the role for a partner's API key. Give the key `"Scopes": [ "a2a:call" ]` and nothing else, a `"Profile"` naming
   an entry of the policy's `"Agents"`, and `"Partner": "<id>"` naming a listed partner. A key with `a2a:call` cannot call `/mcp` or the review
   API, and a key without it cannot call `/a2a` (403; no credential gives 401). Several keys may name one partner, for rotation. A partner's
@@ -165,7 +181,9 @@ extended card (each refused with UnsupportedOperation); no file parts; no contin
 * **Audit.** `a2a.received` (task id, partner id, skill id, a hash of the content, size) when a task is created; `a2a.refused` with a reason
   code when a request is refused. Neither holds the text of a request. `a2a.reply_queued` (task id, partner id, a hash and the size of the
   reply, never the text) when a reply is queued; `a2a.reconcile_failed` (with the exception type) when a reconcile fails; `work.cancelled`
-  by the partner's subject when a partner cancels an open task. Refusals before the body is read (the body limit, sign-in, the version
+  by the partner's subject when a partner cancels an open task. `a2a.refused` with reason `no_partner` when a signed-in `a2a:call`
+  credential names no partner (the credential's subject is recorded), and with reason `too_many_waits` for a blocking send refused at the
+  cap. Refusals before the body is read (the body limit, sign-in, the version
   gate) are not audited as `a2a.refused`.
 * **Startup checks** (each refuses to start, with the reason, when `Enabled` is true):
   * the policy's `"DataFlowMode"` is `Enforce`;
@@ -177,7 +195,8 @@ extended card (each refused with UnsupportedOperation); no file parts; no contin
   * the policy has an entry for `a2a.submit`; there is at least one skill; every skill's `Inbox` is a profile in `"Agents"`;
   * the policy has an entry for `a2a.reply` in mode `Queue` or `Deny` (never `Execute`), with `Reviewer` Human and `AllowEdits` false, and
     no rule on it that is `Execute` or names a reviewer that is not a person;
-  * every profile named by an `a2a:call` key lists both `a2a.submit` and `a2a.reply` by name.
+  * every profile named by an `a2a:call` key lists both `a2a.submit` and `a2a.reply` by name;
+  * `BlockingWait` is from 1 second to 5 minutes, and `MaxBlockingWaitsPerPartner` from 1 to 64.
 * **Warning.** `a2a.submit` in mode `Execute` with no rule runs every partner's request without a person's review. That is allowed when you
   trust every partner, and startup prints a warning saying so.
 * **Policy example.** The entries an A2A deployment needs; the rest of the policy is unchanged. The inbox profile (here `clerk`) lists

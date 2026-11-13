@@ -270,8 +270,21 @@ the task is not discarded or cancelled, and a retry with the same `messageId` fr
 recommended integration mode is `returnImmediately=true`, because approval is asynchronous. The SDK reads the flag from
 `SendMessageConfiguration.ReturnImmediately`. Tests must cover `true`, `false` and omitted.
 
+**Built (03b-3).** A blocking send creates the task exactly as `true` does, then waits for a terminal state (COMPLETED, FAILED, CANCELED or
+REJECTED). If `BlockingWait` passes first (1 second to 5 minutes, default 30 seconds), the answer is an error, not a task: JSON-RPC
+`InternalError`, with the text "The task <id> is still in progress. Read it with GetTask, or send with returnImmediately set to true.".
+No SDK error code means "still running", so `InternalError` is the one that fits. The task is not cancelled. Each partner may have
+`MaxBlockingWaitsPerPartner` waits at once (1 to 64, default 4); a further blocking send is refused before any row exists, audited as
+`a2a.refused` with reason `too_many_waits`.
+
 **ListTasks (correction 5).** Returns only the caller's tasks. Cursor pagination: `pageToken` in, `nextPageToken` out, and the last
 page returns an empty string. Results are sorted newest first by status update time (spec §3.1.4).
+
+**Built (03b-3), and the difference from the spec.** This slice sorts newest first by creation time, then task id. The status update time
+would need three stores (the task row, the work item, the reply action) to agree, and the spec's order is not checked here. The page token
+names the last row's position (base64url of its creation time and task id), not an offset, so a task created between two pages does not
+move the next one. `status` and `statusTimestampAfter` are refused with InvalidParams until state is stored; `historyLength` is ignored
+(there is no history).
 
 **Why an action first.** A new partner's requests go to a person until the operator trusts them. `TrustRamp` is per tool, though, not
 per partner. To trust one partner and not another, use a conditional rule on the `partner` argument, which the partner cannot set.
@@ -470,8 +483,7 @@ Still the proposed defaults, unchanged:
 
 ## What is built
 
-Phase 0 (in commit f24f8c5), the first half of the thin slice (03b-1, committed in fae2725) and the second half (03b-2, in the working
-tree, not committed). The slice is OpenTail.Host.A2A, which only a server or a test references; the HTTP host takes it through an extension
+Phase 0 (in commit f24f8c5), the first half of the thin slice (03b-1, committed in fae2725) and the second half (03b-2, committed in 23020b1). The slice is OpenTail.Host.A2A, which only a server or a test references; the HTTP host takes it through an extension
 seam and never names it. It serves `/a2a` (JSON-RPC, our own `IA2ARequestHandler` over the SDK's `MapA2A`) behind the `a2a:call` role;
 enforces `A2A-Version` before the SDK (D6); keeps the task id table (schema 13: `a2a_tasks`, the Host's id, the partner's owner, the content
 hash, the work item and the reply action, and no text); submits `a2a.submit` as the partner with the task id as idempotency key. On approval
@@ -480,7 +492,8 @@ returns the item's id. A finished item is reconciled into one queued `a2a.reply`
 profile, with the item's taint and labels put on that session first. `GetTask` and `CancelTask` answer for the owner's tasks only. The
 completer's session now carries onto its work item (E1); `WorkService` raises `Completed` (E2) and cancels only an open item when asked (E7).
 Reused without change: the decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body limit and the
-HTTP sign-in. Not built yet: blocking waits (03b-3), `ListTasks`, the card, the skill-selection extension, push, signing, and outbound calls.
+HTTP sign-in. Built in 03b-3: the blocking send with its wait and cap, and `ListTasks` (the caller's tasks only, keyset paging). Not built
+yet: the card, the skill-selection extension, push, signing, and outbound calls.
 The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
 
 ## Sources
