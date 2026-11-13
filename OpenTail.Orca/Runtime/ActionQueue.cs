@@ -389,6 +389,20 @@ public sealed class ActionQueue(
             }
         }
 
+        // P0 (F14, F11): a retry needs a retryable failure, and an unknown outcome is never retried unless the tool is idempotent by key.
+        // This holds for every reviewer and through the HTTP endpoint, not only on the page.
+        if (review.Decision == ReviewDecision.Retry)
+        {
+            var idempotent = catalog.TryGet(existing.ToolName, out var retryTool) && retryTool.Descriptor.IdempotentByKey;
+            var byAi = review.Subject is { } retrySubject && Subjects.IsAi(retrySubject);
+            if (RetryRules.Refusal(existing.Error, idempotent, byAi, review.Reason) is { } retryReason)
+            {
+                await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", existing.Id, existing.ToolName,
+                    review.Subject ?? review.Reviewer, $"Retry: {retryReason}"), ct);
+                throw new UnauthorizedAccessException(retryReason);
+            }
+        }
+
         switch (review.Decision)
         {
             case ReviewDecision.Approve:
@@ -528,6 +542,8 @@ public sealed class ActionQueue(
     /// refusals along the resubmission chain and AI approvals within the tool's <c>AiBudget</c>. The runner asks this before offering.</summary>
     public async Task<ReviewVerdict> AiVerdictAsync(ActionRecord r, ReviewDecision decision, bool editsArguments = false, CancellationToken ct = default)
     {
+        // P0 (F9): without a policy snapshot an AI reviewer would be judged by defaults. It decides nothing about such an action.
+        if (r.PolicySnapshot is null) return ReviewVerdict.No("This action has no policy snapshot, so an AI reviewer cannot decide it.");
         ToolRisk? risk = catalog.TryGet(r.ToolName, out var tool) ? tool.Descriptor.Risk : null;
         var quick = AiReviewRules.Check(r, decision, risk, editsArguments, null);
         return quick.Allowed ? AiReviewRules.Check(r, decision, risk, editsArguments, await AiHistoryAsync(r, ct)) : quick;

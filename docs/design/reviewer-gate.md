@@ -472,6 +472,9 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-29 | How AI decisions are recorded and labelled (second review, point on honesty) | **the `ai:` actor and an AI event; labelled AI on the review page; documents say "delegated authority", never "human oversight"** | **As stated** |
 | D-30 | The external reviewer credential (5.2, P1) | **issued to a named reviewer identity, stored as a hash, shown once, rotated by an operator; agent profiles may not hold the reviewer role** | **As stated** |
 | D-31 | The refusal budget's unit and scope | **per requester and tool**; per tool only | **Per requester and tool** |
+| D-32 | Retry of an unknown outcome (P0, F14, F11, decided by the implementer while the owner is away) | An AI never retries a tool that is not idempotent by key. A person may retry an unknown outcome only when the review records the check that the effect did not happen (the review reason). Non-retryable failures are refused for everyone. | **As implemented in P0** (`OpenTail.Orca/Runtime/RetryRules.cs`); the existing durability test already expects this path |
+| D-33 | The policy recheck and the claim (F18) | Not reachable in this build: the policy is fixed for the life of a process (`PolicyResolver.PolicyHash` is computed once; there is no reload). The recheck stays before the claim. It moves inside the claim only if hot reload is added. | **Recorded, no change** |
+| D-34 | AI review of an action with no policy snapshot (F9) | An AI decides nothing about such an action (`AiVerdictAsync` refuses). Humans are unchanged. | **As implemented in P0** |
 
 ## 10. Not verified
 
@@ -492,6 +495,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | Undo window | 2026-10-18 | Execute with a delay, Stop, run-now and hold. `docs/design/undo-window.md`. |
 | Gate plan | 2026-11-13 | First written as a separate proposal, without reading V6. Merged with V6 the same day, with V6 kept as a pointer. |
 | Gate plan, version 2 | 2026-11-13 | Revised after the first external review. No code changed. |
+| P0 (branch `p0-gate-hardening`) | 2026-11-13 | Retry rule for everyone (D-32); the A2A submit pin (F7); AI review refused without a snapshot (D-34); the recheck decision (D-33). Tests: `P0GateTests` (10 cases). Full Orca test project: 1342 passed, 0 failed. |
 | Gate plan, version 3 | 2026-11-13 | Revised after the second external review; moved into `OpenTail.Orca`. Teams sentence in `OPERATIONS.md` corrected. No code changed. |
 
 ## 12. Self-review of this revision

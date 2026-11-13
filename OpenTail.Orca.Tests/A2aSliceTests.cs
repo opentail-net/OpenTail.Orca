@@ -41,7 +41,7 @@ public class A2aSliceTests
         new("mcp-agent", ApiKeys.Hash(TokenMcp), null, "clerk", null),
     ];
 
-    private static A2aOptions EnabledA2a => A2aWith(new Dictionary<string, A2aSkill>
+    internal static A2aOptions EnabledA2a => A2aWith(new Dictionary<string, A2aSkill>
     {
         ["draft-reply"] = new A2aSkill { Name = "Draft a reply", Description = "Drafts a reply.", Inbox = "clerk" },
     });

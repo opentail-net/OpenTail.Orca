@@ -61,6 +61,8 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         var policy = host.Policy.Config;
         if (!policy.Work.Enabled)
             errors.Add("A2A is enabled, so Work.Enabled must be true: an approved partner request becomes a work item for an inbox profile.");
+        if (policy.Tools.TryGetValue(A2ASubmitModule.Tool, out var submit) && submit.Reviewer != ReviewerKind.Human)
+            errors.Add($"\"{A2ASubmitModule.Tool}\" must have Reviewer Human: a person decides each partner request.");
         if (!policy.Tools.ContainsKey(A2ASubmitModule.Tool))
             errors.Add($"A2A is enabled, so the policy needs an entry for \"{A2ASubmitModule.Tool}\": its mode decides whether a person reviews each partner request.");
         if (policy.Tools.TryGetValue(A2ASubmitModule.ReplyTool, out var reply))
