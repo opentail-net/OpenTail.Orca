@@ -2,10 +2,13 @@
 
 Designs for Host work that is planned but not built, newest first. The cross-repo checklist is the
 [work plan](https://github.com/opentail-net/opentail-connectivity/blob/main/docs/plan.md) in `opentail-connectivity`
-(sections 12 to 16); the Host's versioned plans are archived in `docs/done/` (completed) or in `docs/` (active: `MCP-HOST-V5-PLAN.md`, `MCP-HOST-V6-PLAN.md`); status by version is in `OpenTail.Host/STATUS.md`.
+(sections 12 to 16); the Host's versioned plans are archived in `docs/done/` (completed) or in `docs/` (active: `MCP-HOST-V5-PLAN.md`; the AI-reviewer plan is `design/reviewer-gate.md`, which supersedes `MCP-HOST-V6-PLAN.md`); status by version is in `OpenTail.Host/STATUS.md`.
 
 | Design | Plan section | State |
 |---|---|---|
+| [Reviewer gate: the plan for AI reviewers on the Host](reviewer-gate.md): one authority model for every channel; the five verdicts; AI refusal and approval as separate authorities; named AI reviewers with assignment; supersedes V6 (`MCP-HOST-V6-PLAN.md`, now a pointer) | none; supersedes V6 | Proposed; revised 2026-11-13 after an external review; decisions D-1 to D-25 open; R1 built |
+| [Competitor scan, November 2026](competitor-scan-2026-11.md): four products compared; claims unverified; six expansions proposed | none | Recorded 2026-11-13; expansions not started |
+| [Review of the example projects](examples-review.md): eight projects reviewed for gate ideas, with credits in `THIRD-PARTY-ACKNOWLEDGEMENTS.md` | none | Recorded 2026-11-13; decisions open |
 | [Checklist: governance naming, re-check, and A2A](governance-checklist.md): what is done, what is open, and what waits for the owner | none | Living list; updated 2026-11-11 |
 | [Plan: align public approval names with Microsoft's vocabulary now, freeze them later](governance-naming-plan.md): binding digest, re-check at claim, export; freeze rule | none | Step 1 and phase 2 done and on main (`d6b10f3`, `92c0048`); phase 1 and later proposed |
 | [Comparison with Microsoft's agent-governance toolkit (.NET)](agt-comparison.md): where the two differ, file hashes and locations, and why adoption and conversion are deferred | none | Findings recorded 2026-11-11; decision: defer |

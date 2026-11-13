@@ -12,7 +12,7 @@ open, is in [`OpenTail.Host/STATUS.md`](../../OpenTail.Host/STATUS.md).
 | [`MCP-HOST-V7-PLAN.md`](MCP-HOST-V7-PLAN.md) | v7: administration and telemetry on the review page | A1 to A4 built 2026-10-19; browser walkthrough open |
 | [`snowflake-s1-s2.md`](snowflake-s1-s2.md) | Snowflake provider, steps S1 and S2 | Built 2026-10-23; S3 to S5 open ([design](../design/snowflake.md)) |
 
-Still active, in `docs/`: `MCP-HOST-V5-PLAN.md` and `MCP-HOST-V6-PLAN.md`.
+Still active, in `docs/`: `MCP-HOST-V5-PLAN.md`. V6 is superseded by `design/reviewer-gate.md`, which merges it.
 
 ## Commit hashes in these logs
 

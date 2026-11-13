@@ -61,13 +61,7 @@ Where the two plans differ:
 | Reviewer packet built by the Host; reviewer-directed text detected | Yes (cheat row 1) | Not in the plan | Not stated |
 | Undo window | Not in V6 | Proposes a new delayed-approval path | Built as Execute-with-delay |
 
-**Decision needed.** The two plans cannot both stand. The options are:
-
-- (a) merge the gate plan into V6 as a section, and drop its duplicate decisions;
-- (b) keep V6, mark `reviewer-gate.md` superseded, and carry four items into V6 as new work: the approver identity gap (F1), the budget race (F8), the null policy snapshot (F9) and the retry after an interruption (F11);
-- (c) rewrite both.
-
-Recommendation: (b). V6 is already the owner's plan for this system.
+**Resolved 2026-11-13.** The owner chose one plan. `docs/design/reviewer-gate.md` now merges the gate proposal with V6, and `docs/MCP-HOST-V6-PLAN.md` is a pointer to it. The disagreements in the table above are recorded there as decisions D-2, D-3, D-9, D-10 and D-11, not settled silently.
 
 ## 6. Expansions (proposed; none started)
 

@@ -15,7 +15,7 @@ Start with [`OpenTail.Host/README.md`](OpenTail.Host/README.md). For running it 
 | `OpenTail.Profiles.*`, `profiles/` | Integration profiles (YouTube, X): an OpenAPI document plus one JSON file, no code |
 | `OpenTail.Host.Server` | The ready-to-run Host with every module compiled in; the container image |
 | `OpenTail.Host.Sample.*` | Small example deployments |
-| `docs/done/MCP-HOST-*.md`, `docs/MCP-HOST-V5-PLAN.md`, `docs/MCP-HOST-V6-PLAN.md` | The Host plans: completed ones are archived in `docs/done/`, the two still active are in `docs/`; status by version is in `OpenTail.Host/STATUS.md` |
+| `docs/done/MCP-HOST-*.md`, `docs/MCP-HOST-V5-PLAN.md`, `docs/design/reviewer-gate.md` | The Host plans: completed ones are archived in `docs/done/`; V5 is still active in `docs/`; the AI-reviewer plan is `docs/design/reviewer-gate.md`, which supersedes V6 (`docs/MCP-HOST-V6-PLAN.md` is a pointer). Status by version is in `OpenTail.Host/STATUS.md` |
 
 ## Build and test
 

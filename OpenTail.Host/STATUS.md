@@ -17,7 +17,7 @@ called V1 to V7 (its sections 5 to 11). When this document says "v2 phase V3", i
 | v3 | Modules as bricks: contract, credentials, configuration, provider modules, process isolation | Built, except W6 (publishing), the live tests and the outside-author conformance kit | [archived](../docs/done/MCP-HOST-V3-PLAN.md) |
 | v4 | Integrations as data: integration profiles | Built; ServiceNow kept as code by decision | [archived](../docs/done/MCP-HOST-V4-PLAN.md) |
 | v5 | The people in the loop: Teams, company sign-in, pilot | Partly built; the pilot waits for the owner | [active](../docs/MCP-HOST-V5-PLAN.md) |
-| v6 | AI reviewers and the defences against an eager requester | R1 built; R2 and later open | [active](../docs/MCP-HOST-V6-PLAN.md) |
+| v6 | AI reviewers and the defences against an eager requester (merged into the gate plan) | R1 built; R2 and later open | [active](../docs/design/reviewer-gate.md) |
 | v7 | Administration and telemetry on the review page | Built (A1 to A4, 2026-10-19) | [archived](../docs/done/MCP-HOST-V7-PLAN.md) |
 
 Designs for work that is planned but not built, and for work after these plans, are indexed in [`docs/design/README.md`](../docs/design/README.md).
@@ -167,7 +167,7 @@ export, a Postgres store, a hosted deployment, per-team policies, reviewer deleg
 
 ## v6: AI reviewers (active)
 
-Plan: [`MCP-HOST-V6-PLAN.md`](../docs/MCP-HOST-V6-PLAN.md). R1 done 2026-10-16; the rest proposed.
+Plan: [`design/reviewer-gate.md`](../docs/design/reviewer-gate.md), which merges V6 (now a pointer). R1 done 2026-10-16; the rest proposed.
 
 Built (R1):
 
