@@ -121,7 +121,7 @@ Built (log of 2026-10-16 and after):
   profiles cannot express without becoming a workflow language.
 - **P4b, packaging.** `package:Assembly/name` profiles, the `OpenTail.Profiles.YouTube` and `OpenTail.Profiles.X` packages, and a
   conformance check that runs at startup and in `--lint`.
-- **Licence.** Orca, its modules and profiles are under PolyForm Strict 1.0.0 (`LICENSE-HOST.md`). The shared `OpenTail.Connectivity.*`
+- **Licence.** Orca, its modules and profiles are under proprietary commercial licence (`LICENSE.md`). The shared `OpenTail.Connectivity.*`
   libraries keep MIT.
 
 Open:

@@ -138,7 +138,7 @@ independent security audit, and its approval page has not been walked through by
 
 ## Licence
 
-Orca, its modules and its integration profiles are licensed under the **PolyForm Strict License 1.0.0**: see
-[`../LICENSE-HOST.md`](../LICENSE-HOST.md). Personal and other noncommercial use is permitted; any commercial use, including inside a
+Orca, its modules and its integration profiles are licensed under the **proprietary commercial licence**: see
+[`../LICENSE.md`](../LICENSE.md). Personal and other noncommercial use is permitted; any commercial use, including inside a
 business, needs a commercial licence. The NuGet packages carry the licence and ask for acceptance. The shared `OpenTail.Connectivity.*`
 libraries keep the repository's licence.
