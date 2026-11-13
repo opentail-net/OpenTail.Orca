@@ -450,6 +450,14 @@ public sealed class ActionQueue(
                 }
                 // The sweep runs periodically, so an overdue action may still say Pending. Never approve past its deadline.
                 var due = await store.GetAsync(actionId, ct) ?? throw new KeyNotFoundException(actionId);
+                // P3 (5.6): an approval that scheduled a run cannot be approved again: a second one would count towards quorum and run it early. (An
+                // undo-window action is different: approving it runs it now, as it always has.)
+                if (due.RunAt is { } scheduledAt && due.Status == ActionStatus.Pending && due.PolicySnapshot?.ApproveDelay is not null)
+                {
+                    await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", due.Id, due.ToolName, review.Subject ?? review.Reviewer,
+                        $"already scheduled to run at {scheduledAt:u}"), ct);
+                    throw new UnauthorizedAccessException($"This action is already approved and scheduled to run at {scheduledAt:u}. Stop it to cancel the run; it cannot be approved again.");
+                }
 
                 // Some tools take no edits (administration tools always): approve or reject exactly what was asked.
                 if (review.EditedArgumentsJson is not null && due.Status == ActionStatus.Pending && !EditsAllowed(due))
@@ -521,6 +529,10 @@ public sealed class ActionQueue(
                     var updated = addReview(r);
                     // The stored preview is of the edited arguments (none when the tool could not make one: never the old one).
                     if (edits) updated = updated with { PreviewJson = editedPreview, PreviewUnavailable = editedPreviewUnavailable };
+                    // P3 (D-23): on a tool with an approve delay, the final approval schedules the run in this same transaction. The sweep runs it when
+                    // the window is over, and nothing runs in between.
+                    if (count >= r.RequiredApprovals && r.PolicySnapshot?.ApproveDelay is { } approveDelay)
+                        return new ActionTransition(ActionStatus.Pending, updated with { RunAt = _clock.GetUtcNow() + approveDelay });
                     return count >= r.RequiredApprovals
                         ? new ActionTransition(ActionStatus.Approved, (updated with { Attempts = r.Attempts + 1 })
                             .WithResolution(ResolutionOutcomes.Allowed, ResolverOf(review), null, _clock.GetUtcNow()))
@@ -529,7 +541,9 @@ public sealed class ActionQueue(
 
                 // The entry says which of the two happened, and is written in the same transaction as the decision.
                 Func<ActionRecord, AuditEntry> decisionEntry = d => d.Status == ActionStatus.Pending
-                    ? Entry("approval_recorded", d, $"{ReviewAuthority.Tally(d with { Reviews = d.Reviews.Take(d.Reviews.Count - 1).ToList() }, review, policy.People).Count} of {d.RequiredApprovals}")
+                    ? d.RunAt is { } scheduled
+                        ? Entry("approval_scheduled", d, $"runs at {scheduled:u} unless stopped")
+                        : Entry("approval_recorded", d, $"{ReviewAuthority.Tally(d with { Reviews = d.Reviews.Take(d.Reviews.Count - 1).ToList() }, review, policy.People).Count} of {d.RequiredApprovals}")
                     : Entry(AuditEvents.ApprovalAllowed, d, ActorName(review));
                 var approved = await DecideAudited(actionId, ActionStatus.Pending, Decide, decisionEntry, ct);
                 if (approved is null)
@@ -678,11 +692,22 @@ public sealed class ActionQueue(
         foreach (var r in await store.QueryAsync(new ActionQuery { Status = ActionStatus.Pending, Limit = int.MaxValue }, ct))
         {
             if (r.RunAt is not { } at || at > now) continue;
-            var delay = at - r.CreatedAt;
+            // An expired action does not run; the expiry sweep closes it (fail closed).
+            if (r.ExpiresAt is { } expiry && expiry <= now) continue;
+            // The late allowance counts from the approval that scheduled the run (P3), or from submission for an undo window that no one approved.
+            var basis = r.Reviews.LastOrDefault(v => v.Decision == ReviewDecision.Approve)?.At ?? r.CreatedAt;
+            var delay = at - basis;
             if (now - at > delay)
             {
                 await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending, x => x with { RunAt = null },
                     EntryOf("delay_held", $"{(now - at).TotalMinutes:0} min past its time: a person decides"), ct);
+                continue;
+            }
+            // A requester suspended since the run was scheduled is held for a person, as a late run is (P3, 5.6).
+            if (levels?.Effective(r.Requester.Id) == IdentityLevel.Suspended)
+            {
+                await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending, x => x with { RunAt = null },
+                    EntryOf("delay_held", "the requester is suspended: a person decides"), ct);
                 continue;
             }
             var approved = await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Approved, x => (x with

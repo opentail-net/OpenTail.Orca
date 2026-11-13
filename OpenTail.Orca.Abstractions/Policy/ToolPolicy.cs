@@ -114,6 +114,11 @@ public sealed record ToolPolicy
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public RuleBudget? AiRefusalBudget { get; init; }
 
+    /// <summary>The undo window for a queued approval (D-23, P3): the final approval schedules the run this long later, and the run can be stopped in
+    /// that time. Off (null) by default. Only for Mode Queue. Left out of the canonical policy text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TimeSpan? ApproveDelay { get; init; }
+
     /// <summary>Conditional refinements (see <see cref="PolicyRule"/>). Not copied into the per-action policy snapshot.</summary>
     public IReadOnlyList<PolicyRule>? Rules { get; init; }
 

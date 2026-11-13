@@ -262,6 +262,10 @@ public sealed class PolicyConfig
                 errors.Add($"Tool '{name}': AiRefusalBudget needs a positive Per and MaxCount.");
             if (p.AiRefusalBudget is not null && !p.AiMayRefuse)
                 errors.Add($"Tool '{name}': AiRefusalBudget only applies with AiMayRefuse.");
+            if (p.ApproveDelay is { } apd && (apd <= TimeSpan.Zero || apd > TimeSpan.FromDays(7)))
+                errors.Add($"Tool '{name}': ApproveDelay must be positive and at most 7 days.");
+            if (p.ApproveDelay is not null && p.Mode != ToolMode.Queue)
+                errors.Add($"Tool '{name}': ApproveDelay only applies to Mode Queue (the approval is what it delays).");
             if (p.AiReviewers is { } assigned)
             {
                 if (assigned.Count == 0)
