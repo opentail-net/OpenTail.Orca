@@ -80,8 +80,9 @@ The first review asked three questions. Version 3 answers them, and the second r
 | A5 | Approve or Retry, `Forbid`, subject is the requester's person (`People`) | Refused: cannot approve own | `review_refused` |
 | A6 | `RequiredApprovals > 1`, subject unknown | Refused | `review_refused` |
 | A7 | Otherwise | Allowed | none here |
+| A8 (P1, D-19) | `Reviewer = Ai`, subject is a person or unknown: Approve or Retry | Refused. Reject and Request changes are allowed. | `review_refused` |
 
-**Reviewer modes, as the code enforces them (F15).** Human-policy with a human: allowed. Human-policy with an AI: refused (A1). `Ai`-policy with a human: allowed. `Ai`-policy with an AI: allowed. `Either`: the same as `Ai`. So `Ai` and `Either` behave identically today, and humans can always decide an `Ai` action.
+**Reviewer modes, as the code enforces them.** Human-policy with a human: allowed. Human-policy with an AI: refused (A1). `Ai`-policy with an AI: allowed within the limits. `Ai`-policy with a person: approve and retry refused, reject and request changes allowed (A8, D-19, P1). `Either`: an AI or a person may approve (A8). Before P1, `Ai` and `Either` behaved identically and a person could approve an `Ai` action (F15); that P0 pin is replaced, and the change is in the §11 log.
 
 ### Table B: `AiReviewRules.Check` (order matters; the first refusal wins)
 
@@ -362,6 +363,7 @@ Order: the review's order, with V6's R5 and R2 placed where they depend on it. E
 - *R5, the red-team corpus* (V6 said it is next). It needs no model.
 
 **P1. Reviewer types, credentials, assignment (blocking)**
+*Status, 2026-11-13: slice 1 done (D-19, D-28, A8; branch `p1-reviewer-types`). Open: named reviewers and assignment (D-20, the three boundaries), the credential (D-30), the AI label on the review page (D-29). See §11.*
 - Decide D-19 (what `Ai` and `Either` mean), D-20 (named reviewers with assignments), D-26 (groups and refusals), D-27 (refusal penalties), D-30 (credential mechanism).
 - The `ai` credential role, the assignment table, and enforcement at the three boundaries (5.2). Acceptance: an unassigned action is refused at list, read, decision and in the runner; an agent credential is refused at the reviewer endpoints; an `ai` credential cannot call MCP tools; an `ai` credential cannot approve an action it requested itself.
 - AI history on the review page, labelled as AI (5.2, D-29). Acceptance: the review page shows reviewer, model and prompt version on an AI decision (if not already true, this is a feature to build).
@@ -459,7 +461,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-16 | Sampling rate in Decide mode (V6) | 5%; **10%, at least one a day per tool**; 20% | **10%.** Applies if D-9 = (a) or (b). |
 | D-17 | Same model family as the requester (V6) | refuse; **warn**; ignore | **Warn** |
 | D-18 | Reasons to the requester (V6) | full; **full, attempts counted**; generic | **Full, attempts counted** |
-| D-19 | Which of `Ai` and `Either` allows a person to approve (F15) | (a) **`Ai`: AI approves; a person may refuse but not approve. `Either`: an AI or a person may approve**; (b) keep today's behaviour, where the two are identical | **(a).** It gives the two names different meanings, without changing the enum. |
+| D-19 | Which of `Ai` and `Either` allows a person to approve (F15) | (a) **`Ai`: AI approves; a person may refuse but not approve. `Either`: an AI or a person may approve**; (b) keep today's behaviour, where the two are identical | **(a). Implemented in P1 slice 1 (A8).** It gives the two names different meanings, without changing the enum. Consequence: an `Ai` action the AI may not approve (budget spent, risk above the ceiling, tainted external, edited arguments, four eyes) waits for a refusal or expiry. An operator who needs a person to approve uses `Either`. |
 | D-20 | One AI reviewer or several (5.2) | one global reviewer; **several named reviewers, each with an assignment** | **Several named reviewers** |
 | D-21 | AI refusals (5.4) | **`AiMayRefuse` per tool, default false; a refusal budget per requester and tool**; refusals unlimited | **Per-tool opt-in with a budget** |
 | D-22 | An AI-proposed block (D-4): who is blocked | an A2A partner; an agent identity; **both, with the identity recorded**; expiry default | **Identity recorded; expiry 24 hours, renewed by a person** |
@@ -468,13 +470,16 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | D-25 | The reviewer's route, one authority model | **one authority model, two hosts** (5.2); two separate grant mechanisms | **One authority model** |
 | D-26 | Refusal across the Human-only and reviewer-group boundaries (second review, point 1) | **refusals may cross both boundaries; approvals never do**; refusals only inside the boundaries | **Refusals may cross both** |
 | D-27 | Penalties from an AI refusal (F19) | **none by default**; the existing level and trust effects; an operator setting | **None by default** |
-| D-28 | What distinguishes `Ai` from `Either` (F15) | (a) as in D-19; (b) drop the redundant value | **As in D-19**; if the owner prefers fewer values, (b) is a later contract change |
+| D-28 | What distinguishes `Ai` from `Either` (F15) | (a) as in D-19; (b) drop the redundant value | **As in D-19. Implemented with it (A8).** Option (b) is not taken; if the owner prefers fewer values, (b) is a later contract change |
 | D-29 | How AI decisions are recorded and labelled (second review, point on honesty) | **the `ai:` actor and an AI event; labelled AI on the review page; documents say "delegated authority", never "human oversight"** | **As stated** |
 | D-30 | The external reviewer credential (5.2, P1) | **issued to a named reviewer identity, stored as a hash, shown once, rotated by an operator; agent profiles may not hold the reviewer role** | **As stated** |
 | D-31 | The refusal budget's unit and scope | **per requester and tool**; per tool only | **Per requester and tool** |
 | D-32 | Retry of an unknown outcome (P0, F14, F11, decided by the implementer while the owner is away) | An AI never retries a tool that is not idempotent by key. A person may retry an unknown outcome only when the review records the check that the effect did not happen (the review reason). Non-retryable failures are refused for everyone. | **As implemented in P0** (`OpenTail.Orca/Runtime/RetryRules.cs`); the existing durability test already expects this path |
 | D-33 | The policy recheck and the claim (F18) | Not reachable in this build: the policy is fixed for the life of a process (`PolicyResolver.PolicyHash` is computed once; there is no reload). The recheck stays before the claim. It moves inside the claim only if hot reload is added. | **Recorded, no change** |
 | D-34 | AI review of an action with no policy snapshot (F9) | An AI decides nothing about such an action (`AiVerdictAsync` refuses). Humans are unchanged. | **As implemented in P0** |
+| D-35 | The wording of the AI limit messages B3, B4 and B7 once `Ai` approval is a person's no-go (P1) | keep "a person decides" (wrong for an `Ai` policy); name what the AI may not do and leave the "who" to the policy | **Reworded** in `AiReviewRules.cs` (P1 slice 1). The tests keep the substrings that still hold. |
+
+**Status of the other defaults (2026-11-13, autonomous loop).** D-19, D-28 and D-35 are implemented in P1 slice 1. D-20 (named reviewers) and D-30 (credential) are accepted as the recommended defaults and not yet built; they are P1 slice 2. D-29 (AI label on the review page) is accepted and not yet built; P1 slice 3. D-26 and D-27 are accepted and built in P2 with `AiMayRefuse`. D-21 to D-25 and D-31 belong to later phases and are unchanged.
 
 ## 10. Not verified
 
@@ -497,6 +502,7 @@ Recommended defaults are in bold. Items marked "decided" were settled earlier. S
 | Gate plan, version 2 | 2026-11-13 | Revised after the first external review. No code changed. |
 | P0 characterisation (branch `p0-characterise`) | 2026-11-13 | `CharacterisationTests`: 16 tests pin table A (ReviewAuthority, rows A1 to A7 and the Ai/Either behaviour, F15) and table B (AiReviewRules, rows B1 to B8) as the code is today. Tables C and D are covered by the existing suites (`ApprovalControlTests`, `AiReviewLimitsTests`, `DurabilityTests`) and have no new pins; adding them is a later task. Full Orca test project: 1358 passed, 0 failed. |
 | P0 (branch `p0-gate-hardening`) | 2026-11-13 | Retry rule for everyone (D-32); the A2A submit pin (F7); AI review refused without a snapshot (D-34); the recheck decision (D-33). Tests: `P0GateTests` (10 cases). Full Orca test project: 1342 passed, 0 failed. |
+| P1 slice 1 (branch `p1-reviewer-types`) | 2026-11-13 | D-19 and D-28: `ReviewAuthority` row A8. A person may not approve or retry an `Ai` action (the queue audits `review_refused`); a person may still refuse it. `Either` is unchanged. B3, B4 and B7 no longer say "a person decides" (D-35). `CharacterisationTests`: the P0 pin that `Ai` and `Either` behaved alike is replaced by A8 tests; A3 uses `Either`, since its subject is the group check. `P1ReviewerTypesTests`: four queue tests. POLICY.md *Reviewer* and *AI reviewers* updated. **Not done in P1:** named reviewers and assignment, with the three boundaries (D-20); the external credential (D-30); the AI label on the review page (D-29); the "AI cannot approve its own request" test. Full Orca test project: 1364 passed, 0 failed. |
 | Gate plan, version 3 | 2026-11-13 | Revised after the second external review; moved into `OpenTail.Orca`. Teams sentence in `OPERATIONS.md` corrected. No code changed. |
 
 ## 12. Self-review of this revision

@@ -59,10 +59,10 @@ anything; all accept `--modules modules.json`.
 | Setting | Meaning |
 |---|---|
 | `Mode` | `Execute` (run now, audited), `Queue` (wait for a reviewer), `Deny`. |
-| `Reviewer` | `Human`, `Ai` or `Either`. An AI reviewer only ever sees actions handed to it, and can never satisfy a group or count towards several approvals. Its limits are under *AI reviewers* below. |
+| `Reviewer` | `Human` (a person decides), `Ai` (an AI decides within its limits; a person may refuse the action but not approve or retry it) or `Either` (an AI or a person may approve). An AI reviewer only ever sees actions handed to it, and can never satisfy a group or count towards several approvals. Its limits are under *AI reviewers* below. |
 | `AiMaxRisk` | The highest risk an AI reviewer may decide for this tool: `Read`, `Write` (the default) or `ExternalEffect`. `Destructive` is refused: an AI never decides those. |
-| `AiMaxRejections` | After this many AI rejections or change requests along one resubmission chain, only people decide (default 2; 0 turns it off). |
-| `AiBudget` | `{ "Per": "01:00:00", "MaxCount": n, "Scope": "Requester" }`: at most n AI approvals of this tool per requester (or `Global`) in the window; past it, people decide. |
+| `AiMaxRejections` | After this many AI rejections or change requests along one resubmission chain, the AI may not decide it again (default 2; 0 turns it off). See *AI reviewers* for who may decide then. |
+| `AiBudget` | `{ "Per": "01:00:00", "MaxCount": n, "Scope": "Requester" }`: at most n AI approvals of this tool per requester (or `Global`) in the window; past it, the AI may not approve more in that window. |
 | `ExpireAfter` | A pending action that nobody decides in this time expires. It can no longer be approved, even before the sweep notices. |
 | `ReviewerGroup` | Only reviewers carrying this group may decide it. |
 | `RequiredApprovals` | 1-5 distinct approvers. An edit of the arguments voids approvals given before it; one eligible rejection ends the action. |
@@ -399,14 +399,16 @@ An AI reviewer can be talked into "yes" by the content it reviews (an email that
 an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `ReviewerRunner`) **cannot**:
 
 * decide a `Destructive` action, or anything above the tool's `AiMaxRisk` (default `Write`, so sending mail needs `"AiMaxRisk": "ExternalEffect"`);
-* decide an `ExternalEffect` action whose requester had read outside content (tainted): a person decides;
+* decide an `ExternalEffect` action whose requester had read outside content (tainted); with `Either` a person may approve it;
 * approve with edited arguments (it may reject, or ask for changes with a reason);
 * be the second pair of eyes: with `SelfApproval: Forbid` only a person approves;
 * keep deciding a request it has turned down `AiMaxRejections` times along its resubmission chain;
 * approve more than `AiBudget` allows.
 
-The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits
-for a person. The runner does not offer an AI what it may not decide. Each AI decision is audited as `ai_review` with the model and
+The queue enforces these, so they hold for any reviewer; a refusal is audited as `review_refused` with the reason, and the action waits.
+Who may decide it then depends on the policy: with `Either` a person may approve it. With `Ai` a person may refuse it but not approve or
+retry it (D-19), so an action the AI may not approve waits until it expires or is refused. An operator who needs a person to be able to
+approve such an action sets `Either`. The runner does not offer an AI what it may not decide. Each AI decision is audited as `ai_review` with the model and
 prompt version the reviewer reported; the checks it says it made are stored with the review (not in the audit trail, as they may
 quote arguments). The design and what comes next (a model-backed reviewer, shadow mode, sampling) are in
 [`../docs/MCP-HOST-V6-PLAN.md`](../docs/MCP-HOST-V6-PLAN.md).

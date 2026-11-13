@@ -49,10 +49,11 @@ public class CharacterisationTests
     [Fact]
     public void A3_a_person_outside_the_reviewer_group_is_refused_and_a_member_is_allowed()
     {
-        var outside = ReviewAuthority.Check(Rec(P(ReviewerKind.Ai), group: "finance"), ReviewDecision.Approve, "admin:alice", [], NoPeople);
+        // Either, not Ai: an Ai action refuses a person's approval before the group is looked at (A8, D-19).
+        var outside = ReviewAuthority.Check(Rec(P(ReviewerKind.Either), group: "finance"), ReviewDecision.Approve, "admin:alice", [], NoPeople);
         Assert.False(outside.Allowed);
         Assert.Contains("'finance' group", outside.Reason);
-        var member = ReviewAuthority.Check(Rec(P(ReviewerKind.Ai), group: "finance"), ReviewDecision.Approve, "admin:alice", ["finance"], NoPeople);
+        var member = ReviewAuthority.Check(Rec(P(ReviewerKind.Either), group: "finance"), ReviewDecision.Approve, "admin:alice", ["finance"], NoPeople);
         Assert.True(member.Allowed);
     }
 
@@ -87,14 +88,32 @@ public class CharacterisationTests
         Assert.True(ReviewAuthority.Check(Rec(P()), ReviewDecision.Approve, "admin:alice", [], NoPeople).Allowed);
     }
 
+    // A8 (D-19, D-28; P1): an Ai action is decided by an AI. A person may refuse it but not approve or retry it. Either lets a person approve.
+    // This row replaces the P0 pin that Ai and Either behaved the same for a person (F15).
     [Fact]
-    public void Ai_and_Either_behave_the_same_for_a_human_today()
+    public void A8_a_person_may_not_approve_or_retry_an_ai_action_but_may_refuse_it()
     {
-        // F15: ReviewAuthority does not tell Ai and Either apart for a person. D-28 changes this in P1.
-        var ai = ReviewAuthority.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Approve, "admin:alice", [], NoPeople);
-        var either = ReviewAuthority.Check(Rec(P(ReviewerKind.Either)), ReviewDecision.Approve, "admin:alice", [], NoPeople);
-        Assert.Equal(either.Allowed, ai.Allowed);
-        Assert.True(ai.Allowed);
+        var ai = Rec(P(ReviewerKind.Ai));
+        var approve = ReviewAuthority.Check(ai, ReviewDecision.Approve, "admin:alice", [], NoPeople);
+        Assert.False(approve.Allowed);
+        Assert.Contains("decided by an AI reviewer", approve.Reason);
+        Assert.False(ReviewAuthority.Check(ai, ReviewDecision.Retry, "admin:alice", [], NoPeople).Allowed);
+        Assert.True(ReviewAuthority.Check(ai, ReviewDecision.Reject, "admin:alice", [], NoPeople).Allowed);
+        Assert.True(ReviewAuthority.Check(ai, ReviewDecision.RequestChanges, "admin:alice", [], NoPeople).Allowed);
+    }
+
+    [Fact]
+    public void A8_an_either_action_takes_a_persons_approval_and_an_ai_approval_alike()
+    {
+        var either = Rec(P(ReviewerKind.Either));
+        Assert.True(ReviewAuthority.Check(either, ReviewDecision.Approve, "admin:alice", [], NoPeople).Allowed);
+        Assert.True(ReviewAuthority.Check(either, ReviewDecision.Approve, "ai:bot", [], NoPeople).Allowed);
+    }
+
+    [Fact]
+    public void A8_an_unknown_identity_is_a_person_for_an_ai_action_and_is_refused_an_approval()
+    {
+        Assert.False(ReviewAuthority.Check(Rec(P(ReviewerKind.Ai)), ReviewDecision.Approve, null, [], NoPeople).Allowed);
     }
 
     // ---- Table B: AiReviewRules.Check ----
@@ -120,8 +139,8 @@ public class CharacterisationTests
     public void B3_a_tainted_external_action_is_a_persons_decision_even_when_the_ceiling_allows_it()
     {
         var rec = Rec(P(ReviewerKind.Ai, ceiling: ToolRisk.ExternalEffect), tainted: true);
-        Assert.Contains("a person decides", AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null).Reason);
-        Assert.Contains("a person decides", AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null).Reason);
+        Assert.Contains("may not decide this", AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null).Reason);
+        Assert.Contains("may not decide this", AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null).Reason);
     }
 
     [Fact]
@@ -157,7 +176,7 @@ public class CharacterisationTests
         Assert.True(AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.Write, false, new AiReviewHistory(0, 0)).Allowed);
         var spent = AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.Write, false, new AiReviewHistory(0, 1));
         Assert.False(spent.Allowed);
-        Assert.Contains("a person decides the rest", spent.Reason);
+        Assert.Contains("may not approve more in this window", spent.Reason);
     }
 
     [Fact]

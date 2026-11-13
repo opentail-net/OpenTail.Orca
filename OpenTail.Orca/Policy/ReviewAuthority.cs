@@ -58,6 +58,11 @@ public static class ReviewAuthority
         if (isAi && policy is not null && policy.Reviewer == ReviewerKind.Human)
             return ReviewVerdict.No("This action needs a human reviewer.");
 
+        // D-19 (P1): an `Ai` action is decided by an AI reviewer. A person may refuse it (reject or ask for changes) but not approve or retry
+        // it; `Either` is the policy that lets a person approve. An unknown identity counts as a person here: it is refused.
+        if (!isAi && policy?.Reviewer == ReviewerKind.Ai && decision is ReviewDecision.Approve or ReviewDecision.Retry)
+            return ReviewVerdict.No("This action is decided by an AI reviewer: a person may refuse it, but not approve it. Its policy would need Either for a person to approve.");
+
         if (r.ReviewerGroup is { } group)
         {
             if (isAi) return ReviewVerdict.No($"This action needs a reviewer in the '{group}' group; an AI reviewer cannot stand in.");

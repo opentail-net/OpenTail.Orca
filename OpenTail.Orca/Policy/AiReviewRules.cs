@@ -29,11 +29,11 @@ public static class AiReviewRules
         if (Rank(effective) > Rank(Ceiling(policy)))
             return ReviewVerdict.No($"{effective} actions of this tool are above what an AI reviewer may decide (AiMaxRisk {Ceiling(policy)}).");
         if (r.Tainted && effective == ToolRisk.ExternalEffect)
-            return ReviewVerdict.No("The requester had read outside content before asking; a person decides.");
+            return ReviewVerdict.No("The requester had read outside content before asking, so an AI reviewer may not decide this.");
 
         var max = policy?.AiMaxRejections ?? 2;
         if (history is not null && max > 0 && history.AiRejectionsInChain >= max)
-            return ReviewVerdict.No($"An AI reviewer has turned this request down {history.AiRejectionsInChain} times; a person decides now.");
+            return ReviewVerdict.No($"An AI reviewer has turned this request down {history.AiRejectionsInChain} times, so it may not decide it again.");
 
         if (decision is ReviewDecision.Approve or ReviewDecision.Retry)
         {
@@ -42,7 +42,7 @@ public static class AiReviewRules
             if (policy?.SelfApproval == SelfApproval.Forbid)
                 return ReviewVerdict.No("This action needs four eyes: a person other than the requester approves it, not an AI.");
             if (history is not null && policy?.AiBudget is { MaxCount: > 0 } budget && history.AiApprovalsInWindow >= budget.MaxCount)
-                return ReviewVerdict.No($"An AI reviewer has approved {history.AiApprovalsInWindow} of these within {budget.Per}; a person decides the rest.");
+                return ReviewVerdict.No($"An AI reviewer has approved {history.AiApprovalsInWindow} of these within {budget.Per}, so it may not approve more in this window.");
         }
         return ReviewVerdict.Yes;
     }
