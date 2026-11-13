@@ -4,7 +4,7 @@
 #   docker build -f OpenTail.Orca.Server/Dockerfile --secret id=github_packages_token,env=GITHUB_PACKAGES_TOKEN -t opentail-orca .
 # Run it with a configuration folder at /config and a volume at /data; see OpenTail.Orca/DEPLOY.md.
 
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 ARG VERSION=0.0.0-local
 WORKDIR /src
 COPY . .
