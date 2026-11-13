@@ -22,7 +22,7 @@
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
     <PackageVersion Include="A2A" Version="1.0.0-preview4" />
     <PackageVersion Include="A2A.AspNetCore" Version="1.0.0-preview4" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="10.0.9" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyModel" Version="11.0.0" />
     <!-- The standard skill file's frontmatter (OpenTail.Modules.Skills/Standard). 17.1.0 is the minimum that OpenTail.Connectivity.Files
          needs (through Transformations.Text); a lower pin is a downgrade and restore fails (NU1109). -->
     <PackageVersion Include="YamlDotNet" Version="17.1.0" />
