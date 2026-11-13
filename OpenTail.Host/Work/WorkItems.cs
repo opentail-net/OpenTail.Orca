@@ -222,6 +222,10 @@ public sealed class WorkService(IWorkStore store, IActionStore actions, IAuditSi
     /// redriven, moved to the operators): the wake-up hook (work design, step 3). Handlers get the item; they must not throw.</summary>
     public event Action<WorkItem>? Ready;
 
+    /// <summary>Raised after an item becomes Done, once its completer's taint and labels are on it and the audit record is written. Handlers
+    /// get the item; they must not throw, and one that does is ignored: the completion stands. The reply path (A2A) listens to it.</summary>
+    public event Action<WorkItem>? Completed;
+
     // Which openings this process has announced (id -> UpdatedAt), so the sweep can announce items reopened by another process (the
     // command line's --redrive or --requeue) without announcing twice.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTimeOffset> _announced = new(StringComparer.Ordinal);
@@ -233,6 +237,13 @@ public sealed class WorkService(IWorkStore store, IActionStore actions, IAuditSi
         if (Ready is null) return;
         foreach (var h in Ready.GetInvocationList().Cast<Action<WorkItem>>())
             try { h(item); } catch (Exception) { /* a wake-up that fails must never fail the work itself */ }
+    }
+
+    private void Finished(WorkItem done)
+    {
+        if (Completed is null) return;
+        foreach (var h in Completed.GetInvocationList().Cast<Action<WorkItem>>())
+            try { h(done); } catch (Exception) { /* a handler that fails must never fail the completion */ }
     }
 
     public static string ForProfile(string profile) => "profile:" + profile;
@@ -364,15 +375,22 @@ public sealed class WorkService(IWorkStore store, IActionStore actions, IAuditSi
         return item;
     }
 
-    public async Task<WorkItem> CompleteAsync(string id, CallerIdentity caller, string? summary, CancellationToken ct = default)
+    /// <summary>Done, with a summary. The completer's taint and labels join the item: those of its session when it passes one, else the
+    /// caller's own (as <see cref="Carry"/> gives). A summary written by an agent that read labelled data then carries those labels to
+    /// whoever reads it, and to a reply made from it. Raises <see cref="Completed"/> after the audit record.</summary>
+    public async Task<WorkItem> CompleteAsync(string id, CallerIdentity caller, string? summary, string? sessionId = null, CancellationToken ct = default)
     {
         Held(id, caller);
         if (summary is not null) Cap(summary, Config.NoteMaxBytes, "summary");
+        var (tainted, held) = Carry(caller.Subject, sessionId);
         var done = store.Transition(id, WorkStatus.Claimed, i => i with
         {
             Status = WorkStatus.Done, Summary = summary, LeaseUntil = null, UpdatedAt = clock.GetUtcNow(),
+            Tainted = i.Tainted || tainted,
+            Labels = [.. i.Labels.Concat(held).Distinct()],
         }) ?? throw new WorkException("The item changed while you were finishing it.");
         await Audit("work.done", done, caller.Subject, null, ct);
+        Finished(done);
         return done;
     }
 
@@ -717,11 +735,15 @@ public sealed class WorkService(IWorkStore store, IActionStore actions, IAuditSi
 
     /// <summary>An operator ends an item: an open or claimed one is never worked again (a claimant's next call on it fails), and a dead
     /// or expired one is dismissed from the dead list. The record stays, cancelled, for the audit trail.</summary>
-    public async Task<WorkItem?> CancelAsync(string id, string by, CancellationToken ct = default)
+    /// <summary><paramref name="onlyIfOpen"/> cancels an open item and nothing else: a claimed item is left to its claimant (null is returned).
+    /// The write is conditional on Open, so a claim that lands after the read makes it fail rather than stop a claimed item.</summary>
+    public async Task<WorkItem?> CancelAsync(string id, string by, CancellationToken ct = default, bool onlyIfOpen = false)
     {
         var item = store.Get(id);
         if (item is null || item.Status is not (WorkStatus.Open or WorkStatus.Claimed or WorkStatus.Dead or WorkStatus.Expired)) return null;
-        var cancelled = store.Transition(id, item.Status, i => i with { Status = WorkStatus.Cancelled, ClaimedBy = null, LeaseUntil = null, UpdatedAt = clock.GetUtcNow() });
+        if (onlyIfOpen && item.Status is not WorkStatus.Open) return null;
+        var from = onlyIfOpen ? WorkStatus.Open : item.Status;
+        var cancelled = store.Transition(id, from, i => i with { Status = WorkStatus.Cancelled, ClaimedBy = null, LeaseUntil = null, UpdatedAt = clock.GetUtcNow() });
         if (cancelled is not null) await Audit("work.cancelled", cancelled, by, $"was {item.Status.ToString().ToLowerInvariant()}", ct);
         return cancelled;
     }

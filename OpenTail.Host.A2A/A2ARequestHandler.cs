@@ -10,12 +10,13 @@ namespace OpenTail.Host.A2A;
 
 /// <summary>
 /// The A2A request handler of this Host (decision D4): our own <see cref="IA2ARequestHandler"/>, not the SDK's <c>A2AServer</c>. The SDK's
-/// JSON-RPC processor calls it after sign-in, authorisation and the version gate. This slice serves SendMessage for new tasks with
-/// <c>returnImmediately=true</c>, GetTask and CancelTask. Everything else answers UnsupportedOperation.
+/// JSON-RPC processor calls it after sign-in, authorisation and the version gate. This serves SendMessage for new tasks with
+/// <c>returnImmediately=true</c>, GetTask and CancelTask. A task with a work item reads its state from the item and its reply (batch 03b-2).
+/// Everything else answers UnsupportedOperation.
 /// The caller comes only from the HTTP context (decision D5). <c>requestContext</c> is null here (no extension options are registered) and
 /// is never read.
 /// </summary>
-internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IHttpContextAccessor accessor, A2ATaskTable tasks) : IA2ARequestHandler
+internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IHttpContextAccessor accessor, A2ATaskTable tasks, A2AWork work) : IA2ARequestHandler
 {
     private const int MaxMessageIdLength = 256;
     private const string NotFound = "The task was not found.";
@@ -63,13 +64,13 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         if (datas > 1)
             throw await RefuseAsync(caller, "inputs", A2AErrorCode.InvalidParams, "Send at most one data part: the inputs.", cancellationToken);
 
-        var work = host.Policy.Config.Work;
+        var workConfig = host.Policy.Config.Work;
         var goalBytes = Encoding.UTF8.GetByteCount(goal);
-        if (goalBytes > work.GoalMaxBytes)
+        if (goalBytes > workConfig.GoalMaxBytes)
             throw await RefuseAsync(caller, "goal_too_large", A2AErrorCode.InvalidParams, "The goal is too long.", cancellationToken);
         var inputs = inputsRaw ?? "";
         var inputBytes = Encoding.UTF8.GetByteCount(inputs);
-        if (inputBytes > work.InputsMaxBytes)
+        if (inputBytes > workConfig.InputsMaxBytes)
             throw await RefuseAsync(caller, "inputs_too_large", A2AErrorCode.InvalidParams, "The inputs are too large.", cancellationToken);
 
         // The skill: the caller's profile must list a2a.submit, and exactly one skill must be configured (decision D10).
@@ -114,9 +115,9 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
             row = row with { SubmitActionId = submitted.Id };
         }
 
-        // Step 4: returnImmediately=true returns now, with the task as it stands.
-        var action = await ActionOf(row, cancellationToken);
-        return new SendMessageResponse { Task = TaskOf(row, action, caller.Subject) };
+        // Step 4: returnImmediately=true returns now, with the task as it stands. A repeated send first reconciles a finished item (E5).
+        row = await ReconciledAsync(row, cancellationToken);
+        return new SendMessageResponse { Task = await TaskOfAsync(row, caller.Subject, cancellationToken) };
     }
 
     // ---------------------------------------------------------------------------------------------------------- GetTask, CancelTask
@@ -126,21 +127,31 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         var caller = Caller() ?? throw new A2AException("This credential cannot use A2A.", A2AErrorCode.InvalidRequest);
         // Only this partner's tasks. A foreign id and an unknown id get the same answer (decision D11).
         var row = tasks.FindByTask(caller.PartnerId, request.Id) ?? throw new A2AException(NotFound, A2AErrorCode.TaskNotFound);
-        return TaskOf(row, await ActionOf(row, cancellationToken), caller.Subject);
+        row = await ReconciledAsync(row, cancellationToken);
+        return await TaskOfAsync(row, caller.Subject, cancellationToken);
     }
 
     public async Task<AgentTask> CancelTaskAsync(CancelTaskRequest request, A2ARequestContext? requestContext, CancellationToken cancellationToken = default)
     {
         var caller = Caller() ?? throw new A2AException("This credential cannot use A2A.", A2AErrorCode.InvalidRequest);
         var row = tasks.FindByTask(caller.PartnerId, request.Id) ?? throw new A2AException(NotFound, A2AErrorCode.TaskNotFound);
+        row = await ReconciledAsync(row, cancellationToken);
+        if (row.WorkItemId is { } workId)
+        {
+            // E7: only an open item is cancelled. A claimed one is left to its claimant, and a done one has its answer; both are not cancelable.
+            if (await host.Work.CancelAsync(workId, caller.Subject, cancellationToken, onlyIfOpen: true) is null)
+                throw new A2AException("The task can no longer be cancelled.", A2AErrorCode.TaskNotCancelable);
+            return await TaskOfAsync(row, caller.Subject, cancellationToken);
+        }
+
         var action = await ActionOf(row, cancellationToken);
         if (action is not { Status: ActionStatus.Pending })
             throw new A2AException("The task can no longer be cancelled.", A2AErrorCode.TaskNotCancelable);
         try
         {
             // The requester is the partner, the same ActionRequester the submit used, so the queue accepts it.
-            var cancelled = await host.Queue.CancelAsync(action.Id, new ActionRequester(RequesterKind.AiSession, caller.Subject), cancellationToken);
-            return TaskOf(row, cancelled, caller.Subject);
+            await host.Queue.CancelAsync(action.Id, new ActionRequester(RequesterKind.AiSession, caller.Subject), cancellationToken);
+            return await TaskOfAsync(row, caller.Subject, cancellationToken);
         }
         catch (Exception ex) when (ex is UnauthorizedAccessException or InvalidOperationException)
         {
@@ -209,24 +220,81 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
     private async Task<ActionRecord?> ActionOf(A2ATaskTable.Row row, CancellationToken ct) =>
         row.SubmitActionId is { } id ? await host.Store.GetAsync(id, ct) : null;
 
-    /// <summary>The A2A task as the partner may see it (decision D11). Reviewer reasons never appear; the status text is generic.</summary>
-    private static AgentTask TaskOf(A2ATaskTable.Row row, ActionRecord? action, string partnerSubject)
+    /// <summary>E5 at a read: a done item with no reply yet gets its reply queued now. A failure never fails the read: the task reads WORKING
+    /// and the next read tries again. Returns the row as it is after the attempt.</summary>
+    private async Task<A2ATaskTable.Row> ReconciledAsync(A2ATaskTable.Row row, CancellationToken ct)
     {
-        var (state, text) = StateOf(action, partnerSubject);
-        return new AgentTask
+        await work.TryReconcileAsync(row, ct);
+        return tasks.FindByTask(row.PartnerId, row.TaskId) ?? row;
+    }
+
+    /// <summary>The A2A task as the partner may see it. No text comes from the work item: the one artifact is an executed reply's text.
+    /// Reviewer reasons never appear; the status text is generic.</summary>
+    private async Task<AgentTask> TaskOfAsync(A2ATaskTable.Row row, string partnerSubject, CancellationToken ct)
+    {
+        var submit = row.SubmitActionId is { } s ? await host.Store.GetAsync(s, ct) : null;
+        var item = row.WorkItemId is { } w ? host.Work.Store.Get(w) : null;
+        var reply = row.ReplyActionId is { } r ? await host.Store.GetAsync(r, ct) : null;
+        var (state, text, answer) = StateOf(submit, item, reply, partnerSubject);
+        var task = new AgentTask
         {
             Id = row.TaskId,
             ContextId = row.ContextId,
             Status = new global::A2A.TaskStatus
             {
                 State = state,
-                Timestamp = action?.UpdatedAt ?? row.UpdatedAt,
+                Timestamp = reply?.UpdatedAt ?? item?.UpdatedAt ?? submit?.UpdatedAt ?? row.UpdatedAt,
                 Message = new Message { MessageId = row.TaskId + ":status", Role = Role.Agent, Parts = [Part.FromText(text)] },
             },
         };
+        if (answer is not null)
+            task.Artifacts = [new Artifact { ArtifactId = row.TaskId + ":answer", Parts = [Part.FromText(answer)] }];
+        return task;
     }
 
-    private static (TaskState State, string Text) StateOf(ActionRecord? action, string partnerSubject)
+    /// <summary>The state, the status text and the answer (the only text that leaves). With a work item (E6), the reply decides first, then
+    /// the item. Without one, the submit decides, as before the work item existed (D11).</summary>
+    private static (TaskState State, string Text, string? Answer) StateOf(ActionRecord? submit, WorkItem? item, ActionRecord? reply, string partnerSubject)
+    {
+        if (reply is not null)
+        {
+            switch (reply.Status)
+            {
+                case ActionStatus.Succeeded:
+                    return (TaskState.Completed, "Completed.", AnswerOf(reply));
+                case ActionStatus.Denied:
+                case ActionStatus.Rejected:
+                case ActionStatus.ChangesRequested:
+                case ActionStatus.Expired:
+                case ActionStatus.Cancelled:
+                case ActionStatus.Failed:
+                    // The work was done, but the answer may not be sent. No reason is given.
+                    return (TaskState.Failed, "The work was done, but the answer may not be sent.", null);
+                default:
+                    // Pending, Approved, Executing: the reply is on its way.
+                    return (TaskState.Working, "Accepted, in progress.", null);
+            }
+        }
+        if (item is not null)
+        {
+            switch (item.Status)
+            {
+                case WorkStatus.Dead:
+                case WorkStatus.Expired:
+                    return (TaskState.Failed, "The request could not be completed.", null);
+                case WorkStatus.Cancelled:
+                    return (TaskState.Canceled, "Cancelled.", null);
+                default:
+                    // Open, Claimed, or Done with no reply queued yet.
+                    return (TaskState.Working, "Accepted, in progress.", null);
+            }
+        }
+        var (state, text) = SubmitStateOf(submit, partnerSubject);
+        return (state, text, null);
+    }
+
+    /// <summary>The state of a task that has no work item yet (decision D11).</summary>
+    private static (TaskState State, string Text) SubmitStateOf(ActionRecord? action, string partnerSubject)
     {
         if (action is null || action.Status == ActionStatus.Pending) return (TaskState.Submitted, "Received, not started.");
         switch (action.Status)
@@ -245,6 +313,10 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         }
     }
 
+    /// <summary>The text an executed reply was given: its argument, as stored with the action. Nothing else is read.</summary>
+    private static string AnswerOf(ActionRecord reply) =>
+        JsonNode.Parse(reply.ArgumentsJson)?["text"]?.GetValue<string>() ?? "Done.";
+
     /// <summary>The content hash kept in the table: skill, goal and inputs, each length-prefixed so no two requests share an encoding.</summary>
     internal static string ContentHash(string skill, string goal, string inputs)
     {
@@ -255,6 +327,6 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
     private sealed record A2ACaller(string PartnerId, string? Profile)
     {
         /// <summary>The subject the partner's requests are recorded under: the partner id, never the key name.</summary>
-        public string Subject => "partner:" + PartnerId;
+        public string Subject => A2AWork.SubjectOf(PartnerId);
     }
 }

@@ -257,9 +257,9 @@ internal static class BuiltInTools
         yield return Tool(
             "complete_work",
             "Finish a work item you hold. The summary goes to whoever is waiting on it.",
-            async (string workId, string? summary = null) =>
+            async (string workId, string? summary = null, string? sessionId = null) =>
             {
-                try { return View(await work.CompleteAsync(workId, Caller(), summary)); }
+                try { return View(await work.CompleteAsync(workId, Caller(), summary, Own(sessionId))); }
                 catch (WorkException ex) { return Error(ex.Message); }
             },
             readOnly: false);

@@ -24,9 +24,11 @@ internal sealed class A2ATaskTable
         _synchronousPragma = SqliteDurability.Pragma(synchronous);
     }
 
-    /// <summary>One task. <see cref="SubmitActionId"/> is null until the <c>a2a.submit</c> action has been recorded (a crash can leave it so).</summary>
+    /// <summary>One task. <see cref="SubmitActionId"/> is null until the <c>a2a.submit</c> action has been recorded (a crash can leave it so).
+    /// <see cref="WorkItemId"/> is set once the approved submit has created (or found) the work item; <see cref="ReplyActionId"/> once the
+    /// reply has been queued for the item's summary.</summary>
     public sealed record Row(string TaskId, string PartnerId, string ContextId, string MessageId, string ContentHash, string SkillId,
-        string? SubmitActionId, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+        string? SubmitActionId, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt, string? WorkItemId = null, string? ReplyActionId = null);
 
     /// <summary>What <see cref="GetOrCreate"/> found.</summary>
     public enum Outcome
@@ -85,6 +87,31 @@ internal sealed class A2ATaskTable
         cmd.ExecuteNonQuery();
     }
 
+    /// <summary>Links the task to its work item. A healed or retried submit sets the same id again.</summary>
+    public void SetWorkItem(string taskId, string workItemId, DateTimeOffset now)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE a2a_tasks SET work_item_id=$w, updated_at=$n WHERE task_id=$t";
+        cmd.Parameters.AddWithValue("$w", workItemId);
+        cmd.Parameters.AddWithValue("$n", now.ToString("O", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$t", taskId);
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>Links the task to its reply, only if no reply is linked yet. Returns false when another run linked one first; that run's
+    /// action is the reply, and the caller does nothing more.</summary>
+    public bool SetReplyAction(string taskId, string actionId, DateTimeOffset now)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "UPDATE a2a_tasks SET reply_action_id=$a, updated_at=$n WHERE task_id=$t AND reply_action_id IS NULL";
+        cmd.Parameters.AddWithValue("$a", actionId);
+        cmd.Parameters.AddWithValue("$n", now.ToString("O", CultureInfo.InvariantCulture));
+        cmd.Parameters.AddWithValue("$t", taskId);
+        return cmd.ExecuteNonQuery() == 1;
+    }
+
     /// <summary>The number of rows, for tests.</summary>
     internal int Count()
     {
@@ -121,8 +148,8 @@ internal sealed class A2ATaskTable
     {
         using var cmd = c.CreateCommand();
         cmd.Transaction = tx;
-        cmd.CommandText = "SELECT task_id, partner_id, context_id, message_id, content_hash, skill_id, submit_action_id, created_at, updated_at " +
-                          "FROM a2a_tasks WHERE " + where + " LIMIT 1";
+        cmd.CommandText = "SELECT task_id, partner_id, context_id, message_id, content_hash, skill_id, submit_action_id, created_at, updated_at, " +
+                          "work_item_id, reply_action_id FROM a2a_tasks WHERE " + where + " LIMIT 1";
         bind(cmd.Parameters);
         using var r = cmd.ExecuteReader();
         if (!r.Read()) return null;
@@ -130,7 +157,9 @@ internal sealed class A2ATaskTable
             r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5),
             r.IsDBNull(6) ? null : r.GetString(6),
             DateTimeOffset.Parse(r.GetString(7), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
-            DateTimeOffset.Parse(r.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+            DateTimeOffset.Parse(r.GetString(8), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+            r.IsDBNull(9) ? null : r.GetString(9),
+            r.IsDBNull(10) ? null : r.GetString(10));
     }
 
     private static void Insert(SqliteConnection c, SqliteTransaction tx, Row row)

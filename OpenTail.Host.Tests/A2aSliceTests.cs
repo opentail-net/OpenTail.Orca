@@ -23,9 +23,9 @@ public class A2aSliceTests
     private const string TokenMcp = "mcp-only-token-0123456789";
 
     private const string Policy = """
-        { "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "DataFlowMode": "Enforce",
-          "Tools": { "a2a.submit": { "Mode": "Queue" } },
-          "Agents": { "clerk": { "Tools": [ "a2a.submit" ] }, "reply-assistant": { "Tools": [ "clock.now" ] } } }
+        { "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "DataFlowMode": "Enforce", "Work": { "Enabled": true },
+          "Tools": { "a2a.submit": { "Mode": "Queue" }, "a2a.reply": { "Mode": "Queue", "AllowEdits": false } },
+          "Agents": { "clerk": { "Tools": [ "a2a.submit", "a2a.reply", "work.*" ] }, "reply-assistant": { "Tools": [ "clock.now" ] } } }
         """;
 
     /// <summary>The same deployment without A2A: the profiles name no tool the Host does not load.</summary>
@@ -460,15 +460,15 @@ public class A2aSliceTests
     }
 
     [Fact]
-    public async Task A_profile_that_does_not_list_a2a_submit_gets_the_generic_not_available_error()
+    public void Startup_refuses_a_partner_key_whose_profile_does_not_list_a2a_submit()
     {
+        // Until batch 03b-2 this was refused at the request ("not available to you"). The startup check now refuses the configuration
+        // itself; the handler keeps its own profile check as a second line.
         using var db = new TempDb();
         var keys = new[] { new ApiKeyEntry("acme-agent", ApiKeys.Hash(TokenA), ["a2a:call"], "reply-assistant", PartnerA) };
-        await using var rig = await StartAsync(db, keys: keys);
-        using var client = rig.Client(TokenA);
-        var refused = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Send("m-profile", "Not for me.")));
-        Assert.Equal("That capability is not available to you.", refused.Message);
-        Assert.Equal(0, rig.Table.Count());
+        var refused = Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, keys: keys));
+        Assert.Contains("a2a.submit", refused.Message);
+        Assert.Contains("reply-assistant", refused.Message);
     }
 
     [Fact]
@@ -495,9 +495,9 @@ public class A2aSliceTests
     {
         using var db = new TempDb();
         var policy = """
-            { "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "DataFlowMode": "Enforce",
-              "Tools": { "a2a.submit": { "Mode": "Execute" } },
-              "Agents": { "clerk": { "Tools": [ "a2a.submit" ] } } }
+            { "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "DataFlowMode": "Enforce", "Work": { "Enabled": true },
+              "Tools": { "a2a.submit": { "Mode": "Execute" }, "a2a.reply": { "Mode": "Queue", "AllowEdits": false } },
+              "Agents": { "clerk": { "Tools": [ "a2a.submit", "a2a.reply" ] } } }
             """;
         var builder = new OpenTailHostBuilder().UsePolicy(PolicyConfig.Parse(policy)).UseSqlite(db.Path, SqliteSynchronous.Full).UseHttpSignIn();
         var extension = new A2AFrontDoor();
@@ -591,10 +591,328 @@ public class A2aSliceTests
 
     // ---------------------------------------------------------------------------------------------------------- helpers
 
-    /// <summary>Builds the options and the Host, and starts the extension's startup checks; it must throw.</summary>
-    private static void StartIsRefusedWith(TempDb db, string? policy = null, A2aOptions? a2a = null)
+    // ---------------------------------------------------------------------------------------------------------- replies (batch 03b-2: E3 to E7)
+
+    /// <summary>The inbox agent: the profile the skill's inbox names. It claims and completes the work item.</summary>
+    private static readonly CallerIdentity Inbox = new("key:inbox-agent", "inbox agent", CallerKind.Agent) { Profile = "clerk" };
+
+    /// <summary>The policy with a finance rule: a reply is allowed to partner A only. A reply to any other partner is denied by the exit check.</summary>
+    private static readonly string PolicyWithFlow = Policy.Replace("\"Work\": { \"Enabled\": true },",
+        "\"Work\": { \"Enabled\": true }, \"DataFlow\": { \"finance\": { \"Destinations\": [ { \"Tool\": \"a2a.reply\", \"When\": { \"arg\": \"/partner\", \"equals\": \"" + PartnerA + "\" } } ], \"Otherwise\": \"Deny\" } },");
+
+    private static async Task<ActionRecord> SubmitOfAsync(Rig rig, string partner, string taskId) =>
+        (await rig.Host.Store.GetAsync(rig.Table.FindByTask(partner, taskId)?.SubmitActionId ?? throw new InvalidOperationException("no submit")))!;
+
+    private static async Task<ActionRecord> ReplyOfAsync(Rig rig, string partner, string taskId) =>
+        (await rig.Host.Store.GetAsync(rig.Table.FindByTask(partner, taskId)?.ReplyActionId ?? throw new InvalidOperationException("no reply")))!;
+
+    /// <summary>Submits for the partner and has the reviewer approve the submit. Returns the task id and, once approval created it, the item id.</summary>
+    private static async Task<(string TaskId, string ItemId)> ApprovedTaskAsync(Rig rig, A2AClient client, string partner, string messageId, string goal)
     {
-        var options = new HostHttpOptions { A2A = a2a ?? EnabledA2a, Extensions = [new A2AFrontDoor()] };
+        var task = (await client.SendMessageAsync(Send(messageId, goal))).Task!;
+        var submit = await SubmitOfAsync(rig, partner, task.Id);
+        await rig.Host.Queue.ReviewAsync(submit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        return (task.Id, rig.Table.FindByTask(partner, task.Id)!.WorkItemId!);
+    }
+
+    /// <summary>The inbox agent claims the oldest open item and completes it with the summary, in a session that holds the labels given.</summary>
+    private static async Task CompleteAsInboxAsync(Rig rig, string summary, params CarriedLabel[] labels)
+    {
+        var session = rig.Host.Sessions.Start(Inbox.Subject);
+        var item = await rig.Host.Work.ClaimNextAsync(Inbox, session) ?? throw new InvalidOperationException("nothing to claim");
+        if (labels.Length > 0) rig.Host.Labels.GainCarried(session, Inbox.Subject, labels);
+        await rig.Host.Work.CompleteAsync(item.Id, Inbox, summary, session);
+    }
+
+    private static void Exec(Rig rig, string sql)
+    {
+        using var c = new SqliteConnection($"Data Source={rig.DbPath}");
+        c.Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = sql;
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public async Task An_approved_submit_creates_one_tainted_work_item_for_the_inbox_profile_from_the_partner_and_the_partner_never_sees_its_id()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+
+        var (taskId, itemId) = await ApprovedTaskAsync(rig, client, PartnerA, "m-item", "Check the invoice.");
+
+        var item = rig.Host.Work.Store.Get(itemId)!;
+        Assert.Equal((WorkStatus.Open, WorkService.ForProfile("clerk"), "partner:" + PartnerA, true), (item.Status, item.For, item.From, item.Tainted));
+        Assert.StartsWith("a2a:", item.Thread);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM work_items"));
+        var task = await client.GetTaskAsync(new GetTaskRequest { Id = taskId });
+        Assert.Equal(TaskState.Working, task.Status.State);
+        Assert.DoesNotContain(itemId, JsonSerializer.Serialize(task, A2AJsonUtilities.DefaultOptions));
+    }
+
+    [Fact]
+    public async Task Re_running_the_submit_and_a_crash_before_the_link_each_leave_one_work_item_and_the_row_is_healed()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (taskId, itemId) = await ApprovedTaskAsync(rig, client, PartnerA, "m-heal", "Heal me.");
+        var submit = await SubmitOfAsync(rig, PartnerA, taskId);
+        var work = new A2AWork(rig.Host, EnabledA2a, rig.Table);
+        var args = new Microsoft.Extensions.AI.AIFunctionArguments
+        {
+            Context = new Dictionary<object, object?>
+            {
+                [HostContract.RequesterContextKey] = "partner:" + PartnerA,
+                [HostContract.ActionIdContextKey] = submit.Id,
+            },
+        };
+
+        await work.SubmitAsync(PartnerA, taskId, "draft-reply", "Heal me.", "", args);     // the row has its link: nothing happens
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM work_items"));
+
+        Exec(rig, "UPDATE a2a_tasks SET work_item_id=NULL");                              // the crash: the item exists, the link does not
+        await work.SubmitAsync(PartnerA, taskId, "draft-reply", "Heal me.", "", args);     // the retry finds the item on the thread
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM work_items"));
+        Assert.Equal(itemId, rig.Table.FindByTask(PartnerA, taskId)!.WorkItemId);
+    }
+
+    [Fact]
+    public async Task A_completed_item_queues_a_reply_for_review_and_approval_sends_exactly_the_summary_with_no_artifact_before_it()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (taskId, _) = await ApprovedTaskAsync(rig, client, PartnerA, "m-reply", "Check the invoice.");
+        await CompleteAsInboxAsync(rig, "Paid on 3 Nov.");
+
+        var pending = await client.GetTaskAsync(new GetTaskRequest { Id = taskId });
+        Assert.Equal(TaskState.Working, pending.Status.State);
+        Assert.True(pending.Artifacts is null or { Count: 0 });
+        var reply = await ReplyOfAsync(rig, PartnerA, taskId);
+        Assert.Equal(ActionStatus.Pending, reply.Status);
+        Assert.Contains("Paid on 3 Nov.", reply.PreviewJson);
+
+        await rig.Host.Queue.ReviewAsync(reply.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        var done = await client.GetTaskAsync(new GetTaskRequest { Id = taskId });
+        Assert.Equal(TaskState.Completed, done.Status.State);
+        Assert.Equal("Paid on 3 Nov.", Assert.Single(done.Artifacts!).Parts.Single().Text);
+    }
+
+    [Fact]
+    public async Task A_rejected_reply_gives_FAILED_and_the_summary_appears_nowhere_in_what_the_partner_receives()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (taskId, _) = await ApprovedTaskAsync(rig, client, PartnerA, "m-reject-reply", "Check the invoice.");
+        await CompleteAsInboxAsync(rig, "Secret summary text.");
+        await client.GetTaskAsync(new GetTaskRequest { Id = taskId });   // the partner's read queues the reply
+        var reply = await ReplyOfAsync(rig, PartnerA, taskId);
+        await rig.Host.Queue.ReviewAsync(reply.Id, new ActionReview("rita", ReviewDecision.Reject, "Internal: not for this customer", DateTimeOffset.UtcNow));
+
+        var failed = await client.GetTaskAsync(new GetTaskRequest { Id = taskId });
+        Assert.Equal(TaskState.Failed, failed.Status.State);
+        Assert.True(failed.Artifacts is null or { Count: 0 });
+        var wire = JsonSerializer.Serialize(failed, A2AJsonUtilities.DefaultOptions);
+        Assert.DoesNotContain("Secret summary text.", wire);
+        Assert.DoesNotContain("Internal", wire);
+    }
+
+    [Fact]
+    public async Task GetTask_alone_queues_the_reply_when_the_completion_event_never_came_and_two_reads_at_once_make_one_reply()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (taskId, itemId) = await ApprovedTaskAsync(rig, client, PartnerA, "m-alone", "Check the invoice.");
+        var session = rig.Host.Sessions.Start(Inbox.Subject);
+        await rig.Host.Work.ClaimNextAsync(Inbox, session);
+        // The item becomes Done in the store without the Completed event: as if the Host stopped between the two.
+        rig.Host.Work.Store.Transition(itemId, WorkStatus.Claimed, i => i with { Status = WorkStatus.Done, Summary = "Done by the store.", LeaseUntil = null });
+
+        var reads = await Task.WhenAll(client.GetTaskAsync(new GetTaskRequest { Id = taskId }), client.GetTaskAsync(new GetTaskRequest { Id = taskId }));
+
+        Assert.All(reads, r => Assert.Equal(TaskState.Working, r.Status.State));
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM actions WHERE tool='a2a.reply'"));
+        Assert.Contains("Done by the store.", (await ReplyOfAsync(rig, PartnerA, taskId)).ArgumentsJson);
+    }
+
+    [Fact]
+    public async Task A_label_the_completer_held_is_checked_at_the_exit_for_the_reply_and_a_partner_it_is_not_allowed_to_reach_gets_FAILED()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, policy: PolicyWithFlow);
+        using var a = rig.Client(TokenA);
+        using var b = rig.Client(TokenB);
+        var finance = new CarriedLabel("finance", "erp:ledger");
+
+        var (taskA, _) = await ApprovedTaskAsync(rig, a, PartnerA, "m-flow-a", "Invoice for A.");
+        await CompleteAsInboxAsync(rig, "Finance summary for A.", finance);
+        await a.GetTaskAsync(new GetTaskRequest { Id = taskA });
+        Assert.Equal(ActionStatus.Pending, (await ReplyOfAsync(rig, PartnerA, taskA)).Status);   // allowed for A: queued normally
+
+        var (taskB, _) = await ApprovedTaskAsync(rig, b, PartnerB, "m-flow-b", "Invoice for B.");
+        await CompleteAsInboxAsync(rig, "Finance summary for B.", finance);
+        await b.GetTaskAsync(new GetTaskRequest { Id = taskB });
+        var denied = await ReplyOfAsync(rig, PartnerB, taskB);
+        Assert.Equal(ActionStatus.Denied, denied.Status);
+        var failed = await b.GetTaskAsync(new GetTaskRequest { Id = taskB });
+        Assert.Equal(TaskState.Failed, failed.Status.State);
+        Assert.DoesNotContain("Finance summary for B.", JsonSerializer.Serialize(failed, A2AJsonUtilities.DefaultOptions));
+    }
+
+    [Fact]
+    public async Task A_forged_submit_or_reply_by_an_MCP_agent_with_a_real_partner_and_task_id_creates_nothing_and_delivers_nothing()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (taskId, itemId) = await ApprovedTaskAsync(rig, client, PartnerA, "m-real", "Real request.");
+        var before = rig.Count("SELECT COUNT(*) FROM work_items");
+        var session = rig.Host.Sessions.Start("key:mcp-agent");
+        var forgedArgs = new JsonObject { ["partner"] = PartnerA, ["taskId"] = taskId, ["skill"] = "draft-reply", ["goal"] = "Forged.", ["inputs"] = "" };
+
+        var forgedSubmit = await rig.Host.Queue.SubmitAsync(new ActionRequest("a2a.submit", forgedArgs.ToJsonString(),
+            new ActionRequester(RequesterKind.AiSession, "key:mcp-agent"), session, "forge-submit") { Profile = "clerk" });
+        await rig.Host.Queue.ReviewAsync(forgedSubmit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        Assert.Equal(ActionStatus.Failed, (await rig.Host.Store.GetAsync(forgedSubmit.Id))!.Status);
+        Assert.Equal(before, rig.Count("SELECT COUNT(*) FROM work_items"));
+
+        // The crash window: a row with no submit action yet. Only the requester check refuses a forged submit here.
+        var windowRow = rig.Table.InsertWithoutAction(PartnerA, "m-window", "unused-hash", "draft-reply", DateTimeOffset.UtcNow);
+        var windowSubmit = await rig.Host.Queue.SubmitAsync(new ActionRequest("a2a.submit",
+            new JsonObject { ["partner"] = PartnerA, ["taskId"] = windowRow.TaskId, ["skill"] = "draft-reply", ["goal"] = "Forged in the window.", ["inputs"] = "" }.ToJsonString(),
+            new ActionRequester(RequesterKind.AiSession, "key:mcp-agent"), session, "forge-window") { Profile = "clerk" });
+        await rig.Host.Queue.ReviewAsync(windowSubmit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        Assert.Equal(ActionStatus.Failed, (await rig.Host.Store.GetAsync(windowSubmit.Id))!.Status);
+        Assert.Equal(before, rig.Count("SELECT COUNT(*) FROM work_items"));
+
+        await CompleteAsInboxAsync(rig, "The real answer.");
+        var forgedReply = await rig.Host.Queue.SubmitAsync(new ActionRequest("a2a.reply",
+            new JsonObject { ["partner"] = PartnerA, ["taskId"] = taskId, ["text"] = "Forged answer." }.ToJsonString(),
+            new ActionRequester(RequesterKind.AiSession, "key:mcp-agent"), session, "forge-reply") { Profile = "clerk" });
+        await rig.Host.Queue.ReviewAsync(forgedReply.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        Assert.Equal(ActionStatus.Failed, (await rig.Host.Store.GetAsync(forgedReply.Id))!.Status);
+        Assert.Equal(TaskState.Working, (await client.GetTaskAsync(new GetTaskRequest { Id = taskId })).Status.State);
+        Assert.Equal(itemId, rig.Table.FindByTask(PartnerA, taskId)!.WorkItemId);
+    }
+
+    [Fact]
+    public async Task Another_partner_sees_TaskNotFound_at_every_stage_including_COMPLETED()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var a = rig.Client(TokenA);
+        using var b = rig.Client(TokenB);
+        var (taskId, _) = await ApprovedTaskAsync(rig, a, PartnerA, "m-iso", "Isolated.");
+        var get = new GetTaskRequest { Id = taskId };
+
+        Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => b.GetTaskAsync(get))).ErrorCode);
+        await CompleteAsInboxAsync(rig, "Only for A.");
+        Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => b.GetTaskAsync(get))).ErrorCode);
+        Assert.Equal(TaskState.Working, (await a.GetTaskAsync(get)).Status.State);   // A's read queues the reply
+        await rig.Host.Queue.ReviewAsync((await ReplyOfAsync(rig, PartnerA, taskId)).Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        Assert.Equal(TaskState.Completed, (await a.GetTaskAsync(get)).Status.State);
+        Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => b.GetTaskAsync(get))).ErrorCode);
+        Assert.Equal(A2AErrorCode.TaskNotFound, (await Assert.ThrowsAsync<A2AException>(() => b.CancelTaskAsync(new CancelTaskRequest { Id = taskId }))).ErrorCode);
+    }
+
+    [Fact]
+    public async Task CancelTask_cancels_an_open_item_as_the_partner_and_refuses_a_claimed_one_which_stays_with_its_claimant()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+
+        var (openTask, openItem) = await ApprovedTaskAsync(rig, client, PartnerA, "m-open", "Open one.");
+        var canceled = await client.CancelTaskAsync(new CancelTaskRequest { Id = openTask });
+        Assert.Equal(TaskState.Canceled, canceled.Status.State);
+        Assert.Equal(WorkStatus.Cancelled, rig.Host.Work.Store.Get(openItem)!.Status);
+        Assert.Contains(((SqliteAuditSink)rig.Host.Audit).ReadChain(), e => e.Event == "work.cancelled" && e.Actor == "partner:" + PartnerA);
+
+        var (claimedTask, claimedItem) = await ApprovedTaskAsync(rig, client, PartnerA, "m-claimed", "Claimed one.");
+        var session = rig.Host.Sessions.Start(Inbox.Subject);
+        await rig.Host.Work.ClaimNextAsync(Inbox, session);
+        var refused = await Assert.ThrowsAsync<A2AException>(() => client.CancelTaskAsync(new CancelTaskRequest { Id = claimedTask }));
+        Assert.Equal(A2AErrorCode.TaskNotCancelable, refused.ErrorCode);
+        var still = rig.Host.Work.Store.Get(claimedItem)!;
+        Assert.Equal((WorkStatus.Claimed, Inbox.Subject), (still.Status, still.ClaimedBy));
+    }
+
+    [Fact]
+    public async Task A_dead_or_expired_item_reads_as_FAILED_with_a_generic_text()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (deadTask, deadItem) = await ApprovedTaskAsync(rig, client, PartnerA, "m-dead", "Dead one.");
+        rig.Host.Work.Store.Transition(deadItem, WorkStatus.Open, i => i with { Status = WorkStatus.Dead });
+        var (expiredTask, expiredItem) = await ApprovedTaskAsync(rig, client, PartnerA, "m-expired", "Expired one.");
+        rig.Host.Work.Store.Transition(expiredItem, WorkStatus.Open, i => i with { Status = WorkStatus.Expired });
+
+        foreach (var taskId in new[] { deadTask, expiredTask })
+            Assert.Equal(TaskState.Failed, (await client.GetTaskAsync(new GetTaskRequest { Id = taskId })).Status.State);
+    }
+
+    [Fact]
+    public async Task A_restart_between_the_completion_and_GetTask_still_ends_COMPLETED()
+    {
+        using var db = new TempDb();
+        string taskId;
+        await using (var rig = await StartAsync(db))
+        {
+            using var client = rig.Client(TokenA);
+            (taskId, var itemId) = await ApprovedTaskAsync(rig, client, PartnerA, "m-restart", "Restart me.");
+            var session = rig.Host.Sessions.Start(Inbox.Subject);
+            await rig.Host.Work.ClaimNextAsync(Inbox, session);
+            rig.Host.Work.Store.Transition(itemId, WorkStatus.Claimed, i => i with { Status = WorkStatus.Done, Summary = "Before the restart.", LeaseUntil = null });
+        }
+
+        await using var restarted = await StartAsync(db);
+        using var again = restarted.Client(TokenA);
+        Assert.Equal(TaskState.Working, (await again.GetTaskAsync(new GetTaskRequest { Id = taskId })).Status.State);
+        await restarted.Host.Queue.ReviewAsync((await ReplyOfAsync(restarted, PartnerA, taskId)).Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        var done = await again.GetTaskAsync(new GetTaskRequest { Id = taskId });
+        Assert.Equal(TaskState.Completed, done.Status.State);
+        Assert.Equal("Before the restart.", Assert.Single(done.Artifacts!).Parts.Single().Text);
+    }
+
+    [Fact]
+    public void Startup_refuses_A2A_without_work_items_a_reply_entry_an_Execute_reply_or_a_profile_without_a2a_reply()
+    {
+        var noWork = Policy.Replace("\"Work\": { \"Enabled\": true },", "").Replace(", \"work.*\"", "");
+        using (var db = new TempDb())
+            Assert.Contains("Work.Enabled", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: noWork)).Message);
+
+        var noEntry = Policy.Replace(", \"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false }", "");
+        using (var db = new TempDb())
+            Assert.Contains("a2a.reply", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: noEntry)).Message);
+
+        var execute = Policy.Replace("\"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false }", "\"a2a.reply\": { \"Mode\": \"Execute\", \"AllowEdits\": false }");
+        using (var db = new TempDb())
+            Assert.Contains("Execute", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: execute)).Message);
+
+        var executeRule = Policy.Replace("\"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false }",
+            "\"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false, \"Rules\": [ { \"Name\": \"relax\", \"Mode\": \"Execute\", \"When\": { \"arg\": \"/partner\", \"equals\": \"" + PartnerA + "\" }, \"IgnoreArgs\": [ \"taskId\", \"text\" ] } ] }");
+        using (var db = new TempDb())
+            Assert.Contains("relax", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: executeRule)).Message);
+
+        var aiRule = Policy.Replace("\"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false }",
+            "\"a2a.reply\": { \"Mode\": \"Queue\", \"AllowEdits\": false, \"Rules\": [ { \"Name\": \"by-ai\", \"Mode\": \"Queue\", \"Reviewer\": \"Ai\", \"When\": { \"arg\": \"/partner\", \"equals\": \"" + PartnerA + "\" } } ] }");
+        using (var db = new TempDb())
+            Assert.Contains("by-ai", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: aiRule)).Message);
+
+        var noProfileReply = Policy.Replace("\"clerk\": { \"Tools\": [ \"a2a.submit\", \"a2a.reply\", \"work.*\" ] }", "\"clerk\": { \"Tools\": [ \"a2a.submit\", \"work.*\" ] }");
+        using (var db = new TempDb())
+            Assert.Contains("a2a.reply", Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: noProfileReply, keys: DefaultKeys)).Message);
+    }
+
+    /// <summary>Builds the options and the Host, and starts the extension's startup checks; it must throw.</summary>
+    private static void StartIsRefusedWith(TempDb db, string? policy = null, A2aOptions? a2a = null, ApiKeyEntry[]? keys = null)
+    {
+        var options = new HostHttpOptions { A2A = a2a ?? EnabledA2a, ApiKeys = keys ?? [], Extensions = [new A2AFrontDoor()] };
         var builder = new OpenTailHostBuilder().AddModule(new FakeInboxModule()).UsePolicy(PolicyConfig.Parse(policy ?? Policy)).UseSqlite(db.Path, SqliteSynchronous.Full).UseHttpSignIn();
         foreach (var extension in options.Extensions) extension.AddModules(builder, options);
         var host = builder.Build();

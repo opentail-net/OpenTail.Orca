@@ -301,10 +301,12 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 - **The labels reach the check.** Before submitting `a2a.reply`, the adapter applies the work item's labels and taint to the
   partner's session (`GainCarried`, as `WorkService.Apply` does). The standard exit check then sees them. The item's labels are
   not on the partner's session otherwise.
-- **The destination is named.** A label rule names the partner by its `partnerId`:
+- **The destination is named.** A label rule names the partner in a destination condition on the `partner` argument (the syntax of
+  `DataLabels.Check`; `Allow` names tools, not destinations, so `"a2a.reply:partner=..."` is not a form the Host reads). Tested in
+  `A_label_the_completer_held_is_checked_at_the_exit...`:
 
 ```json
-"DataFlow": { "finance": { "Allow": [ "a2a.reply:partner=<partnerId>" ], "Otherwise": "Deny" } }
+"DataFlow": { "finance": { "Destinations": [ { "Tool": "a2a.reply", "When": { "arg": "/partner", "equals": "<partnerId>" } } ], "Otherwise": "Deny" } }
 ```
 
 - **Enforcement is required.** `DataFlowMode` defaults to `ReportOnly`. With that default, a labelled reply would be recorded as
@@ -468,14 +470,18 @@ Still the proposed defaults, unchanged:
 
 ## What is built
 
-Phase 0 (in commit f24f8c5) and the first half of the thin slice (batch 03b-1). The slice is OpenTail.Host.A2A,
-which only a server or a test references; the HTTP host takes it through an extension seam and never names it. It serves `/a2a`
-(JSON-RPC, our own `IA2ARequestHandler` over the SDK's `MapA2A`) behind the `a2a:call` role; enforces `A2A-Version` before the SDK (D6); keeps
-the task id table (schema 13: `a2a_tasks`, the Host's id, the partner's owner, the content hash and no text); submits `a2a.submit` as the
-partner with the task id as idempotency key; and answers `GetTask` and `CancelTask` for the owner's tasks only. Reused without change: the
-decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body limit and the HTTP sign-in. Not built yet:
-`a2a.reply`, the work item and the reply path (03b-2), blocking waits, `ListTasks`, the card, the skill-selection extension, push, signing,
-and outbound calls. The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
+Phase 0 (in commit f24f8c5), the first half of the thin slice (03b-1, committed in fae2725) and the second half (03b-2, in the working
+tree, not committed). The slice is OpenTail.Host.A2A, which only a server or a test references; the HTTP host takes it through an extension
+seam and never names it. It serves `/a2a` (JSON-RPC, our own `IA2ARequestHandler` over the SDK's `MapA2A`) behind the `a2a:call` role;
+enforces `A2A-Version` before the SDK (D6); keeps the task id table (schema 13: `a2a_tasks`, the Host's id, the partner's owner, the content
+hash, the work item and the reply action, and no text); submits `a2a.submit` as the partner with the task id as idempotency key. On approval
+it creates one work item for the skill's inbox profile, on the task's thread, tainted, carrying what the submit's session holds; it never
+returns the item's id. A finished item is reconciled into one queued `a2a.reply` for its summary (or "Done."), in the submit's session and
+profile, with the item's taint and labels put on that session first. `GetTask` and `CancelTask` answer for the owner's tasks only. The
+completer's session now carries onto its work item (E1); `WorkService` raises `Completed` (E2) and cancels only an open item when asked (E7).
+Reused without change: the decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body limit and the
+HTTP sign-in. Not built yet: blocking waits (03b-3), `ListTasks`, the card, the skill-selection extension, push, signing, and outbound calls.
+The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
 
 ## Sources
 

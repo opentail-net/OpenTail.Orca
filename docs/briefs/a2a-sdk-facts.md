@@ -29,7 +29,7 @@ Scratch project, outside the repo: `C:\Users\Dmitri\AppData\Local\Temp\claude\5f
 - The SDK's implementation is `A2AServer` (SOURCE). `AddA2AAgent<THandler>(card)` registers A2AServer and InMemoryTaskStore (RUN).
 - `MapA2A(IEndpointRouteBuilder, IA2ARequestHandler, string path)` and `MapA2A(IEndpointRouteBuilder, string path)` (handler from DI) return `IEndpointConventionBuilder` (SOURCE). `RequireAuthorization()` on the result gives 401 with no credential (RUN); the same holds for `MapWellKnownAgentCard` (RUN).
 - Caller identity: `A2ARequestContext` exposes only extension sets (SOURCE). RUN: a handler given `IHttpContextAccessor` read the user set earlier in the pipeline ("alice"). The one SDK hook given an HttpContext is `A2AExtensionOptions.CanActivate(HttpContext, A2AExtensionRegistration, CancellationToken)` (SOURCE), which runs only with extension options.
-- `requestContext` is **null** when no `A2AExtensionOptions` is registered (SOURCE `src/A2A.AspNetCore/A2AJsonRpcProcessor.cs:107-111`; RUN), although the interface declares it non-null.
+- `requestContext` is **null** when no `A2AExtensionOptions` is registered (SOURCE `src/A2A.AspNetCore/A2AJsonRpcProcessor.cs:107-111`; RUN). The interface declares it nullable (`A2ARequestContext?`); corrected in batch 03b-1.
 
 ## 3. SendMessage
 
@@ -96,7 +96,7 @@ Console.WriteLine(task.Status.State);
 
 ## 9. Surprises and unstable points
 
-1. `requestContext` is null with no extension options, though the interface says non-null (RUN).
+1. `requestContext` is null with no extension options (RUN); the interface declares it nullable.
 2. The version check accepts "0.3" and an empty header (RUN). `a2a.md` correction 6 assumed an empty value would be refused.
 3. JSON-RPC errors are HTTP 200 (RUN); the remarks say 400 (SOURCE).
 4. The MapA2A remarks say tenant fields are cleared, and they are (RUN, SOURCE). No handler sees a tenant on this binding.

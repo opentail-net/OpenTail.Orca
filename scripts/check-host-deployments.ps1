@@ -32,7 +32,7 @@ $deployments = @(
                                                  MustNot = @('OpenTail.Modules.Email','MailKit','OpenTail.Modules.Sql','OpenTail.Modules.Calendar') },
   # The container image's program: every module and profile compiled in, still nothing from the heavy stack.
   @{ Name = 'OpenTail.Host.Server'; SamplePolicy = $false;
-                                                 Must = @('OpenTail.Host','OpenTail.Host.Http','OpenTail.Host.Notifications','ModelContextProtocol.AspNetCore',
+                                                 Must = @('OpenTail.Host','OpenTail.Host.Http','OpenTail.Host.A2A','OpenTail.Host.Notifications','ModelContextProtocol.AspNetCore',
                                                           'OpenTail.Modules.Files','OpenTail.Modules.Email.Imap','OpenTail.Modules.Microsoft365','OpenTail.Modules.Google',
                                                           'OpenTail.Modules.GitHubIssues','OpenTail.Modules.ServiceNow','OpenTail.Modules.OpenApi','OpenTail.Profiles.YouTube','OpenTail.Profiles.X','OpenTail.Profiles.Jira','OpenTail.Profiles.Confluence');
                                                  MustNot = @() })

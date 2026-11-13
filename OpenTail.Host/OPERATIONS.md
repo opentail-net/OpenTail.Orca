@@ -137,13 +137,16 @@ Connect Claude Code, for example, with a project `.mcp.json`:
 A2A lets agents that are not ours send requests to this Host over the A2A JSON-RPC binding ([design](../docs/design/a2a.md)).
 It is **off** unless `A2A.Enabled` is true in `http.json`. With it off there is no `/a2a` route (404) and no `a2a.submit` tool.
 
-**Served now:** `SendMessage` for a new task with `returnImmediately=true`; `GetTask`; `CancelTask` (only while the request is still
-pending). Every request is queued for a person under the policy's entry for `a2a.submit`, unless the operator has set that entry to
-`Execute`. The partner gets a task id, and sees `SUBMITTED`, `WORKING`, `REJECTED`, `FAILED` or `CANCELED`, with generic text only.
+**Served now:** `SendMessage` for a new task with `returnImmediately=true`; `GetTask`; `CancelTask` (while the request is pending, or
+while its work item is still open). Every request is queued for a person under the policy's entry for `a2a.submit`, unless the operator
+has set that entry to `Execute`. An approved request becomes a work item for the skill's inbox profile. When the inbox agent completes it,
+the summary is queued as an `a2a.reply` for a person: approve it and the partner gets exactly that text as an artifact (`COMPLETED`); reject
+it and the task is `FAILED` with no text. The partner gets a task id, and sees `SUBMITTED`, `WORKING`, `COMPLETED`, `REJECTED`, `FAILED`
+or `CANCELED`, with generic text only.
 
 **Not served yet:** no agent card (no `/.well-known` route); no blocking sends (`returnImmediately` false or omitted is refused with
-UnsupportedOperation, and leaves no row); no replies (`a2a.reply` does not exist); no work items; no `ListTasks`, streaming, resubscribe,
-push notifications or extended card (each refused with UnsupportedOperation); no file parts; no continuation of a task.
+UnsupportedOperation, and leaves no row; they come with the blocking wait); no `ListTasks`, streaming, resubscribe, push notifications or
+extended card (each refused with UnsupportedOperation); no file parts; no continuation of a task.
 
 * **Config.** The `A2A` object in `http.json`: `"Enabled"`, `"Partners"` (a list of `{ "Id", "DisplayName" }`; `--new-partner "<name>"`
   prints a new `Id`, a UUID kept for good) and `"Skills"`: each skill id maps to `{ "Name", "Description", "Inbox" }`, where `Inbox` names a
@@ -160,7 +163,9 @@ push notifications or extended card (each refused with UnsupportedOperation); no
   rate limit apply to `/a2a` as to the other routes. A request over the body limit is refused by the SDK as a JSON-RPC internal error with
   HTTP 200, not as a 413, and is not audited as a refusal.
 * **Audit.** `a2a.received` (task id, partner id, skill id, a hash of the content, size) when a task is created; `a2a.refused` with a reason
-  code when a request is refused. Neither holds the text of a request. Refusals before the body is read (the body limit, sign-in, the version
+  code when a request is refused. Neither holds the text of a request. `a2a.reply_queued` (task id, partner id, a hash and the size of the
+  reply, never the text) when a reply is queued; `a2a.reconcile_failed` (with the exception type) when a reconcile fails; `work.cancelled`
+  by the partner's subject when a partner cancels an open task. Refusals before the body is read (the body limit, sign-in, the version
   gate) are not audited as `a2a.refused`.
 * **Startup checks** (each refuses to start, with the reason, when `Enabled` is true):
   * the policy's `"DataFlowMode"` is `Enforce`;
@@ -168,9 +173,36 @@ push notifications or extended card (each refused with UnsupportedOperation); no
     is not SQLite is refused;
   * every `a2a:call` key names a profile, carries no other scope, and names a partner from `Partners`;
   * every partner `Id` is a UUID, no `Id` is listed twice, and every partner has a `DisplayName`;
-  * the policy has an entry for `a2a.submit`; there is at least one skill; every skill's `Inbox` is a profile in `"Agents"`.
+  * the policy has `"Work": { "Enabled": true }` (an approved request becomes a work item);
+  * the policy has an entry for `a2a.submit`; there is at least one skill; every skill's `Inbox` is a profile in `"Agents"`;
+  * the policy has an entry for `a2a.reply` in mode `Queue` or `Deny` (never `Execute`), with `Reviewer` Human and `AllowEdits` false, and
+    no rule on it that is `Execute` or names a reviewer that is not a person;
+  * every profile named by an `a2a:call` key lists both `a2a.submit` and `a2a.reply` by name.
 * **Warning.** `a2a.submit` in mode `Execute` with no rule runs every partner's request without a person's review. That is allowed when you
   trust every partner, and startup prints a warning saying so.
+* **Policy example.** The entries an A2A deployment needs; the rest of the policy is unchanged. The inbox profile (here `clerk`) lists
+  `work.*` so that it can claim the item it is sent.
+
+  ```json
+  {
+    "DataFlowMode": "Enforce",
+    "Work": { "Enabled": true },
+    "DataFlow": {
+      "finance": { "Destinations": [ { "Tool": "a2a.reply", "When": { "arg": "/partner", "equals": "<partner id>" } } ], "Otherwise": "Deny" }
+    },
+    "Tools": {
+      "a2a.submit": { "Mode": "Queue" },
+      "a2a.reply": { "Mode": "Queue", "AllowEdits": false }
+    },
+    "Agents": {
+      "clerk": { "Tools": [ "a2a.submit", "a2a.reply", "work.*" ] }
+    }
+  }
+  ```
+
+  The `DataFlow` rule stops a reply that carries finance data from reaching a partner the rule does not name: the reply's exit check reads
+  the `partner` argument (`/partner`) against `equals`, with the partner's id from `Partners`. Where no destination matches, the label's
+  `Otherwise` applies (here `Deny`). Each partner's reply then also needs its own review, as `a2a.reply` is queued.
 
 ## Notifications
 
