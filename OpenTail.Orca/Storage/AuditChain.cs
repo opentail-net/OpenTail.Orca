@@ -26,7 +26,7 @@ public sealed record AuditCheckpoint(long Seq, string Hash)
 /// <param name="FirstBreak">The first entry whose chain does not hold, with why; null when the chain is intact.</param>
 public sealed record AuditVerification(int Entries, int Unchained, AuditCheckpoint? Head, string? FirstBreak, IReadOnlyList<string> Checkpoints)
 {
-    public bool Intact => FirstBreak is null && Checkpoints.All(c => c.StartsWith("ok", StringComparison.Ordinal));
+    public bool Intact => FirstBreak is null && Checkpoints.All(c => c.StartsWith("ok", StringComparison.Ordinal) || c.StartsWith("in the archive", StringComparison.Ordinal));
 }
 
 public static class AuditChain
@@ -44,28 +44,44 @@ public static class AuditChain
         entries.LastOrDefault() is { Hash: { } h } last ? new AuditCheckpoint(last.Seq, h) : null;
 
     /// <summary>Walks the chain and reports the first break; each checkpoint must match the entry at its sequence number.</summary>
-    public static AuditVerification Verify(IReadOnlyList<ChainedAuditEntry> entries, IReadOnlyList<AuditCheckpoint>? checkpoints = null)
+    /// <param name="anchor">The cut the live trail continues from (D-41): the entries before it were archived. When given, the first entry must be the
+    /// one right after the cut and must link to its hash. Without it, a trail that starts after entry 1 is a break.</param>
+    public static AuditVerification Verify(IReadOnlyList<ChainedAuditEntry> entries, IReadOnlyList<AuditCheckpoint>? checkpoints = null, AuditCheckpoint? anchor = null)
     {
         var unchained = 0;
-        string? prev = null, broken = null;
-        var started = false;
+        string? prev = anchor?.Hash, broken = null;
+        var started = anchor is not null;
+        var first = true;
         foreach (var e in entries)
         {
             if (!started && e.Hash is null) { unchained++; continue; }
             if (e.Hash is null) { broken = $"entry {e.Seq} ({e.Event}) has no hash although the chain started earlier"; break; }
+            if (started && first && anchor is { } cut && e.Seq != cut.Seq + 1)
+            { broken = $"entry {e.Seq} ({e.Event}) does not follow the archived cut {cut}: entries are missing between them"; break; }
             if (!started && e.PrevHash is not null) { broken = $"entry {e.Seq} ({e.Event}) follows an entry that is no longer there: entries before it were removed"; break; }
             if (started && e.PrevHash != prev) { broken = $"entry {e.Seq} ({e.Event}) does not follow the entry before it: an entry was removed, inserted or reordered"; break; }
             if (Hash(e.Seq, e.At, e.Event, e.ActionId, e.Tool, e.Actor, e.Detail, e.PrevHash) != e.Hash) { broken = $"entry {e.Seq} ({e.Event}) was changed after it was written"; break; }
             started = true;
+            first = false;
             prev = e.Hash;
         }
 
         var bySeq = entries.ToDictionary(e => e.Seq);
         var results = new List<string>();
         foreach (var cp in checkpoints ?? [])
+        {
+            // A checkpoint at or before the cut is in the archive, not the live trail: it is reported, and checked against the cut itself.
+            if (anchor is { } a && cp.Seq <= a.Seq)
+            {
+                results.Add(cp.Seq == a.Seq && cp.Hash == a.Hash
+                    ? $"ok checkpoint {cp} (the archive cut)"
+                    : $"in the archive: checkpoint {cp} is before the live trail; check the archive files");
+                continue;
+            }
             results.Add(!bySeq.TryGetValue(cp.Seq, out var at)
                 ? $"MISSING checkpoint {cp}: entry {cp.Seq} is gone (entries were removed from the end, or the database was replaced)"
                 : at.Hash == cp.Hash ? $"ok checkpoint {cp}" : $"MISMATCH checkpoint {cp}: entry {cp.Seq} now hashes to {at.Hash ?? "nothing"}");
+        }
         return new AuditVerification(entries.Count, unchained, Head(entries), broken, results);
     }
 }

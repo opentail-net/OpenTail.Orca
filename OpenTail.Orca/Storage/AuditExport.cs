@@ -89,6 +89,8 @@ public static class AuditExport
             ["generatedAt"] = DateTimeOffset.UtcNow.ToString("O"),
             ["host"] = PolicyLoad.HostVersion,
             ["head"] = head?.ToString(),
+            // The live trail continues from its newest cut (D-41): the export starts there. The entries before it are in the archive files.
+            ["anchor"] = new AuditArchiver(store).Latest()?.Anchor.ToString(),
             ["files"] = new JsonObject(files.Select(f => KeyValuePair.Create(f.Key, (JsonNode?)f.Value))),
             ["verify"] = "python3 verify.py <this folder>",
         };
@@ -122,10 +124,14 @@ public static class AuditExport
                 if sha(read(folder, name)) != expected:
                     problems.append(f"{name} does not match the manifest")
 
-            prev, started, entries = None, False, []
+            anchor = manifest.get("anchor")
+            anchor_seq, anchor_hash = (int(anchor.split(":")[0]), anchor.split(":")[1]) if anchor else (None, None)
+            prev, started, entries = anchor_hash, anchor is not None, []
             for line in read(folder, "audit.jsonl").splitlines():
                 e = json.loads(line)
                 entries.append(e)
+                if anchor is not None and len(entries) == 1 and e["seq"] != anchor_seq + 1:
+                    problems.append(f"entry {e['seq']} does not follow the archived cut {anchor}")
                 if e["hash"] is None:
                     if started:
                         problems.append(f"entry {e['seq']} has no hash although the chain started earlier")

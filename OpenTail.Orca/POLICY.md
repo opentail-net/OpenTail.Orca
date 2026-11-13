@@ -43,6 +43,9 @@ anything; all accept `--modules modules.json`.
 | `TaintWindow` | After a caller reads untrusted content (mail, web, files, API responses, database rows), **every** session of that caller counts as tainted for this long, so starting a new session does not help. A tainted caller never gets a high-impact tool run without a reviewer. Default `30m`. `0` = per session only. |
 | `SessionIdleTtl` | Idle sessions are deleted after this. Default `14d`. |
 | `RetentionDays` | Finished actions (they hold argument values) are deleted after this many days. The audit trail, which holds no argument values, is kept. `0` = keep. |
+| `AuditLiveDays` | The audit trail stays in the live database for this many days (default 28: four weeks). Older entries go to an archive file, in segments, after the archive is written and verified; the live trail continues from the cut. `0` never archives. |
+| `AuditArchiveDays` | An archive file is kept this many days, then removed (default 2555: seven years). Must be at least `AuditLiveDays`. Finance and other obligations may need longer. The removal is recorded in the trail. |
+| `AuditArchiveDirectory` | Where archive files are written. Default: the database's file name with `.archive` appended, beside it. |
 | `People` | Which sign-in subjects are the same human (used by `SelfApproval`). Subjects are namespaced: `admin:name` (reviewer token), `key:name` (API key), `jwt:issuer|sub` (JWT), `ai:name` (AI reviewer), `local` (stdio). |
 | `Tools` | Per tool, see below. |
 | `Agents` | Agent profiles: the tools each agent identity may call. See [agent profiles](#agent-profiles). |

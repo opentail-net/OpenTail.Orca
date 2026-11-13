@@ -429,7 +429,7 @@ internal static class AdminPage
           // The AI reviewers panel: each reviewer's record beside its state, and the admin's suspend and clear. Every act needs a reason.
           let aiWindowDays = 7;
           const aiHeads = ['When', 'Tool', 'Action', 'Decided', 'Now', 'Why', 'Checks it named'];
-          const aiWindowLabel = (days) => days === 0 ? 'all time' : days === 1 ? 'the last 24 hours' : 'the last ' + days + ' days';
+          const aiWindowLabel = (days) => days === 0 ? 'the whole live trail' : days === 1 ? 'the last 24 hours' : 'the last ' + days + ' days';
           function aiRow(x) {
             const tr = el('tr');
             for (const v of [new Date(x.at).toLocaleString(), x.tool, x.actionId, x.decision, x.status, x.reason || '', (x.checks || []).join('; ')]) tr.append(el('td', v === null || v === undefined ? '' : String(v)));
@@ -441,7 +441,7 @@ internal static class AdminPage
             b.append(el('h3', 'AI reviewers'));
             b.append(el('p', 'What each AI reviewer has decided, and what came of it. A suspension stops its decisions at once, refusals included. Only an admin can suspend or clear one, and each act records its reason.', 'muted'));
             const pick = el('select'); pick.setAttribute('aria-label', 'Window');
-            for (const [v, label] of [[1, 'Last 24 hours'], [7, 'Last 7 days'], [30, 'Last 30 days'], [0, 'All time']]) {
+            for (const [v, label] of [[1, 'Last 24 hours'], [7, 'Last 7 days'], [30, 'Last 30 days'], [0, 'Whole live trail']]) {
               const opt = el('option', label); opt.value = String(v); if (v === days) opt.selected = true; pick.append(opt);
             }
             pick.addEventListener('change', () => { aiWindowDays = Number(pick.value); showAdmin('aiReviewers'); });
@@ -453,7 +453,7 @@ internal static class AdminPage
               head.append(el('span', r.suspended ? 'suspended' : 'active', r.suspended ? 'tag bad' : 'tag'));
               s.append(head);
               const d = r.decisions;
-              s.append(el('p', 'All time: ' + d.total + ' decisions (' + d.approve + ' approved, ' + d.reject + ' rejected, ' + d.requestChanges + ' asked for changes, ' + d.retry + ' retried), and ' + r.refused + ' refused by the queue (outside its limits, not assigned to it, or suspended).', 'muted'));
+              s.append(el('p', 'Live trail: ' + d.total + ' decisions (' + d.approve + ' approved, ' + d.reject + ' rejected, ' + d.requestChanges + ' asked for changes, ' + d.retry + ' retried), and ' + r.refused + ' refused by the queue (outside its limits, not assigned to it, or suspended).', 'muted'));
               if (r.suspended) s.append(el('p', 'Suspended: ' + r.suspension.note + ' (since ' + new Date(r.suspension.since).toLocaleString() + ').', 'err'));
               const reason = el('input'); reason.placeholder = 'Reason (required)'; reason.style.maxWidth = '360px';
               const go = el('button', r.suspended ? 'Clear suspension' : 'Suspend this reviewer');

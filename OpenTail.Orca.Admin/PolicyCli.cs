@@ -396,10 +396,21 @@ public static class PolicyCli
                 }
                 var checkpoints = args.Select((a, i) => (a, i)).Where(x => x.a == "--checkpoint" && x.i + 1 < args.Length)
                     .Select(x => AuditCheckpoint.Parse(args[x.i + 1])).ToList();
-                var v = AuditChain.Verify(chain, checkpoints);
-                await output.WriteLineAsync($"{v.Entries} audit entries; {v.Unchained} written before the chain existed (not verifiable); newest {(v.Head?.ToString() ?? "none")}.");
+                // The live trail continues from the newest cut (D-41): the entries before it are in the archive, checked file by file below.
+                var archiver = new AuditArchiver(new SqliteActionStore(dbPath));
+                var cuts = archiver.Cuts();
+                var v = AuditChain.Verify(chain, checkpoints, archiver.Latest()?.Anchor);
+                await output.WriteLineAsync($"{v.Entries} audit entries in the live trail; {v.Unchained} written before the chain existed (not verifiable); newest {(v.Head?.ToString() ?? "none")}.");
                 await output.WriteLineAsync(v.FirstBreak is null ? "Chain intact." : "BROKEN: " + v.FirstBreak + ".");
                 foreach (var line in v.Checkpoints) await output.WriteLineAsync(line);
+                var archivesIntact = true;
+                foreach (var cut in cuts)
+                {
+                    if (cut.Removed) { await output.WriteLineAsync($"archive {Path.GetFileName(cut.ArchiveFile)} (entries {cut.FirstSeq} to {cut.LastSeq}): removed by archive retention"); continue; }
+                    var problems = AuditArchive.Verify(cut.ArchiveFile);
+                    archivesIntact &= problems.Count == 0;
+                    await output.WriteLineAsync($"archive {Path.GetFileName(cut.ArchiveFile)} (entries {cut.FirstSeq} to {cut.LastSeq}): {(problems.Count == 0 ? "intact" : "BROKEN: " + string.Join("; ", problems))}.");
+                }
                 if (checkpoints.Count == 0)
                     await output.WriteLineAsync("Removing the newest entries is only caught against a checkpoint kept elsewhere: pass --checkpoint <seq:hash>.");
                 // Decision records kept when actions were purged, against the digests the (chained) trail holds for them.
@@ -407,7 +418,7 @@ public static class PolicyCli
                 await output.WriteLineAsync($"{records.Records} decision record(s) in {records.Batches} purge batch(es): {(records.Intact ? "intact" : "BROKEN")}.");
                 foreach (var p in records.Problems) await output.WriteLineAsync("BROKEN: " + p + ".");
                 foreach (var n in records.Notes) await output.WriteLineAsync(n + ".");
-                return v.Intact && records.Intact ? 0 : 1;
+                return v.Intact && records.Intact && archivesIntact ? 0 : 1;
             }
 
             if (usage)

@@ -265,7 +265,8 @@ public class ResumableTests
     {
         using var db = new TempDb();
         var clock = new ManualClock(DateTimeOffset.UtcNow.AddDays(-100));
-        var host = Hosts.BuildSqlite(new FakeInboxModule(), """{ "RetentionDays": 90, "Tools": { "mail.send": { "Mode": "Queue" } } }""", db.Path, clock);
+        // The trail stays live here: this test is about actions. Archiving the trail has its own tests (AuditArchiveTests).
+        var host = Hosts.BuildSqlite(new FakeInboxModule(), """{ "RetentionDays": 90, "AuditLiveDays": 0, "Tools": { "mail.send": { "Mode": "Queue" } } }""", db.Path, clock);
         var a = await host.Queue.SubmitAsync(new ActionRequest("mail.send", """{"to":"secret-recipient@x.y","body":"b"}""", new ActionRequester(RequesterKind.User, "me"), host.Sessions.Start()));
         await host.Queue.ReviewAsync(a.Id, Decide(ReviewDecision.Reject, "no"));
         clock.Advance(TimeSpan.FromDays(100));

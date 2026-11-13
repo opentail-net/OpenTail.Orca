@@ -491,6 +491,23 @@ public sealed class OpenTailHost
             && records.PurgeDecisionRecordsBefore(now - TimeSpan.FromDays(Policy.Config.AuditRetentionDays)) is var dropped and > 0)
             await Audit.AppendAsync(new AuditEntry(now, "decision_records_purge", null, null, "system",
                 $"{dropped} decision record(s) older than {Policy.Config.AuditRetentionDays} days"), ct);
+
+        // D-41: the old part of the audit trail leaves the live database for the archive, and archives past their time are removed. A failure is
+        // recorded in the trail and changes nothing: the rows that could not be archived stay where they are.
+        if (Store is SqliteActionStore archiveStore && (Policy.Config.AuditLiveDays ?? 28) > 0)
+        {
+            var archiver = new AuditArchiver(archiveStore);
+            var directory = Policy.Config.AuditArchiveDirectory ?? archiveStore.DatabasePath + ".archive";
+            try
+            {
+                archiver.Cut(now, directory, TimeSpan.FromDays(Policy.Config.AuditLiveDays ?? 28));
+                archiver.ExpireArchives(now, TimeSpan.FromDays(Policy.Config.AuditArchiveDays ?? 2555));
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+            {
+                await Audit.AppendAsync(new AuditEntry(now, "audit_archive_failed", null, null, "system", ex.Message), ct);
+            }
+        }
     }
 
     /// <summary>Serve over this process's stdin/stdout, with recovery at startup and a periodic maintenance sweep.</summary>

@@ -83,8 +83,8 @@ internal static class AiReviewerPanel
         });
     }
 
-    /// <summary>The panel's data: every AI reviewer the Host knows of (configured, seen deciding, or suspended). Totals cover all time; the list and
-    /// the window count cover the last <paramref name="days"/> days (0: all time).</summary>
+    /// <summary>The panel's data: every AI reviewer the Host knows of (configured, seen deciding, or suspended). Totals cover the live trail (the archive is
+    /// not read here); the list and the window count cover the last <paramref name="days"/> days (0: the whole live trail).</summary>
     internal static async Task<JsonObject> OverviewAsync(OpenTailHost host, AdminOptions options, int days)
     {
         var query = host.Audit as IAuditQuery;

@@ -14,7 +14,7 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
 {
     /// <summary>Schema 2: requester-scoped idempotency, sessions, subject taint, trust promotions. Schema 3: notices. Schema 4: daily
     /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals. Schema 13: A2A task ids (a2a_tasks; OpenTail.Orca.A2A owns the rows).</summary>
-    private const int SchemaVersion = 14;
+    private const int SchemaVersion = 15;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -360,6 +360,22 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
         {
             // The audit query (an admin's page of one reviewer's decisions, and counts of them) filters by event and actor and pages by seq.
             Exec(c, tx, "CREATE INDEX IF NOT EXISTS ix_audit_event_actor ON audit(event, actor, seq);");
+        }
+
+        if (version < 15)
+        {
+            // The cuts of the audit trail (D-41): each closed piece that left the live database, with the anchor the live trail continues from.
+            Exec(c, tx, """
+                CREATE TABLE IF NOT EXISTS audit_cuts (
+                    last_seq     INTEGER PRIMARY KEY,
+                    first_seq    INTEGER NOT NULL,
+                    last_hash    TEXT NOT NULL,
+                    archive_file TEXT NOT NULL,
+                    digest       TEXT NOT NULL,
+                    archived_at  TEXT NOT NULL,
+                    removed      INTEGER NOT NULL DEFAULT 0
+                );
+                """);
         }
 
         Exec(c, tx, $"PRAGMA user_version={SchemaVersion};");

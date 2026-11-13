@@ -34,8 +34,22 @@ public sealed class PolicyConfig
 
     /// <summary>Decision records (what is kept of a purged action: how it was decided, never its arguments) are deleted after this many
     /// days. Zero keeps them forever (the default). Set it to the customer's obligation: at least six months for high-risk uses under
-    /// the EU AI Act, often years in finance. Audit entries themselves are always kept.</summary>
+    /// the EU AI Act, often years in finance. Audit entries are not deleted by this: they go to the archive after AuditLiveDays (D-41).</summary>
     public int AuditRetentionDays { get; init; }
+
+    /// <summary>How many days the audit trail stays in the live database before its old part is archived (D-41). Unset: 28 (four weeks). 0 never
+    /// archives. Left out of the canonical policy text when unset, so existing policies keep their hash.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? AuditLiveDays { get; init; }
+
+    /// <summary>How many days an archive file is kept, then removed (D-41). Unset: 2555 (seven years). Finance and other obligations may need longer.
+    /// Must be at least <see cref="AuditLiveDays"/>.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? AuditArchiveDays { get; init; }
+
+    /// <summary>Where archive files are written. Unset: the database's path with <c>.archive</c> appended.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AuditArchiveDirectory { get; init; }
 
     /// <summary>Sessions idle for longer than this are deleted.</summary>
     public TimeSpan SessionIdleTtl { get; init; } = DefaultSessionIdleTtl;
@@ -147,6 +161,9 @@ public sealed class PolicyConfig
             SessionIdleTtl = cfg.SessionIdleTtl,
             RetentionDays = cfg.RetentionDays,
             AuditRetentionDays = cfg.AuditRetentionDays,
+            AuditLiveDays = cfg.AuditLiveDays,
+            AuditArchiveDays = cfg.AuditArchiveDays,
+            AuditArchiveDirectory = cfg.AuditArchiveDirectory,
             People = new Dictionary<string, List<string>>(cfg.People, StringComparer.Ordinal),
             Tools = tools,
             Agents = new Dictionary<string, AgentProfile>(cfg.Agents, StringComparer.Ordinal),
@@ -335,6 +352,12 @@ public sealed class PolicyConfig
         if (AuditRetentionDays < 0) errors.Add("AuditRetentionDays cannot be negative.");
         if (AuditRetentionDays > 0 && (RetentionDays == 0 || AuditRetentionDays < RetentionDays))
             errors.Add("AuditRetentionDays must be zero (keep) or at least RetentionDays: the record of a decision never goes before the action it records.");
+        if (AuditLiveDays is < 0) errors.Add("AuditLiveDays cannot be negative (0 never archives the trail).");
+        if (AuditArchiveDays is <= 0) errors.Add("AuditArchiveDays must be positive.");
+        if (AuditLiveDays is > 0 && AuditArchiveDays is { } keep && keep < AuditLiveDays)
+            errors.Add("AuditArchiveDays must be at least AuditLiveDays: an archive is kept at least as long as the live trail it came from.");
+        if (AuditArchiveDirectory is not null && string.IsNullOrWhiteSpace(AuditArchiveDirectory))
+            errors.Add("AuditArchiveDirectory cannot be blank.");
         return errors;
     }
 }

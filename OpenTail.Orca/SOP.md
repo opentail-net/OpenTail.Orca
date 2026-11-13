@@ -426,7 +426,7 @@ instructions.
 
 **Steps:** decide with your data protection officer and compliance: `RetentionDays` for actions (they hold arguments and results,
 which can be personal data), `AuditRetentionDays` for decision records (zero keeps them; at least six months for high-risk AI uses
-under the EU AI Act; often years in finance). `AuditRetentionDays` must be zero or at least `RetentionDays`. Audit entries are always
+under the EU AI Act; often years in finance). `AuditRetentionDays` must be zero or at least `RetentionDays`. Audit entries stay in the live trail for `AuditLiveDays` (four weeks by default), then go to archive files kept for `AuditArchiveDays` (seven years by default; set it to the customer's obligation). No audit entry is deleted outright: it is archived first, and an archive is removed only after `AuditArchiveDays`. Entries are
 kept. Change them through [C1](#c1-changing-the-policy).
 
 ### A2. Answering an auditor

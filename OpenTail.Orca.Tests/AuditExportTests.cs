@@ -26,6 +26,36 @@ public class AuditExportTests
         return output.ToString();
     }
 
+    [Fact]
+    public async Task An_export_after_a_cut_verifies_from_the_cut()
+    {
+        if (Python() is not { } python) return;   // no Python on this machine
+        using var db = new TempDb();
+        var store = new SqliteActionStore(db.Path);
+        var sink = new SqliteAuditSink(store);
+        for (var i = 0; i < 20; i++)
+            await sink.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow.AddDays(-60).AddMinutes(i), "ai_review", "act_" + i, "mail.send", "ai:bot",
+                "Approve; model m; prompt p; 0 check(s) reported"));
+        for (var i = 0; i < 5; i++)
+            await sink.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow.AddMinutes(-i), "approval_allowed", "act_r" + i, "mail.send", "key:alice", "x"));
+        var archive = Path.Combine(Path.GetTempPath(), "otail-cut-" + Guid.NewGuid().ToString("N"));
+        var folder = Path.Combine(Path.GetTempPath(), "otail-export-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Assert.NotNull(new AuditArchiver(store).Cut(DateTimeOffset.UtcNow, archive, TimeSpan.FromDays(28)));
+            AuditExport.Write(folder, store, DateTimeOffset.UtcNow.AddYears(-1), DateTimeOffset.UtcNow.AddDays(1));
+
+            var (exit, text) = Verify(python, folder);
+            Assert.True(exit == 0, text);
+            Assert.Contains("Intact.", text);
+        }
+        finally
+        {
+            if (Directory.Exists(archive)) Directory.Delete(archive, recursive: true);
+            if (Directory.Exists(folder)) Directory.Delete(folder, recursive: true);
+        }
+    }
+
     private static string? Python()
     {
         foreach (var name in new[] { "python3", "python" })
