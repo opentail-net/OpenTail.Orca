@@ -1,6 +1,6 @@
 # OpenTail Host: status by version
 
-As of 2026-11-12. This is the one place to see what the Host has built, from which plan, and what is still open. The plans are the
+As of 2026-11-13. This is the one place to see what the Host has built, from which plan, and what is still open. The plans are the
 design record; each plan's implementation log is the detailed record, and where a plan's status line disagrees with its log, the log
 wins. What is listed as built comes from those logs. The test counts in them are snapshots and were not re-run for this document.
 
@@ -144,6 +144,12 @@ Built (its implementation log):
 - Teams, tier 2: the bot without the Bot Framework SDK, with token validation, conversation references, cards that update in place, and
   digests. Tested against a fake connector.
 - `scripts/make-teams-app.ps1` builds the Teams app package. The IT guide is `OpenTail.Host/TEAMS-SETUP.md`.
+- Teams, batch 02 (`fef5b4f`): the chat risk order is fixed (Read, Write, ExternalEffect, Destructive); Request changes is on the
+  card; typed `waiting` and `help` for listed reviewers.
+- Teams, batch 04 (`c159639`): a card shows a preview of up to 400 characters. A longer one is cut and says so, and it offers no
+  approve, run now or change, on the card or on the click. The digest and the Teams notification card mark a cut line.
+- Teams, batch 05 (`7b6003c`): typed `work` (work-item counts, and the ten oldest open or dead items, with no text) and `tasks` (the
+  A2A tasks in flight, when A2A is on), read-only, for listed reviewers.
 - `OpenTail.Host.Server` compiles in every module and profile and is enabled by `modules.json`. There is a container image, a Compose file
   with Caddy, and `OpenTail.Host/DEPLOY.md`. CI builds and smoke-tests the image; the log notes that Docker is not on the development
   machine, so CI is the first real run.
@@ -203,11 +209,35 @@ Not done:
 - The recorder is not a metrics backend. Use OpenTelemetry export for history.
 - Later items: a Teams tab with frame-ancestors and SSO for the page, and proposals for module configuration and notification routes.
 
+## A2A: the agent-to-agent front door (design: `docs/design/a2a.md`)
+
+Plan and design: [`docs/design/a2a.md`](../docs/design/a2a.md). The checklist of what is done is [`docs/design/governance-checklist.md`](../docs/design/governance-checklist.md). A2A is off unless `A2A.Enabled` is true.
+
+Built (its commits are in the checklist's batch record):
+
+- Phase 0 (`f24f8c5`): the `a2a:call` role and scope, the startup checks, the partner ids, and a conditional rule on `partner`, each tested.
+- The thin slice (`fae2725` to `7b6003c`): JSON-RPC `SendMessage` (with a bounded blocking wait and a per-partner cap), `GetTask`,
+  `CancelTask` and `ListTasks`; `a2a.submit` (queued, and an approved request becomes a work item for an inbox profile); `a2a.reply`
+  (queued and reviewed, an exit, no edits); the authenticated agent card; the task id table; the rules for partner text on the review
+  page and in Teams; and the kit (`docs/guides/a2a-sample/`, `scripts/a2a-smoke.ps1`, `docs/guides/a2a.md`).
+- Tests: `A2aSliceTests`, `A2aPhase0Tests`, `A2aKitTests` and `ReviewViewTests`, and the Teams tests in `TeamsBotTests`.
+
+Not built: the skill-selection extension; more than one skill per Host; contexts and multi-turn; tool skills; the extended card; card
+signing; HTTP+JSON; push and `INPUT_REQUIRED`; outbound calls; partners authenticated by JWT; streaming and resubscribe; file parts.
+
+Waiting for the owner (the decisions the planner made, and where each is recorded, are in [`docs/briefs/README.md`](../docs/briefs/README.md)):
+
+- Whether `OpenTail.Host.A2A` ships as a package.
+- Whether Teams may approve an `a2a.reply` by default (`ChatMaxRisk` is `ExternalEffect` today).
+- Whether 400 characters is the right limit for a card preview.
+- A live check in a real Teams tenant, including whether a bare `@name` in a card becomes a mention.
+- The missing-header rule of `A2A-Version`, and which profiles may use an inbox skill.
+
 ## Built after these plans
 
 Work after the plans is not recorded here. See [`docs/design/README.md`](../docs/design/README.md) for designs and their state. That
 index covers the governance naming and re-check at claim (on `main` as `d6b10f3` and `92c0048`), the Snowflake read-only Sql target
-([done: S1 and S2](../docs/done/snowflake-s1-s2.md)), the skills plan, and the A2A design, which is proposed and not built.
+([done: S1 and S2](../docs/done/snowflake-s1-s2.md)), the skills plan, and the A2A design, which is partly built (see the A2A section below).
 
 The solution also contains `OpenTail.Profiles.Jira` and `OpenTail.Profiles.Confluence`. No plan log covers them.
 
@@ -255,3 +285,4 @@ threat model and what it does not cover.
 - Plans, archived and active: [`docs/done/README.md`](../docs/done/README.md) lists the archived ones, with a note on the commit hashes in
   their logs.
 - Designs: [`docs/design/README.md`](../docs/design/README.md).
+- Briefs, reports and the planner's decisions: [`docs/briefs/README.md`](../docs/briefs/README.md).

@@ -1425,6 +1425,48 @@ public class A2aSliceTests
         Assert.Empty(new A2AFrontDoor().ChatCommands(host, new HostHttpOptions { A2A = new A2aOptions { Enabled = false } }));
     }
 
+    /// <summary>Batch 06, R5. A task whose submit session has expired (the registry's own purge) before its item completes: the reply is still
+    /// queued, on a new session that holds the item's labels, and a labelled reply to a partner with no allowed destination is still refused.</summary>
+    [Fact]
+    public async Task A_submit_session_that_expires_before_the_item_completes_still_gets_its_reply_on_a_new_session_with_the_labels_and_a_refused_partner_stays_refused()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, policy: PolicyWithFlow);
+        using var a = rig.Client(TokenA);
+        using var b = rig.Client(TokenB);
+        var finance = new CarriedLabel("finance", "erp:ledger");
+
+        var (taskA, _) = await ApprovedTaskAsync(rig, a, PartnerA, "m-r5-a", "Invoice for A.");
+        var (taskB, _) = await ApprovedTaskAsync(rig, b, PartnerB, "m-r5-b", "Invoice for B.");
+        var submitSessionA = (await SubmitOfAsync(rig, PartnerA, taskA)).SessionId!;
+        var submitSessionB = (await SubmitOfAsync(rig, PartnerB, taskB)).SessionId!;
+
+        // The submit sessions expire. The row is removed directly, the state the registry's purge leaves: a purge with a short idle time
+        // would also end the labels, which last as long as the session's idle time, so this keeps the policy's own lifetimes.
+        Exec(rig, "DELETE FROM sessions WHERE id IN ('" + submitSessionA + "', '" + submitSessionB + "')");
+        Assert.False(rig.Host.Sessions.Exists(submitSessionA));
+        Assert.False(rig.Host.Sessions.Exists(submitSessionB));
+
+        await CompleteAsInboxAsync(rig, "Finance summary for A.", finance);
+        await CompleteAsInboxAsync(rig, "Finance summary for B.", finance);
+
+        // A: the partner's read queues the reply, on a new session, with the item's label on it. The rule allows A.
+        Assert.Equal(TaskState.Working, (await a.GetTaskAsync(new GetTaskRequest { Id = taskA })).Status.State);
+        var replyA = await ReplyOfAsync(rig, PartnerA, taskA);
+        Assert.Equal(ActionStatus.Pending, replyA.Status);
+        Assert.NotEqual(submitSessionA, replyA.SessionId);
+        Assert.True(rig.Host.Sessions.Exists(replyA.SessionId!, "partner:" + PartnerA));
+        Assert.Contains(rig.Host.Labels.Held(replyA.SessionId, "partner:" + PartnerA), h => h.Label == "finance");
+
+        // B: the same, but the rule names only A, so the exit check refuses B's reply. The task is FAILED and B's text is not in the answer.
+        var failedB = await b.GetTaskAsync(new GetTaskRequest { Id = taskB });
+        Assert.Equal(TaskState.Failed, failedB.Status.State);
+        var replyB = await ReplyOfAsync(rig, PartnerB, taskB);
+        Assert.Equal(ActionStatus.Denied, replyB.Status);
+        Assert.Contains(rig.Host.Labels.Held(replyB.SessionId, "partner:" + PartnerB), h => h.Label == "finance");
+        Assert.DoesNotContain("Finance summary for B.", JsonSerializer.Serialize(failedB, A2AJsonUtilities.DefaultOptions), StringComparison.Ordinal);
+    }
+
     /// <summary>Builds the options and the Host, and starts the extension's startup checks; it must throw.</summary>
     private static void StartIsRefusedWith(TempDb db, string? policy = null, A2aOptions? a2a = null, ApiKeyEntry[]? keys = null)
     {
