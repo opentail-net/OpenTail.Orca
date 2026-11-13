@@ -28,7 +28,7 @@ runner add no rules of their own.
 
 ## 1a. The rule for settings
 
-The owner's direction (2026-11-13): we do not know how someone else will want to run the system, so a rule that is a judgement
+**Accepted by the owner for now (2026-11-13), without a detailed review; it may be revisited.** The owner's direction: we do not know how someone else will want to run the system, so a rule that is a judgement
 call should be a setting, not a constant. To keep that from weakening the gate:
 
 - **The default is the strict value.** A new deployment is safe without reading anything.
@@ -196,7 +196,7 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 ### Open: needs a decision first (section 4)
 
 - [ ] **G2.** AI refusals on `Ai` and `Either` tools: keep the one switch, or allow them without it.
-- [ ] **D-36. A default reviewer list** (owner's direction, 2026-11-13; the details below wait for a yes).
+- [ ] **D-36. A default reviewer list** (accepted by the owner for now, 2026-11-13). Ready to build.
   - [ ] `DefaultAiReviewers` at the top of the policy: the reviewers for every AI-decidable tool that has no `AiReviewers` of its own. Part of the policy hash.
   - [ ] A tool's own list replaces the default; it does not add to it.
   - [ ] With no default and no list: nobody, and startup refuses the policy when two or more AI reviewers are configured. With exactly one configured reviewer, it is the default (so today's single-reviewer policies keep working).
@@ -210,7 +210,7 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
   - [ ] It applies to people. An AI still retries only a tool that is idempotent by key, and a tool that is idempotent by key is not limited by the setting.
   - [ ] `failures-and-inspection.md` and `POLICY.md` say the same thing as the code.
   - [ ] Tests: each value, by a person, by an AI and through HTTP.
-- [ ] **D-37. An AI deciding its own person's request becomes a setting** (owner's direction, 2026-11-13; details wait for a yes).
+- [ ] **D-37. An AI deciding its own person's request becomes a setting** (accepted by the owner for now, 2026-11-13). Ready to build.
   - [ ] `AiOwnRequest` per tool, with a policy-wide default: `ForbidApproval` (as built, the default), `ForbidAll` (it may not refuse either), `Allow`.
   - [ ] `Allow` follows the loosening rule in section 1a (in the policy hash, a startup warning, shown by `--explain`).
   - [ ] Tests: each value, for the same identity and for the same person in `People`.
@@ -248,9 +248,6 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 
 - [ ] **G2.** Before P2 an AI could reject what it could approve. Now it needs `AiMayRefuse`. Keep, or change?
 - [ ] **D-28.** What `Ai` and `Either` should mean, now that a person may decide both.
-- [ ] **D-36.** The owner's direction (2026-11-13): a default reviewer is specified, so a tool with no list is not open to every reviewer. To confirm: the shape in section 3 (`DefaultAiReviewers`; a tool's list replaces it; a single configured reviewer is the default; otherwise a missing default is a startup error).
-- [ ] **D-37.** The owner's direction (2026-11-13): a setting. To confirm: the three values in section 3, with today's rule as the default. It still does not catch one model behind two identities: Orca does not know which model a requester runs on, so D-17 can only compare what each side declares.
-- [ ] **Section 1a.** Confirm the rule for settings, and the list of rules that are not settings.
 - [ ] **D-39.** Which AI approvals need a person, and when. Must be written down before any live use.
 - [ ] **D-12.** "Yes, with undo" on irreversible actions. Recommended: reversible only.
 - [ ] **D-9.** Measurement before authority. Recommended: decide directly for named low-risk tools, with sampling and demotion
@@ -270,7 +267,8 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 | By | Decisions |
 |---|---|
 | The owner | D-32 retry of an unknown outcome is a setting, `UnknownOutcomeRetry`: default `Once`, `Never` for Destructive tools (2026-11-13; replaces the implementer's rule; not built yet); D-1 one authority model (agreed in principle); D-5 undo window 10 minutes, stop by the reviewer group; D-38 people keep their authority over every policy; D-39 an AI approval may run with no person, for experimentation; D-41 audit retention |
-| The implementer, while the owner was away; checked in the history file, 14.1 | D-33 the recheck stays before the claim; D-34 no AI decision without a snapshot; D-35 message wording; D-36 no list means any AI reviewer; D-37 no approval of its own request |
+| The owner, provisionally (2026-11-13: "go with what you have for now"; not reviewed in detail, not built yet) | The rule for settings and its list of rules that are not settings (section 1a); D-36 as `DefaultAiReviewers`; D-37 as `AiOwnRequest`, default `ForbidApproval` |
+| The implementer, while the owner was away; checked in the history file, 14.1 | D-33 the recheck stays before the claim; D-34 no AI decision without a snapshot; D-35 message wording. (D-32, D-36 and D-37 were the implementer's too; the owner has since replaced them, rows above) |
 | Built on the recommended default, not confirmed by the owner | D-2 and D-3 (refusals ignore taint and the ceiling); D-20 several named reviewers; D-21 and D-31 refusals per tool with a budget per requester and tool; D-23 `ApproveDelay`, default off; D-25 one authority model, two hosts; D-26 refusals cross the Human-only and group lines; D-27 no penalty from an AI refusal; D-29 AI decisions labelled as AI; D-30 the credential; D-40 the panel |
 | Unchanged from the code as found | D-8 a retry counts as an AI approval; D-14 the default ceiling is Write |
 | Dropped or reverted | D-19 (reverted by D-38); D-24 (delayed rejection dropped) |
