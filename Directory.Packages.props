@@ -7,7 +7,7 @@
   <ItemGroup>
     <!-- 1.6.30 fixes GHSA-7pxr-59rr-hqj2 (YAML alias expansion). -->
     <PackageVersion Include="Microsoft.OpenApi.Readers" Version="1.6.31" />
-    <PackageVersion Include="MinVer" Version="7.0.0" />
+    <PackageVersion Include="MinVer" Version="8.0.0" />
     <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
     <PackageVersion Include="ModelContextProtocol.Extensions.Tasks" Version="2.2.0" />
