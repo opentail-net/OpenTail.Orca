@@ -70,7 +70,7 @@ anything; all accept `--modules modules.json`.
 | `AiMaxRejections` | After this many AI rejections or change requests along one resubmission chain, the AI may not decide it again (default 2; 0 turns it off). See *AI reviewers* for who may decide then. |
 | `AiBudget` | `{ "Per": "01:00:00", "MaxCount": n, "Scope": "Requester" }`: at most n AI approvals of this tool per requester (or `Global`) in the window; past it, the AI may not approve more in that window. |
 | `AiReviewers` | `["bot", "second"]`: the AI reviewers, by name (the part after `ai:`), that may decide this tool. A reviewer not named may not decide it, and is never shown it. Left out, with no `DefaultAiReviewers`: no AI reviewer may decide it. Accepted on a tool with Mode `Queue` and Reviewer `Ai` or `Either`, or with `AiMayRefuse: true` (a Human-only tool whose named AI reviewers may refuse it, never approve it). Refused otherwise, at startup. |
-| `UnknownOutcomeRetry` | `"Never"`, `"Once"` or `"WithReason"`: whether a person may retry an action whose outcome is unknown (its run stopped, or the tool reported it). `Once` (the default) allows one retry, with a reason; a second unknown outcome on the same action is final. `WithReason` allows any number of retries, each with a reason (what the Host did before this setting; a loosening). `Never` allows none. Set per tool, or policy-wide at the top. A Destructive tool defaults to `Never`, unless the tool sets its own value. An AI reviewer retries an unknown outcome only on a tool that is idempotent by key, whatever this says; a tool idempotent by key is not limited by it. |
+| `UnknownOutcomeRetry` | `"Never"`, `"Once"` or `"WithReason"`: whether a person may retry an action whose outcome is unknown (its run stopped, or the tool reported it). `Once` (the default) allows one retry, with a reason; a second unknown outcome on the same action is final. `WithReason` allows any number of retries, each with a reason (what the Host did before this setting; a loosening). `Never` allows none. Set per tool, or policy-wide at the top. A Destructive tool stays `Never` under a policy-wide value; only the tool's own setting overrides that. Under `Once`, any earlier retry decision on the action counts as the first retry, so the next unknown outcome is final. An AI reviewer retries an unknown outcome only on a tool that is idempotent by key, whatever this says; a tool idempotent by key is not limited by it. |
 | `AiOwnRequest` | `"ForbidApproval"` (the default), `"ForbidAll"` or `"Allow"`: what an AI reviewer may do on a request from its own identity, or from its own person in `People`. `ForbidApproval`: it may refuse, not approve. `ForbidAll`: it may decide neither. `Allow`: it may approve too (a loosening; startup prints a warning). Set per tool, or policy-wide at the top. |
 | `DefaultAiReviewers` (policy-wide) | `["bot"]`: the AI reviewers that decide every tool which has an AI decision and names no `AiReviewers` of its own. Unset, no AI reviewer decides such a tool. Setting it is a loosening: startup prints a warning. With two or more AI reviewers configured in the HTTP config, a tool that an AI may decide and that names no reviewers is refused at startup unless this is set. A tool's own list replaces it. |
 | `ExpireAfter` | A pending action that nobody decides in this time expires. It can no longer be approved, even before the sweep notices. |
@@ -417,11 +417,16 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 * decide a tool it is not named for in `AiReviewers`, when the tool has that list. Such an action is never shown to that reviewer. With no list and no `DefaultAiReviewers`, no AI reviewer decides the tool at all.
 * approve a request from its own identity, or from its own person in `People`: four eyes apply to an AI as well (a refusal is not restricted). `AiOwnRequest` can tighten that to refusals too (`ForbidAll`), or loosen it to approvals (`Allow`, a warning at startup).
 
-**Existing policies, after batch 08 (2026-11-14).** A policy that sets none of the three settings above keeps its canonical text and its
-hash, and three behaviours change:
+**Upgrade note: existing policies, after batch 08 (2026-11-14).** A policy that sets none of the three settings above keeps its canonical
+text and its hash, and these behaviours change:
 
 * A queued tool with no `AiReviewers`, in a policy with no `DefaultAiReviewers`, is no longer decided by any AI reviewer. Its actions
-  wait for a person. Name the reviewers to keep AI decisions.
+  wait for a person. A policy that relied on "no list means any reviewer" must now name its reviewers (`AiReviewers` on the tool, or
+  `DefaultAiReviewers` for the policy). Until it does, startup prints a notice for each such tool, on both runners, and `--explain`
+  says so.
+* With two or more AI reviewers configured (in the HTTP config, or `AdminOptions.AiReviewers` in code), startup refuses such a tool
+  outright. The standalone command-line runner gives no AI reviewers, so this refusal does not arise there.
+* A Destructive tool that sets `UnknownOutcomeRetry` to `Once` or `WithReason` is announced at startup: its strict value is `Never`.
 * An unknown outcome is retried by a person at most once, with a reason (`Once`). Before, a person could retry it any number of
   times, with a reason. A tool's own report of an unknown outcome is treated the same way.
 * A Destructive tool's unknown outcome is never retried (`Never`). Before, a person could retry it with a reason.

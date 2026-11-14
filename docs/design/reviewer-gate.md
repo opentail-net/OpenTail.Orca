@@ -111,7 +111,7 @@ under a gate per requester and tool, inside one process. Across processes they c
 | Approve, enough approvals, no `ApproveDelay` | Approved and run at once |
 | Approve, enough approvals, `ApproveDelay` set | Stays pending with a run time (`approval_scheduled`); the sweep runs it |
 | Approve of a run already scheduled by an approval | Refused. Stop it to cancel the run. |
-| Retry | Runs again only if `RetryRules` allows: the failure is retryable; an AI only on a tool idempotent by key; an unknown outcome (`interrupted`, or a tool's own `unknown_outcome`) on a tool not idempotent by key only by a person, under `UnknownOutcomeRetry` (default `Once`: one retry with a reason, and a second unknown outcome is final; `Never`; `WithReason`). Nothing else limits how many times. (D-32) |
+| Retry | Runs again only if `RetryRules` allows: the failure is retryable; an AI only on a tool idempotent by key; an unknown outcome (`interrupted`, or a tool's own `unknown_outcome`) on a tool not idempotent by key only by a person, under `UnknownOutcomeRetry` (default `Once`: one retry with a reason, and a second unknown outcome is final; `Never`; `WithReason`). Under `Once`, any earlier Retry decision on the action counts as the first retry. A Destructive tool stays `Never` under a policy-wide value; only its own setting overrides that. Nothing else limits how many times. (D-32) |
 | Reject, Request changes | Rejected or sent back. A person's rejection can demote trust and raise the requester's level. An AI's does neither (D-27). |
 
 Every AI decision is audited as `ai_review` under its `ai:` subject, whichever channel brought it.
@@ -141,8 +141,9 @@ transaction, which is safe while policy cannot change in a running process (D-33
   the runner (no action is shown to a reviewer it is not offered to). With no list and no `DefaultAiReviewers`, no AI reviewer is
   assigned (D-36).
 - An AI reviewer cannot change policy, budgets, credentials, suspensions or levels.
-- The runner exists (`ReviewerRunner`, `IReviewer`). The only implementation is `DelegateReviewer`. **No model-backed reviewer
-  exists**, and no deployment runs the runner.
+- The runner exists (`ReviewerRunner`, `IReviewer`). The implementations are `DelegateReviewer` and, since batch 09, `ModelReviewer`
+  (tested against a fake chat client only). No model is called in a deployment: no provider is built in, and no deployment runs the
+  runner.
 
 ### 2.7 The overseer
 
@@ -211,10 +212,11 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 ### Open: needs a decision first (section 4)
 
 - [ ] **G2.** AI refusals on `Ai` and `Either` tools: keep the one switch, or allow them without it.
+- [ ] **D-36, single-reviewer default (confirm, batch 08).** Not built. With one AI reviewer configured and no `AiReviewers` or `DefaultAiReviewers` on a tool, that tool is decided by no AI reviewer. Confirm that, or ask for a default the policy file must name. Startup gives a notice for each such tool.
 - [ ] **D-36. A default reviewer list** (accepted by the owner for now, 2026-11-13). Built in batch 08, except the single-reviewer default below.
   - [x] `DefaultAiReviewers` at the top of the policy: the reviewers for every AI-decidable tool that has no `AiReviewers` of its own. Part of the policy hash.
   - [x] A tool's own list replaces the default; it does not add to it.
-  - [ ] With no default and no list: nobody (built), and startup refuses the policy when two or more AI reviewers are configured (built in `HttpDeploymentRunner`; the check is a function tested directly). **Not built:** "with exactly one configured reviewer, it is the default". A default taken from the HTTP config, not from the policy file, would be a loosening outside the policy (section 1a), so the owner decides it. Until then a single-reviewer policy must name its reviewer.
+  - [ ] With no default and no list: nobody (built), and startup refuses the policy when two or more AI reviewers are configured (built in `HttpDeploymentRunner` and in `AdminServer.StartAsync`; the check is a function tested directly). **Not built, by the planner's decision (2026-11-14):** "with exactly one configured reviewer, it is the default". A tool with no list and no `DefaultAiReviewers` is decided by no AI reviewer, however many are configured. A default taken from the HTTP config would be a grant outside the policy file (section 1a). Waiting for the owner, section 4.
   - [x] The no-list warning goes away; `--explain` shows which list applied.
   - [x] Tests: default applies; tool list overrides; two reviewers and no default is refused at startup (`Batch08SettingsTests`; the HTTP wiring is not run end to end).
 - [ ] **D-32. Retry of an unknown outcome becomes a setting** (decided by the owner, 2026-11-13: default `Once`, and `Never` for Destructive tools). Built in batch 08 (2026-11-14); open only for the HTTP test below.
@@ -236,16 +238,21 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 
 ### Open: larger
 
-- [ ] **R2. A model-backed reviewer** (needs D-13 for the real-model run only; the rest can start now).
-  - [ ] `ModelReviewer : IReviewer` over `IChatClient` (`Microsoft.Extensions.AI.Abstractions` is already referenced).
-  - [ ] The packet, built by Orca (section 5.1).
-  - [ ] The pre-scan for reviewer-directed text.
-  - [ ] Strict output; anything else is an abstention.
-  - [ ] The `AiReviewer` section in `http.json` (provider, endpoint, model, the name of the key's environment variable, poll
-    interval, timeout).
-  - [ ] Tests with a fake client: approve, reject, escalate, malformed output, timeout, injection hit.
+- [ ] **R2. A model-backed reviewer** (needs D-13 for the real-model run only). Built in batch 09 (2026-11-14), except the items below.
+  - [x] `ModelReviewer : IReviewer` over `IChatClient` (`Review/ModelReviewer.cs`; no provider package added).
+  - [x] The packet, built by Orca from the stored action, the store's history of the tool and the requester (`Review/ReviewPacket.cs`).
+  - [x] The pre-scan for reviewer-directed text: five kinds, each with its own test; every string in the packet is scanned; a hit
+    escalates whatever the model answers (`Review/InjectionScan.cs`).
+  - [x] Strict output; anything else is an abstention; a decision with no checks is an escalation (`ModelVerdict.Parse`).
+  - [x] The `AiReviewer` section in `http.json` (name, provider, endpoint, model, `KeyVariable`, poll interval, timeout). The key is
+    read from the environment, never from the file (`OpenTail.Orca.Http/ModelReviewerConfig.cs`). **Not started:** no provider is built
+    in (D-13), so a configured reviewer gets a startup notice, and the runner that would offer it actions is not run by any deployment.
+  - [x] Tests with a fake client: approve, reject, escalate, malformed output, timeout, injection hit in each field, and the red-team
+    corpus run through `ModelReviewer` with a model that always approves (`ModelReviewerTests`).
   - [ ] One run against a real model.
-  - [ ] Optional dual review.
+  - [ ] Optional dual review (not in batch 09).
+  - Found and recorded in batch 09: the system prompt is an embedded resource whose version line must equal `ModelReviewer.PromptVersion`;
+    `AiPromptVersion` reports that version.
 - [ ] **P6. Shared budgets across processes.** One conditional counter in the store, incremented in the decision's transaction
   (D-11). Test: two processes, one remaining unit, exactly one succeeds.
 - [ ] **R3, R4. Measurement** (shadow mode; sampling, demotion, drift), as D-9 decides. Uses "Watching the reviewers" in
@@ -354,6 +361,8 @@ agent identity, or both), and the block expires unless a person renews it.
   before the fix.
 - No real external session has used an AI reviewer credential.
 - The review page's AI label and the panel were not checked in a browser.
+- R2 (batch 09): the model reviewer has not been run against any real model, and its prompt has not been judged on real content.
+  The `AiReviewer` section is checked at startup but starts nothing; the HTTP startup path is not run end to end in a test.
 - A restart during a scheduled window: tested in batch 08 on SQLite with a clock (`Batch08SettingsTests`), not against a separate
   process that is killed and started again.
 - This file's section 2 was written from the code read on 2026-11-13: `ReviewAuthority.cs`, `AiReviewRules.cs`,

@@ -104,6 +104,9 @@ public static class AdminServer
         var tokenHashes = options.Tokens.ToDictionary(t => SHA256.HashData(Encoding.UTF8.GetBytes(t.Key)), t => t.Value, new BytesComparer());
         if (options.AiReviewers.Any(a => !AiReviewRules.IsValidReviewerName(a.Key) || !System.Text.RegularExpressions.Regex.IsMatch(a.Value, "^sha256:[0-9a-fA-F]{64}$")))
             throw new ArgumentException("Each AI reviewer needs a valid name and a hash of the form sha256: and 64 hex digits (never the secret itself).");
+        // D-36 (08b-3): the same refusal as the HTTP runner, for the AI reviewers this server is given in code.
+        if (PolicySettings.Refusals(host.Policy.Config, options.AiReviewers.Count) is { Count: > 0 } reviewerRefusals)
+            throw new ArgumentException(string.Join(" ", reviewerRefusals));
         var aiHashes = options.AiReviewers.ToDictionary(a => Convert.FromHexString(a.Value["sha256:".Length..]), a => a.Key, new BytesComparer());
         var rolesByHash = (options.TokenRoles ?? new Dictionary<string, IReadOnlySet<string>>())
             .ToDictionary(t => SHA256.HashData(Encoding.UTF8.GetBytes(t.Key)), t => t.Value, new BytesComparer());

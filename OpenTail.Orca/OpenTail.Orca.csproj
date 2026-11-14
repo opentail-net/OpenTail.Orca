@@ -5,6 +5,8 @@
     <Description>OpenTail MCP Host: loads modules, applies per-tool policy (execute, queue for approval, deny), keeps a durable action queue and audit trail, and serves the result over MCP.</Description>
   </PropertyGroup>
   <ItemGroup>
+    <!-- The model reviewer's system prompt (section 5.1): versioned, shipped in the package, never exposed through a tool. -->
+    <EmbeddedResource Include="Review\Prompts\model-reviewer.v1.txt" LogicalName="OpenTail.Orca.Review.Prompts.model-reviewer.v1.txt" />
     <PackageReference Include="ModelContextProtocol" />
     <PackageReference Include="ModelContextProtocol.Extensions.Tasks" />
     <PackageReference Include="Microsoft.Data.Sqlite" />

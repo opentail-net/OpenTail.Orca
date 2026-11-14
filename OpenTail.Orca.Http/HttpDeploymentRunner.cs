@@ -55,10 +55,12 @@ public static class HttpDeploymentRunner
 
         OpenTailHost host;
         HostHttpOptions options;
+        HttpDeploymentConfig? httpConfig = null;
         Notifier? notifier = null;
         try
         {
-            options = HttpDeploymentConfig.Load(configPath).ToOptions(Environment.GetEnvironmentVariable(DeploymentRunner.TokensVariable), extensions);
+            httpConfig = HttpDeploymentConfig.Load(configPath);
+            options = httpConfig.ToOptions(Environment.GetEnvironmentVariable(DeploymentRunner.TokensVariable), extensions);
             if (options.Teams is { } teams)
             {
                 options.TeamsBot = new Teams.TeamsBot(teams, dbPath, options.PublicBaseUrl);
@@ -87,7 +89,18 @@ public static class HttpDeploymentRunner
             // D-36: with two or more AI reviewers configured, an AI-decidable tool must name its reviewers, or DefaultAiReviewers must.
             if (PolicySettings.Refusals(host.Policy.Config, options.AiReviewers.Count) is { Count: > 0 } reviewerRefusals)
                 throw new ArgumentException(string.Join(" ", reviewerRefusals));
+            // R2: a configured model reviewer is checked here, and its key must be in the environment (never in the file).
+            if (httpConfig?.AiReviewer is { } modelReviewer)
+            {
+                var problems = modelReviewer.Validate().ToList();
+                if (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(modelReviewer.KeyVariable)))
+                    problems.Add($"AiReviewer: the environment variable {modelReviewer.KeyVariable} is not set; the key is read from it, never from the file.");
+                if (problems.Count > 0) throw new ArgumentException(string.Join(" ", problems));
+            }
             foreach (var w in host.StartupWarnings.Concat(options.CheckProfiles(host.Policy.Config).Warnings)
+                         .Concat(httpConfig?.AiReviewer is { } configured
+                             ? new[] { $"AI reviewer '{configured.Name}' is configured but not started: this build has no model provider (D-13)." }
+                             : Array.Empty<string>())
                          .Concat(extensions.SelectMany(extension => extension.Warnings(host, options))))
                 await Console.Error.WriteLineAsync("warning: " + w);
             notifier?.Attach(host.Store, t => host.Catalog.TryGet(t, out var reg) ? reg.Descriptor.Risk : null, host.Audit);
@@ -240,6 +253,10 @@ public sealed class HttpDeploymentConfig
 
     /// <summary>The A2A section (phase 0: partners and startup checks; no endpoint is served yet). Disabled by default.</summary>
     public A2aOptions? A2A { get; init; }
+
+    /// <summary>A model-backed AI reviewer (R2). Off unless this section is present. The key is in the environment, named by
+    /// <see cref="ModelReviewerConfig.KeyVariable"/>, never in this file.</summary>
+    public ModelReviewerConfig? AiReviewer { get; init; }
 
     public static HttpDeploymentConfig Load(string path) =>
         JsonSerializer.Deserialize<HttpDeploymentConfig>(File.ReadAllText(path), JsonOptions)

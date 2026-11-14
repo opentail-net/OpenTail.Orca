@@ -43,7 +43,7 @@ public class RedTeamCorpusTests
         from text in Injections
         select new object[] { scenario, text };
 
-    private static (string Policy, bool Tainted, string? Edits, string Tool, string Args) Scenario(string scenario) => scenario switch
+    internal static (string Policy, bool Tainted, string? Edits, string Tool, string Args) Scenario(string scenario) => scenario switch
     {
         "destructive" => ("""{ "Tools": { "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] } } }""", false, null, "files.delete", """{"path":"x"}"""),
         "over-ceiling" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] } } }""", false, null, "mail.send", Mail),

@@ -192,8 +192,7 @@ Built earlier (R1):
 
 Open:
 
-- **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). It can be built against a fake model first. The plan has Orca
-  build the packet, and detect and escalate reviewer-directed text in the content.
+- **R2, a model-backed reviewer** (`ModelReviewer` over `IChatClient`). Built against a fake client on 2026-11-14 (batch 09): Orca builds the packet, the pre-scan escalates reviewer-directed text, and the output is strict. No deployment starts it: no provider is built in (D-13), and a configured `AiReviewer` only gets a startup notice. Not run against a real model.
 - **R3 and R4** start only after the v5 pilot produces human decisions to compare against.
 - **Not built from the gate plan:** the shared budget counter across processes (P6), an AI block proposal (P5), relaxing the human-only A2A pins (P7). Delayed rejection (P4) is dropped. The gaps G1 to G8 in the plan's section 3: G1, G3, G5 and G6 are closed (batch 07 at `48abef9`, G5 in batch 08). The settings D-32, D-36 and D-37 are built in batch 08 (2026-11-14, not yet committed); the single-reviewer default of D-36 is not. G8 is partly built, as the plan records.
 - **Owner decisions.** Settled by the owner on 2026-11-13: people keep their authority over every policy (D-38), an AI approval may run with no person involved, for experimentation only (D-39), and audit retention (D-41). Still recommendations, not logged decisions: the first provider (OpenAI-compatible first), the

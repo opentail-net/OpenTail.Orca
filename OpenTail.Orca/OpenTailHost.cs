@@ -141,7 +141,9 @@ public sealed class OpenTailHostBuilder
         var executor = new ActionExecutor(catalog, store, audit, sessions, _inputGuards, _outputGuards, _clock, _lease, events, _sandbox,
             new CapacityLimits(_policy, _clock), levels, _policy.Decoys, labels, _policy.Failures, new Circuits(_policy.Failures, _clock), currentPolicyHash: () => resolver.PolicyHash);
         // Section 1a: every setting that loosens the gate is named at startup, on both runners.
-        warnings.AddRange(PolicySettings.Loosenings(_policy));
+        warnings.AddRange(PolicySettings.Loosenings(_policy, name => catalog.TryGet(name, out var reg) ? reg.Descriptor.Risk : null));
+        // A notice, not a loosening: an AI-open tool that no reviewer will decide (both runners print it).
+        warnings.AddRange(PolicySettings.Notices(_policy));
         if (_shadow) warnings.Add("Shadow mode: Read tools run against the real systems with this instance's credentials; everything above Read is recorded, never run. Use read-only credentials and a database of its own.");
         else if (_sandbox is not null) warnings.Add("Sandbox mode: tool calls are answered by the sandbox and no module code runs.");
         var trust = new TrustAdvisor(resolver, store, audit, _clock);

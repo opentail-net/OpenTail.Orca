@@ -202,7 +202,13 @@ with UnsupportedOperation); no file parts; no continuation of a task.
 * **Loosened settings.** A policy that sets `DefaultAiReviewers`, `UnknownOutcomeRetry` to `WithReason`, or `AiOwnRequest` to `Allow`
   (on a tool or policy-wide) prints a startup warning naming it (section 1a of the reviewer-gate plan). `--explain <tool>` shows who
   would decide the tool, the `AiOwnRequest` and the `UnknownOutcomeRetry` that apply. With two or more AI reviewers in the HTTP config,
-  startup refuses a tool that an AI may decide and that names no reviewer, unless `DefaultAiReviewers` is set.
+  startup refuses a tool that an AI may decide and that names no reviewer, unless `DefaultAiReviewers` is set. The standalone server
+  refuses the same when it is given two or more AI reviewers in code.
+* **Notice.** A tool that an AI may decide or refuse, with no reviewers of its own and no `DefaultAiReviewers`, gets a startup notice on
+  both runners: no AI reviewer will decide it. This is not a loosening; it is the strict default, said aloud.
+* **Model reviewer.** An `AiReviewer` section in `http.json` is checked at startup: its name, endpoint, model, timeout, and the
+  environment variable named by `KeyVariable`, which must be set. The key is never read from the file. No model provider is built in
+  (D-13), so a configured reviewer is not started, and startup says so.
 * **Agent card.** With A2A on, `GET /.well-known/agent-card.json` returns the card to a caller with the `a2a:call` role. No credential is
   401; a key without the role is 403; with A2A off the path does not exist (404). `A2A.Card` sets the name, description and version
   (defaults: "OpenTail Orca", a generic description, "1.0"). The card names one JSON-RPC 1.0 interface at `PublicBaseUrl` + `/a2a`, has no
