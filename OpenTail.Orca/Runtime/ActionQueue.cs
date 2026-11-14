@@ -538,6 +538,14 @@ public sealed class ActionQueue(
                 // at that instant, or two reviewers approving together could each think they were the first.
                 ActionTransition? Decide(ActionRecord r)
                 {
+                    // Batch 10 (P6): an AI approval is checked against its budget inside this transaction, against the committed history.
+                    if (review.Subject is { } approver && Subjects.IsAi(approver) && review.Decision is ReviewDecision.Approve or ReviewDecision.Retry
+                        && r.PolicySnapshot?.AiBudget is { MaxCount: > 0 } budget)
+                    {
+                        var approvedSoFar = AiCountsInTransaction(r, _clock.GetUtcNow()).Approvals;
+                        if (approvedSoFar >= budget.MaxCount)
+                            throw new AiBudgetExhausted($"An AI reviewer has approved {approvedSoFar} of these within {budget.Per}, so it may not approve more in this window.");
+                    }
                     var (count, duplicate) = ReviewAuthority.Tally(r, review, policy.People);
                     if (duplicate) return null;
                     var updated = addReview(r);
@@ -559,7 +567,14 @@ public sealed class ActionQueue(
                         ? Entry("approval_scheduled", d, $"runs at {scheduled:u} unless stopped")
                         : Entry("approval_recorded", d, $"{ReviewAuthority.Tally(d with { Reviews = d.Reviews.Take(d.Reviews.Count - 1).ToList() }, review, policy.People).Count} of {d.RequiredApprovals}")
                     : Entry(AuditEvents.ApprovalAllowed, d, ActorName(review));
-                var approved = await DecideAudited(actionId, ActionStatus.Pending, Decide, decisionEntry, ct);
+                ActionRecord? approved;
+                try { approved = await DecideAudited(actionId, ActionStatus.Pending, Decide, decisionEntry, ct); }
+                catch (AiBudgetExhausted ex)
+                {
+                    await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", actionId, existing.ToolName, review.Subject ?? review.Reviewer,
+                        $"{review.Decision}: {ex.Message}"), ct);
+                    throw new UnauthorizedAccessException(ex.Message);
+                }
                 if (approved is null)
                 {
                     if ((await store.GetAsync(actionId, ct))?.Status == ActionStatus.Pending)
@@ -583,11 +598,31 @@ public sealed class ActionQueue(
             case ReviewDecision.RequestChanges:
             {
                 var next = review.Decision == ReviewDecision.Reject ? ActionStatus.Rejected : ActionStatus.ChangesRequested;
-                var done = await ChangeAudited(actionId, ActionStatus.Pending, next,
-                    r => next == ActionStatus.Rejected
+                // Batch 10 (P6): an AI refusal is checked against its refusal budget inside the decision's own transaction, like an approval.
+                ActionTransition? RefuseDecide(ActionRecord r)
+                {
+                    if (review.Subject is { } refuser && Subjects.IsAi(refuser) && r.PolicySnapshot?.AiRefusalBudget is { MaxCount: > 0 } refusalBudget)
+                    {
+                        var refused = AiCountsInTransaction(r, _clock.GetUtcNow()).Refusals;
+                        if (refused >= refusalBudget.MaxCount)
+                            throw new AiBudgetExhausted($"An AI reviewer has refused {refused} of this requester's requests for this tool within {refusalBudget.Per}; it may not refuse more in this window.");
+                    }
+                    return new ActionTransition(next, next == ActionStatus.Rejected
                         ? addReview(r).WithResolution(ResolutionOutcomes.Denied, ResolverOf(review), null, _clock.GetUtcNow())
-                        : addReview(r),
-                    EntryOf(next == ActionStatus.Rejected ? AuditEvents.ApprovalDenied : "changes_requested", ActorName(review)), ct);
+                        : addReview(r));
+                }
+                ActionRecord? done;
+                try
+                {
+                    done = await DecideAudited(actionId, ActionStatus.Pending, RefuseDecide,
+                        EntryOf(next == ActionStatus.Rejected ? AuditEvents.ApprovalDenied : "changes_requested", ActorName(review)), ct);
+                }
+                catch (AiBudgetExhausted ex)
+                {
+                    await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", actionId, existing.ToolName, review.Subject ?? review.Reviewer,
+                        $"{review.Decision}: {ex.Message}"), ct);
+                    throw new UnauthorizedAccessException(ex.Message);
+                }
                 if (done is null) return await Conflict(actionId, ActionStatus.Pending, ct);
                 LeftPending(done);
                 HostTelemetry.Count(done);
@@ -854,6 +889,41 @@ public sealed class ActionQueue(
     private async Task<ActionRecord> CreateDenied(ActionRecord record, string detail, CancellationToken ct) =>
         await CreateAudited(record, [], EntryOf("denied", detail), ct) ?? throw new InvalidOperationException("A denied action could not be stored.");
 
+    /// <summary>The AI approvals of this tool within the approval budget's window, and the AI refusals by this requester of this tool within the
+    /// refusal budget's window, read from the store. Called inside the decision's transaction, where the store holds the write lock: what it reads
+    /// is the whole committed history, so two decisions cannot both take the last unit (batch 10, P6). The decision rows are the counter: they
+    /// need no seeding, no expiry and no reset on upgrade, because the windows are read from the reviews' own times.</summary>
+    private (int Approvals, int Refusals) AiCountsInTransaction(ActionRecord r, DateTimeOffset now)
+    {
+        var approvals = 0;
+        if (r.PolicySnapshot?.AiBudget is { MaxCount: > 0 } budget)
+        {
+            var since = now - budget.Per;
+            var recent = store.QueryAsync(new ActionQuery
+            {
+                ToolName = r.ToolName,
+                RequesterId = budget.Scope == BudgetScope.Requester ? r.Requester.Id : null,
+                UpdatedSince = since,
+                Limit = int.MaxValue,
+            }).GetAwaiter().GetResult();
+            approvals = recent.Sum(a => a.Reviews.Count(v => AiReviewRules.IsAiApproval(v) && v.At >= since));
+        }
+        var refusals = 0;
+        if (r.PolicySnapshot?.AiRefusalBudget is { MaxCount: > 0 } refusalBudget)
+        {
+            var since = now - refusalBudget.Per;
+            var recent = store.QueryAsync(new ActionQuery
+            {
+                ToolName = r.ToolName,
+                RequesterId = r.Requester.Id,
+                UpdatedSince = since,
+                Limit = int.MaxValue,
+            }).GetAwaiter().GetResult();
+            refusals = recent.Sum(a => a.Reviews.Count(v => AiReviewRules.IsAiRefusal(v) && v.At >= since));
+        }
+        return (approvals, refusals);
+    }
+
     /// <summary>An AI reviewer passes the action to a person (batch 09b). The action stays Pending and nothing counts: the review is stored and
     /// audited as an <c>ai_review</c> with the kind of outcome only. The suspension check ran before this; assignment is checked here, and no
     /// AI limit or budget applies, because the pass decides nothing.</summary>
@@ -870,9 +940,21 @@ public sealed class ActionQueue(
 
         // The review is audited as an ai_review by the public review path, like every AI decision (D-29), so it is not written again here.
         var recorded = review with { At = _clock.GetUtcNow() };
-        var done = await store.TransitionAsync(existing.Id, ActionStatus.Pending, ActionStatus.Pending,
-            r => r with { Reviews = [.. r.Reviews, recorded] }, ct);
-        return done ?? throw new InvalidOperationException($"Action {existing.Id} changed before the pass to a person could be recorded.");
+        // Batch 10 (the planner's follow-up to 09b): a reviewer may pass an action to a person once. The check runs in the store's transaction, so
+        // two passes that arrive together cannot both be recorded, and a reviewer over HTTP cannot grow the review list without limit.
+        var done = await store.TransitionAsync(existing.Id, ActionStatus.Pending,
+            r => r.Reviews.Any(v => v.Decision == ReviewDecision.Escalate && v.Subject == subject)
+                ? null
+                : new ActionTransition(ActionStatus.Pending, r with { Reviews = [.. r.Reviews, recorded] }), ct);
+        if (done is not null) return done;
+        var stored = await store.GetAsync(existing.Id, ct);
+        if (stored?.Reviews.Any(v => v.Decision == ReviewDecision.Escalate && v.Subject == subject) == true)
+        {
+            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", existing.Id, existing.ToolName, subject,
+                "already passed to a person by this reviewer"), ct);
+            throw new UnauthorizedAccessException("This AI reviewer has already passed this action to a person.");
+        }
+        throw new InvalidOperationException($"Action {existing.Id} changed before the pass to a person could be recorded.");
     }
 
     /// <summary>As <see cref="ChangeAudited"/>, for a change whose next status is decided inside the store's transaction.</summary>

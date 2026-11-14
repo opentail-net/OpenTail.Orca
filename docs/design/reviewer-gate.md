@@ -207,12 +207,13 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 - [ ] When hot reload of policy is planned, move the recheck inside the claim first (D-33). Note this on the hot-reload item.
 - [ ] **Tests (G8):**
   - [x] an AI refusing an A2A reply, and failing to approve it (`P0GateTests`, E1);
-  - [ ] channel parity: one action through MCP, A2A, Teams, HTTP and the runner gets one answer. **Partly:** the runner and a
-    direct queue decision (`Batch08SettingsTests`). The other channels are not run through here;
+  - [ ] channel parity: one action through MCP, A2A, Teams, HTTP and the runner gets one answer. **Partly:** the direct queue, the
+    runner and the HTTP review route (`Batch08SettingsTests`, `Batch10ChannelParityTests`), for approve and for reject. Not covered:
+    MCP (it has no review route), A2A (a partner submits; a person decides elsewhere), and Teams (needs a live tenant);
   - [x] a restart during a scheduled window (`Batch08SettingsTests`; on SQLite with a clock, not a separate process);
-  - [ ] pins for the decision and delay tables (2.4, 2.5). **Partly:** five rows of 2.4 (`Batch08SettingsTests`). The delay table is not pinned here;
+  - [ ] pins for the decision and delay tables (2.4, 2.5). **Partly:** five rows of 2.4 (`Batch08SettingsTests`); for 2.5, a stop that is Cancelled, the window passing within the allowance, and a suspended requester's run held (`Batch10DelayPinsTests`). **Defect, skipped:** an expired delayed run is run anyway (the table says it does not run);
   - [x] a red-team case for a side door (a tool with no policy entry is denied and never runs; `Batch08SettingsTests`). Not checked: the advertised tool list;
-  - [ ] pairwise coverage for 2.2 and 2.3 (not in batch 08).
+  - [x] pairwise coverage for 2.2 and 2.3 (`Batch10PairwiseTests`): covering arrays generated in the test from the factors; the expected result of each row comes from an oracle written from the tables. No row disagreed with the code.
 
 ### Open: needs a decision first (section 4)
 
@@ -265,8 +266,10 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
     labels are named `sessionLabels`; the operator's guidance (`AiReviewGuidance`). Prompt version `model-reviewer.v2`.
     Open, recorded here: linking a fresh submission of a rejected intent (`similarRecent` gives statuses only; threat 2); measuring the
     pre-scan's false positives on real content, a step before any real use.
-- [ ] **P6. Shared budgets across processes.** One conditional counter in the store, incremented in the decision's transaction
-  (D-11). Test: two processes, one remaining unit, exactly one succeeds.
+- [x] **P6. Shared budgets across processes.** Built in batch 10 as the decision's own check, inside the store's transaction, against
+  the committed history (D-11). **Not a separate counter table:** the decision rows are the counter, so nothing needs seeding, expiry or
+  a reset on upgrade. The store interface is unchanged. Test: two stores on one database file, one remaining unit, exactly one decision
+  succeeds (approval and refusal), `Batch10Tests`. For the planner to confirm that this meets D-11's "a counter in the store".
 - [ ] **R3, R4. Measurement** (shadow mode; sampling, demotion, drift), as D-9 decides. Uses "Watching the reviewers" in
   `more-extensions.md`.
 - [ ] **P5. An AI block proposal** that a person confirms (D-4, D-22).
@@ -366,6 +369,12 @@ person (G2). Decide G2 before judging a reviewer by its rejections.
 Each budget becomes one counter updated by a conditional statement in the store: increment only if below the limit, in the same
 transaction that records the decision. Approval and refusal budgets use the same mechanism.
 
+**As built (batch 10):** the check runs inside the decision's transaction (`ActionQueue`, the decide step and the refusal's decide step), against
+the committed reviews of the store. The store takes its write lock before the decide step, so the count it reads is complete and no
+other decision can land between the count and the write. A refusal of the budget rolls the transaction back and is audited as
+`review_refused`. The window is rolling, measured from each review's own time; decisions made before this change are in the same
+reviews and count without a reset. The in-process gate per requester and tool is kept; it is no longer needed for correctness.
+
 ### 5.4 An AI block proposal (P5)
 
 An AI may propose blocking a sender; nothing takes effect until a person confirms. The record names who is blocked (a partner, an
@@ -381,6 +390,9 @@ agent identity, or both), and the block expires unless a person renews it.
   before the fix.
 - No real external session has used an AI reviewer credential.
 - The review page's AI label and the panel were not checked in a browser.
+- P6 (batch 10): the two stores were two in one process on one database file. Two real processes, and a database on a network share, were not
+  tried. The budget check reads through the store in the write transaction; it is safe for SQLite in WAL mode on one machine.
+- The delay table's expiry row is a known defect (skipped test, `Batch10DelayPinsTests`): an expired delayed run is run.
 - R2 (batch 09): the model reviewer has not been run against any real model, and its prompt has not been judged on real content.
   The `AiReviewer` section is checked at startup but starts nothing; the HTTP startup path is not run end to end in a test.
 - A restart during a scheduled window: tested in batch 08 on SQLite with a clock (`Batch08SettingsTests`), not against a separate

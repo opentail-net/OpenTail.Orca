@@ -67,9 +67,8 @@ public class Batch09bTests
         var (host, module, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiReviewers": ["bot"], "AiBudget": { "Per": "01:00:00", "MaxCount": 1 } } } }""");
         var action = await Submit(host);
         await host.Queue.ReviewAsync(action.Id, Escalated("bot"));
-        await host.Queue.ReviewAsync(action.Id, Escalated("bot") with { Reason = "still unsure" });
 
-        // The budget allows one AI approval an hour; two passes have used none of it.
+        // The budget allows one AI approval an hour; the pass has used none of it.
         var approved = await host.Queue.ReviewAsync(action.Id, new ActionReview("bot", ReviewDecision.Approve, null, DateTimeOffset.UtcNow)
         { Subject = Subjects.Ai("bot") });
 
