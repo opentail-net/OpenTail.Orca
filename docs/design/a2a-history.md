@@ -8,6 +8,24 @@
 
 - 2026-11-13: the plan was converted to checkbox form; these sections moved here.
 
+- 2026-11-13: the batch table moved here from the governance checklist.
+
+### Batches
+
+| Batch | What it did | Commit |
+|---|---|---|
+| 01 | A2A phase 0 (scope, config, startup checks, partner ids); the Teams inventory | `f24f8c5` |
+| 02 | Teams bot: chat risk order fixed, Request changes, typed `waiting` and `help`; other defects fixed (`docs/briefs/batch-02-teams.md`) | `fef5b4f` |
+| 03a | A2A SDK facts from probes, and the slice foundation brief (`docs/briefs/a2a-sdk-facts.md`) | `c8e50e9` |
+| 03b-1 | Thin slice, first half: endpoint, partner identity, task table, submit, GetTask, CancelTask | `fae2725` |
+| 03b-2 | Thin slice, second half: work item on approval, reviewed reply, completion, cancel of an open item | `23020b1` |
+| 03b-3 | Blocking sends (bounded wait, per-partner cap) and ListTasks | `00b52ce` |
+| 04 | The authenticated agent card; a cut Teams preview cannot be approved from chat (`docs/briefs/a2a-reviewer-view.md`) | `c159639` |
+| 05 | The A2A kit (sample, smoke script, guide, kit tests); read-only Teams `work` and `tasks` commands | `7b6003c` |
+| 06 | Records brought in line with the code (this file, `STATUS.md`, `a2a.md`, `docs/briefs/README.md`), and one test | not committed yet |
+
+The briefs and reports these batches answer are listed in `docs/briefs/README.md`.
+
 ## Corrections from external review (2026-11-11)
 
 An external review was checked against the A2A v1.0 specification (`https://a2a-protocol.org/latest/specification/`) and the SDK's

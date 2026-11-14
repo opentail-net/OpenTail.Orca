@@ -223,9 +223,9 @@ Not done:
 
 ## A2A: the agent-to-agent front door (design: `docs/design/a2a.md`)
 
-Plan and design: [`docs/design/a2a.md`](../docs/design/a2a.md). The checklist of what is done is [`docs/design/governance-checklist.md`](../docs/design/governance-checklist.md). A2A is off unless `A2A.Enabled` is true.
+Plan and design: [`docs/design/a2a.md`](../docs/design/a2a.md). It holds the checkbox plan and the item-level checklist of what is done; the record is [`docs/design/a2a-history.md`](../docs/design/a2a-history.md). A2A is off unless `A2A.Enabled` is true.
 
-Built (its commits are in the checklist's batch record):
+Built (its commits are in the batch table in `a2a-history.md`):
 
 - Phase 0 (`f24f8c5`): the `a2a:call` role and scope, the startup checks, the partner ids, and a conditional rule on `partner`, each tested.
 - The thin slice (`fae2725` to `7b6003c`): JSON-RPC `SendMessage` (with a bounded blocking wait and a per-partner cap), `GetTask`,
