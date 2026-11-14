@@ -312,6 +312,9 @@ public sealed class PolicyConfig
                     errors.Add($"Tool '{name}': AiReviewers only applies to Mode Queue with Reviewer Ai or Either, or with AiMayRefuse (the named AI reviewers may then refuse the tool's queued actions).");
             }
         }
+        foreach (var (name, p) in Tools.Where(t => t.Value.AiReviewGuidance is not null))
+            if (string.IsNullOrWhiteSpace(p.AiReviewGuidance) || p.AiReviewGuidance!.Length > 2000)
+                errors.Add($"Tool '{name}': AiReviewGuidance must be text of 1 to 2000 characters.");
         var seenSubjects = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var (person, subjects) in People)
             foreach (var s in subjects)

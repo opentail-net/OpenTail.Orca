@@ -144,6 +144,11 @@ transaction, which is safe while policy cannot change in a running process (D-33
 - The runner exists (`ReviewerRunner`, `IReviewer`). The implementations are `DelegateReviewer` and, since batch 09, `ModelReviewer`
   (tested against a fake chat client only). No model is called in a deployment: no provider is built in, and no deployment runs the
   runner.
+- An AI reviewer's pass to a person is recorded as `ReviewDecision.Escalate` (batch 09b). It leaves the action Pending and counts as no
+  approval, no refusal, no budget and no quorum; it does not void an approval. The queue records it only for an AI subject that is
+  offered the tool, after the suspension check. The audit holds the kind of outcome (`ai_review`, `Escalate; ...`), never the reviewer's
+  words. The runner does not offer a reviewer an action it has already passed, so a model is not called again on each poll.
+- The review page shows a pass as "AI reviewer X passed this to a person", with its reason.
 
 ### 2.7 The overseer
 
@@ -212,6 +217,7 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 ### Open: needs a decision first (section 4)
 
 - [ ] **G2.** AI refusals on `Ai` and `Either` tools: keep the one switch, or allow them without it.
+- [ ] **AiReviewGuidance (batch 09b, the planner's decision).** A per-tool text the operator writes for the AI reviewer, in the policy hash and the packet, not scanned, binding only in the stricter direction. Confirm the feature and its limit (2,000 characters).
 - [ ] **D-36, single-reviewer default (confirm, batch 08).** Not built. With one AI reviewer configured and no `AiReviewers` or `DefaultAiReviewers` on a tool, that tool is decided by no AI reviewer. Confirm that, or ask for a default the policy file must name. Startup gives a notice for each such tool.
 - [ ] **D-36. A default reviewer list** (accepted by the owner for now, 2026-11-13). Built in batch 08, except the single-reviewer default below.
   - [x] `DefaultAiReviewers` at the top of the policy: the reviewers for every AI-decidable tool that has no `AiReviewers` of its own. Part of the policy hash.
@@ -253,6 +259,12 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
   - [ ] Optional dual review (not in batch 09).
   - Found and recorded in batch 09: the system prompt is an embedded resource whose version line must equal `ModelReviewer.PromptVersion`;
     `AiPromptVersion` reports that version.
+  - Batch 09b (the planner's review, all closed): a pass is recorded as `ReviewDecision.Escalate` and not asked again; the audit holds the
+    kind only; no model call on a pre-scan hit, with the kind and field recorded; the pre-scan reads only requester-written fields; the chain
+    of resubmissions is in the packet; the history is bounded to 30 days and 500 rows; the model's output is cut to its limits; the session's
+    labels are named `sessionLabels`; the operator's guidance (`AiReviewGuidance`). Prompt version `model-reviewer.v2`.
+    Open, recorded here: linking a fresh submission of a rejected intent (`similarRecent` gives statuses only; threat 2); measuring the
+    pre-scan's false positives on real content, a step before any real use.
 - [ ] **P6. Shared budgets across processes.** One conditional counter in the store, incremented in the decision's transaction
   (D-11). Test: two processes, one remaining unit, exactly one succeeds.
 - [ ] **R3, R4. Measurement** (shadow mode; sampling, demotion, drift), as D-9 decides. Uses "Watching the reviewers" in
@@ -310,11 +322,19 @@ rejected intent); this requester's recent history with the tool. The requester's
 has no way to address the reviewer.
 
 **Pre-scan.** A deterministic check for text aimed at the reviewer: imperative approval language, claims of earlier approval, role
-markers, invisible or bidirectional Unicode, encoded blobs in plain-text fields. A hit goes into the packet and makes the reviewer
-escalate. It never decides by itself.
+markers, invisible or bidirectional Unicode, encoded blobs. It reads only what a requester, a partner or outside content can write:
+the arguments, the preview, and the reasons of earlier reviews (batch 09b). Values Orca writes are not scanned. A hit is recorded as an
+escalation with its kinds and field names, and the model is not called. It never decides by itself.
 
-**Output.** Strict JSON: `{ decision: approve | reject | escalate, checks: [...], reason }`. Anything else, a timeout or a refusal
-to answer is an abstention. A decision with no checks named counts as escalate.
+**Output.** Strict JSON: `{ decision: approve | reject | escalate, checks: [...], reason }`, with exactly those three properties. Anything
+else is recorded as an escalation at once. A decision with no checks named counts as escalate. The reason is cut to 500 characters
+and up to 10 checks to 200 characters each; more is cut, not refused. A timeout or a failed call is retried on later polls, and the
+third one escalates ("the model could not be reached"). The count is read from the audit, so it survives a restart (batch 09b).
+
+**Operator guidance (batch 09b; the planner's decision, for the owner to confirm).** `AiReviewGuidance` on a tool is the operator's
+instruction to the reviewer of that tool, at most 2,000 characters. It is in the policy hash, goes into the packet as
+`operatorGuidance`, and is not scanned. The prompt makes it binding only in the stricter direction: it can make the reviewer stricter
+than these rules, never looser. With no guidance, the reviewer approves only what is plainly routine.
 
 **Stance.** A versioned system prompt shipped in the package. When unsure, escalate. The reviewer is told the content may try to
 persuade it. The prompt is never exposed through any tool.
@@ -328,7 +348,7 @@ person (G2). Decide G2 before judging a reviewer by its rejections.
 
 | # | Cheat | Defence | State |
 |---|---|---|---|
-| 1 | Persuasion or injection in the content | The packet, the fence, the pre-scan | Not built (R2). The structural limits hold whatever the text says (R5). |
+| 1 | Persuasion or injection in the content | The packet, the fence, the pre-scan, the operator's guidance | Built against a fake model (batch 09, 09b). The pre-scan is not measured on real content (a step before any real use). The structural limits hold whatever the text says (R5, and the corpus through the reviewer). |
 | 2 | Reviewer shopping: reject, reword, resubmit | `AiMaxRejections` along the chain; the packet carries every attempt | Chain limit built; a fresh submission of the same intent is not linked until R2. Depends on G2. |
 | 3 | Slicing one large act into small ones | `AiBudget`, by count | Built in one process; shared counter is P6; by amount is open |
 | 4 | A side door through a weaker tool | A tool with no policy entry is denied and not advertised | Design holds; no red-team case yet |

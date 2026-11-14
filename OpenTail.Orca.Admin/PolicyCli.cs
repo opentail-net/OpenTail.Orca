@@ -133,6 +133,7 @@ public static class PolicyCli
                     var resolved = PolicySettings.Resolve(d.Policy, settled.Descriptor.Risk, host.Policy.Config);
                     var reviewers = resolved.AiReviewers is { Count: > 0 } named ? string.Join(", ", named) : "nobody (no AiReviewers, no DefaultAiReviewers)";
                     await output.WriteLineAsync($"  AI reviewers: {reviewers}; AI on its own request: {resolved.AiOwnRequest}; unknown outcome retry: {resolved.UnknownOutcomeRetry}");
+                    await output.WriteLineAsync("  operator guidance for the AI reviewer: " + (resolved.AiReviewGuidance is null ? "none" : $"set ({resolved.AiReviewGuidance.Length} characters)"));
                     if (PolicySettings.Notices(host.Policy.Config).FirstOrDefault(n => n.StartsWith($"tool '{args[explainAt + 1]}' ", StringComparison.Ordinal)) is { } notice)
                         await output.WriteLineAsync($"  note: {notice}");
                 }

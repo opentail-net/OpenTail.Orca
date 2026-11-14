@@ -411,6 +411,10 @@ public sealed class ActionQueue(
             throw new UnauthorizedAccessException("This AI reviewer is suspended. A person must clear it before it decides anything.");
         }
 
+        // Batch 09b: an AI reviewer's pass to a person is recorded without changing the action. It is not an approval or a refusal, so it does not
+        // go through the authority rules, which treat anything that is not a refusal as an approval.
+        if (review.Decision == ReviewDecision.Escalate) return await RecordEscalationAsync(existing, review, ct);
+
         var verdict = ReviewAuthority.Check(existing, review.Decision, review.Subject, review.Groups, policy.People);
         if (!verdict.Allowed)
         {
@@ -849,6 +853,27 @@ public sealed class ActionQueue(
     /// <summary>A refused request is stored as a denied action, and the denial is written in the same transaction.</summary>
     private async Task<ActionRecord> CreateDenied(ActionRecord record, string detail, CancellationToken ct) =>
         await CreateAudited(record, [], EntryOf("denied", detail), ct) ?? throw new InvalidOperationException("A denied action could not be stored.");
+
+    /// <summary>An AI reviewer passes the action to a person (batch 09b). The action stays Pending and nothing counts: the review is stored and
+    /// audited as an <c>ai_review</c> with the kind of outcome only. The suspension check ran before this; assignment is checked here, and no
+    /// AI limit or budget applies, because the pass decides nothing.</summary>
+    private async Task<ActionRecord> RecordEscalationAsync(ActionRecord existing, ActionReview review, CancellationToken ct)
+    {
+        if (review.Subject is not { } subject || !Subjects.IsAi(subject))
+            throw new UnauthorizedAccessException("Only an AI reviewer passes an action to a person.");
+        // Offered is stricter than assigned: the tool must be one an AI may decide or refuse, and the reviewer must be named for it.
+        if (!AiReviewRules.Offered(existing, subject))
+        {
+            await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", existing.Id, existing.ToolName, subject, "not assigned to this tool"), ct);
+            throw new UnauthorizedAccessException("This AI reviewer is not assigned to this tool.");
+        }
+
+        // The review is audited as an ai_review by the public review path, like every AI decision (D-29), so it is not written again here.
+        var recorded = review with { At = _clock.GetUtcNow() };
+        var done = await store.TransitionAsync(existing.Id, ActionStatus.Pending, ActionStatus.Pending,
+            r => r with { Reviews = [.. r.Reviews, recorded] }, ct);
+        return done ?? throw new InvalidOperationException($"Action {existing.Id} changed before the pass to a person could be recorded.");
+    }
 
     /// <summary>As <see cref="ChangeAudited"/>, for a change whose next status is decided inside the store's transaction.</summary>
     private Task<ActionRecord?> DecideAudited(string id, ActionStatus expected, Func<ActionRecord, ActionTransition?> decide,

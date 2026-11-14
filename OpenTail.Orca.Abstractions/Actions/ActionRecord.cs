@@ -43,6 +43,10 @@ public enum ReviewDecision
     /// <summary>A held scheduled approval is withdrawn: it stops counting, and the action needs a new approval to be scheduled again. Recorded by
     /// the system when a run is held (late, or its requester suspended), never submitted by a reviewer.</summary>
     Withdraw = 4,
+
+    /// <summary>An AI reviewer passes the action to a person (batch 09b). Recorded for an AI subject only; the action stays Pending, and it
+    /// counts as no approval, no refusal and against no budget or quorum. A runner offers that reviewer no action it has already passed.</summary>
+    Escalate = 5,
 }
 
 public sealed record ActionReview(

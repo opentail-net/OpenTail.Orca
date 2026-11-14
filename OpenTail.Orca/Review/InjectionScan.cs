@@ -1,12 +1,15 @@
 using System.Globalization;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace OpenTail.Orca;
 
+/// <summary>One kind of reviewer-directed text found in one packet field. The field is named; the text is never kept.</summary>
+public sealed record PreScanHit(string Kind, string Field);
+
 /// <summary>
-/// The deterministic pre-scan of section 5.1: text aimed at the reviewer. Every string in the packet is scanned, whatever field it is in. A hit
-/// goes into the packet, and it makes the model reviewer escalate. It never decides an action by itself.
+/// The deterministic pre-scan of section 5.1: text aimed at the reviewer. It reads only what a requester, a partner or outside content can
+/// write (the arguments, the preview, and the reasons of earlier reviews), not the values Orca writes. A hit is recorded with its kind and field,
+/// and it makes the reviewer escalate without calling the model. It never decides an action by itself.
 /// </summary>
 public static class InjectionScan
 {
@@ -40,24 +43,16 @@ public static class InjectionScan
         return found;
     }
 
-    /// <summary>The kinds of reviewer-directed text found in any string of the packet, in a fixed order, each once.</summary>
-    public static IReadOnlyList<string> Scan(JsonNode? packet)
+    /// <summary>The hits in the requester-written fields, in the order given, each kind once per field.</summary>
+    public static IReadOnlyList<PreScanHit> ScanFields(IEnumerable<(string Field, string Text)> fields)
     {
-        var found = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var text in Strings(packet))
+        var hits = new List<PreScanHit>();
+        foreach (var (field, text) in fields)
             foreach (var kind in ScanText(text))
-                found.Add(kind);
-        return [.. found.OrderBy(k => Array.IndexOf(Order, k))];
+            {
+                var hit = new PreScanHit(kind, field);
+                if (!hits.Contains(hit)) hits.Add(hit);
+            }
+        return hits;
     }
-
-    private static readonly string[] Order = [ImperativeApproval, ClaimedApproval, RoleMarker, InvisibleText, EncodedBlob];
-
-    /// <summary>Every string value in the tree, at any depth. Keys are not scanned: the Host writes them.</summary>
-    private static IEnumerable<string> Strings(JsonNode? node) => node switch
-    {
-        JsonObject o => o.SelectMany(p => Strings(p.Value)),
-        JsonArray a => a.SelectMany(Strings),
-        JsonValue v when v.TryGetValue<string>(out var s) => [s],
-        _ => [],
-    };
 }

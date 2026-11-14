@@ -36,6 +36,8 @@ public sealed class ReviewerRunner(OpenTailHost host)
             // D-20 and D-30: a reviewer is offered only the actions its policy lets an AI decide and that are assigned to it. An action it is not
             // offered is never shown to it, so no packet is built for it.
             if (!AiReviewRules.Offered(action, Subjects.Ai(reviewer.Name))) { skipped++; continue; }
+            // Batch 09b: a reviewer that has already passed this action to a person is not asked again, so a model is not called on every poll.
+            if (action.Reviews.Any(v => v.Decision == ReviewDecision.Escalate && v.Subject == Subjects.Ai(reviewer.Name))) { skipped++; continue; }
             // Beyond the policy's say-so, the AI limits decide what it may do: an approval (the AI-decided policy, and the limits on approvals) or a
             // refusal (AiMayRefuse, and the refusal limits). An action it may do neither is never shown to it (D-21, F17).
             var approvable = action.PolicySnapshot?.Reviewer is ReviewerKind.Ai or ReviewerKind.Either
@@ -68,7 +70,8 @@ public sealed class ReviewerRunner(OpenTailHost host)
             {
                 // The queue audits every AI decision as ai_review, whichever channel it came by (D-29).
                 await host.Queue.ReviewAsync(action.Id, stamped, ct);
-                decided++;
+                // A pass to a person decides nothing, so it is not counted as a decision.
+                if (stamped.Decision != ReviewDecision.Escalate) decided++;
             }
             catch (InvalidOperationException) { /* someone else decided first */ }
             catch (UnauthorizedAccessException) { /* past an AI limit (audited by the queue as review_refused): left for a person */ }

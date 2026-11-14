@@ -206,6 +206,11 @@ with UnsupportedOperation); no file parts; no continuation of a task.
   refuses the same when it is given two or more AI reviewers in code.
 * **Notice.** A tool that an AI may decide or refuse, with no reviewers of its own and no `DefaultAiReviewers`, gets a startup notice on
   both runners: no AI reviewer will decide it. This is not a loosening; it is the strict default, said aloud.
+* **Reading the audit of an AI reviewer (batch 09b).** An `ai_review` entry whose detail begins `Escalate;` is a pass to a person: the
+  action stays Pending, and nothing was decided. The model's words are not in the audit; the review on the action holds its reason,
+  cut to 500 characters. A `model_review_unreachable` entry is one attempt that timed out or failed (`attempt N of 3`), and the third
+  one is followed by an `ai_review` pass with the reason "the model could not be reached". The review page shows a pass as
+  "AI reviewer X passed this to a person".
 * **Model reviewer.** An `AiReviewer` section in `http.json` is checked at startup: its name, endpoint, model, timeout, and the
   environment variable named by `KeyVariable`, which must be set. The key is never read from the file. No model provider is built in
   (D-13), so a configured reviewer is not started, and startup says so.

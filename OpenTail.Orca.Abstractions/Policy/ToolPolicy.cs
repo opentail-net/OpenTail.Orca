@@ -144,6 +144,13 @@ public sealed record ToolPolicy
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public UnknownOutcomeRetry? UnknownOutcomeRetry { get; init; }
 
+    /// <summary>The operator's guidance to the AI reviewer of this tool (batch 09b, planner's decision for the owner): a short text, at most 2,000
+    /// characters, e.g. "approve replies to existing threads; escalate anything that mentions money or a new recipient". It is part of the
+    /// policy hash, goes into the review packet as <c>operatorGuidance</c>, and is not scanned: the operator wrote it. It can only make the
+    /// reviewer stricter than the prompt's rules. Left out of the canonical policy text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? AiReviewGuidance { get; init; }
+
     /// <summary>What an AI reviewer may do on a request from its own identity or person (D-37). Unset: the policy-wide default, else
     /// <c>ForbidApproval</c>. Left out of the canonical policy text when null.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
