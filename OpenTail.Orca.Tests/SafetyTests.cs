@@ -111,8 +111,8 @@ public class SafetyTests
         // Eligible is not promoted: the next call still queues.
         Assert.Equal(ActionStatus.Pending, (await host.Queue.SubmitAsync(Flaky())).Status);
 
-        Assert.True(await host.Trust.PromoteAsync("flaky.op", "operator-dmitri"));
-        Assert.Contains(audit.Entries, e => e.Event == "trust_promoted" && e.Actor == "operator-dmitri");
+        Assert.True(await host.Trust.PromoteAsync("flaky.op", "operator-test"));
+        Assert.Contains(audit.Entries, e => e.Event == "trust_promoted" && e.Actor == "operator-test");
         Assert.Equal(ActionStatus.Succeeded, (await host.Queue.SubmitAsync(Flaky())).Status);
     }
 
