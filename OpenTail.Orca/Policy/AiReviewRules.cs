@@ -23,23 +23,12 @@ public static class AiReviewRules
     /// <summary>A name an AI reviewer may be assigned under (D-20): letters, digits, '.', '_' and '-', starting with a letter or digit.</summary>
     public static bool IsValidReviewerName(string name) => ReviewerNamePattern.IsMatch(name);
 
-    /// <summary>The startup warnings for AI-enabled queued tools with no reviewer list (D-36): any AI reviewer may decide them (or refuse them, when
-    /// the tool is Human-only with AiMayRefuse), which is the older rule kept for compatibility. Listing the reviewers is the safer setting. One
-    /// warning per tool.</summary>
-    public static IReadOnlyList<string> UnassignedAiTools(PolicyConfig config) =>
-        config.Tools
-            .Where(t => t.Value.AiReviewers is null && t.Value.Mode == ToolMode.Queue
-                && (t.Value.Reviewer is ReviewerKind.Ai or ReviewerKind.Either || t.Value.AiMayRefuse))
-            .Select(t => t.Value.Reviewer is ReviewerKind.Ai or ReviewerKind.Either
-                ? $"tool '{t.Key}' lets an AI reviewer decide it and names no reviewer (\"AiReviewers\"): any configured AI reviewer may decide it."
-                : $"tool '{t.Key}' lets an AI reviewer refuse it and names no reviewer (\"AiReviewers\"): any configured AI reviewer may refuse it.")
-            .OrderBy(s => s, StringComparer.Ordinal).ToList();
-
-    /// <summary>May this AI subject decide this action's tool at all (D-20, D-36)? With no assignment list, any AI reviewer may, as before. With
-    /// one, only the names on it. The queue checks this at the decision, and the runner before the reviewer is shown the action.</summary>
+    /// <summary>May this AI subject decide this action's tool at all (D-20, D-36)? The snapshot's list is the tool's own, else the policy's
+    /// <c>DefaultAiReviewers</c>, resolved when the action was queued. With no list at all, nobody may: the strict default (section 1a). With one,
+    /// only the names on it. The queue checks this at the decision, and the runner before the reviewer is shown the action.</summary>
     public static bool Assigned(ActionRecord r, string aiSubject)
     {
-        if (r.PolicySnapshot?.AiReviewers is not { } names) return true;
+        if (r.PolicySnapshot?.AiReviewers is not { } names) return false;
         return Subjects.IsAi(aiSubject) && names.Contains(aiSubject[3..], StringComparer.Ordinal);
     }
 

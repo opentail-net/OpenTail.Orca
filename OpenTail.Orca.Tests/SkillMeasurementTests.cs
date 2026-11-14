@@ -5,6 +5,7 @@ using OpenTail.Modules.Skills;
 namespace OpenTail.Orca.Tests;
 
 /// <summary>Step 0 of the attribution plan: the read-only measurement, on the real queue and SQLite store, with a clock the test controls.</summary>
+[Collection(ConsoleCapture.Name)]
 public sealed class SkillMeasurementTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"measure-{Guid.NewGuid():N}");

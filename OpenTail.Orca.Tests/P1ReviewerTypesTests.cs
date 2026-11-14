@@ -11,7 +11,7 @@ public class P1ReviewerTypesTests
     private const string Mail = """{"to":"x@y.z","body":"b"}""";
 
     private static string Policy(string reviewer) =>
-        "{ \"Tools\": { \"mail.send\": { \"Mode\": \"Queue\", \"Reviewer\": \"" + reviewer + "\", \"AiMaxRisk\": \"ExternalEffect\" } } }";
+        "{ \"Tools\": { \"mail.send\": { \"Mode\": \"Queue\", \"Reviewer\": \"" + reviewer + "\", \"AiMaxRisk\": \"ExternalEffect\", \"AiReviewers\": [\"bot\"] } } }";
 
     private static ActionReview PersonDecides(ReviewDecision d, string name = "rita") =>
         new(name, d, d is ReviewDecision.Approve ? null : "not this one", DateTimeOffset.UtcNow) { Subject = Subjects.Admin(name) };
@@ -125,19 +125,21 @@ public class P1ReviewerTypesTests
     }
 
     [Fact]
-    public async Task Without_an_assignment_list_any_ai_reviewer_may_decide_the_tool()
+    public async Task Without_an_assignment_list_no_ai_reviewer_may_decide_the_tool()
     {
+        // D-36 (batch 08): with no list and no DefaultAiReviewers, nobody may decide the tool: the strict default (section 1a).
         var (host, module, _) = Hosts.Build(Policy("Ai"));
         var mail = await Submit(host);
 
-        Assert.Equal(ActionStatus.Succeeded, (await host.Queue.ReviewAsync(mail.Id, AiDecides("anyone"))).Status);
-        Assert.Equal(1, module.SendCalls);
+        var ex = await Assert.ThrowsAsync<UnauthorizedAccessException>(() => host.Queue.ReviewAsync(mail.Id, AiDecides("anyone")));
+        Assert.Contains("not assigned to this tool", ex.Message);
+        Assert.Equal(0, module.SendCalls);
     }
 
     [Fact]
     public void A_policy_without_assignments_keeps_its_canonical_text_and_an_assigned_one_does_not()
     {
-        var plain = PolicyConfig.Parse(Policy("Ai"));
+        var plain = PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" } } }""");
         Assert.DoesNotContain("AiReviewers", plain.ToCanonicalJson());
 
         var assigned = PolicyConfig.Parse(Assigned("Ai", "\"bot\""));
@@ -157,14 +159,17 @@ public class P1ReviewerTypesTests
     }
 
     [Fact]
-    public void An_ai_tool_with_no_reviewer_list_gets_a_startup_warning_and_a_named_one_does_not()
+    public void An_ai_tool_with_no_reviewer_list_names_no_reviewer_unless_the_policy_has_a_default()
     {
+        // Batch 08 (D-36): the no-list warning is gone; the resolved snapshot says who decides. No list and no default: nobody.
         var unnamed = PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai" } } }""");
-        var warnings = AiReviewRules.UnassignedAiTools(unnamed);
-        Assert.Single(warnings);
-        Assert.Contains("mail.send", warnings[0]);
-        Assert.Empty(AiReviewRules.UnassignedAiTools(PolicyConfig.Parse(Assigned("Ai", "\"bot\""))));
-        Assert.Empty(AiReviewRules.UnassignedAiTools(PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue" } } }""")));
+        Assert.Null(PolicySettings.Resolve(unnamed.Tools["mail.send"], ToolRisk.ExternalEffect, unnamed).AiReviewers);
+
+        var tool = PolicyConfig.Parse(Assigned("Ai", "\"bot\""));
+        Assert.Equal(["bot"], PolicySettings.Resolve(tool.Tools["mail.send"], ToolRisk.ExternalEffect, tool).AiReviewers);
+
+        var defaulted = PolicyConfig.Parse("""{ "DefaultAiReviewers": ["second"], "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai" } } }""");
+        Assert.Equal(["second"], PolicySettings.Resolve(defaulted.Tools["mail.send"], ToolRisk.ExternalEffect, defaulted).AiReviewers);
     }
 
     [Fact]
@@ -180,7 +185,7 @@ public class P1ReviewerTypesTests
     [Fact]
     public async Task An_ai_reviewer_may_not_approve_a_request_from_its_own_identity_or_person_but_may_refuse_it()
     {
-        var (host, module, _) = Hosts.Build("""{ "People": { "owner": ["ai:bot", "key:bot-agent"] }, "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
+        var (host, module, _) = Hosts.Build("""{ "People": { "owner": ["ai:bot", "key:bot-agent"] }, "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
         // A session is owned by whoever started it, so each requester starts its own.
         var fromItself = await host.Queue.SubmitAsync(new ActionRequest("mail.send", Mail,
             new ActionRequester(RequesterKind.AiSession, "ai:bot"), host.Sessions.Start("ai:bot")));

@@ -72,7 +72,7 @@ public class P0GateTests
 
     private const string ReplyPolicy = """
         { "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "DataFlowMode": "Enforce", "Work": { "Enabled": true },
-          "Tools": { "a2a.submit": { "Mode": "Queue" }, "a2a.reply": { "Mode": "Queue", "AllowEdits": false, "AiMayRefuse": true } },
+          "Tools": { "a2a.submit": { "Mode": "Queue" }, "a2a.reply": { "Mode": "Queue", "AllowEdits": false, "AiMayRefuse": true, "AiReviewers": ["bot"] } },
           "Agents": { "clerk": { "Tools": [ "a2a.submit", "a2a.reply" ] } } }
         """;
 

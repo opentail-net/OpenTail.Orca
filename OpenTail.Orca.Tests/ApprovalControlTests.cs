@@ -73,18 +73,18 @@ public class ApprovalControlTests
         var ai = new ActionReview("bot", ReviewDecision.Approve, null, DateTimeOffset.UtcNow) { Subject = Subjects.Ai("bot") };
         Assert.Contains("human reviewer", (await Assert.ThrowsAsync<UnauthorizedAccessException>(() => host.Queue.ReviewAsync(humanOnly.Id, ai))).Message);
 
-        var (host2, _, grouped) = await Queued(Policy("\"Reviewer\": \"Either\", \"ReviewerGroup\": \"finance\""));
+        var (host2, _, grouped) = await Queued(Policy("\"Reviewer\": \"Either\", \"AiReviewers\": [\"bot\"], \"ReviewerGroup\": \"finance\""));
         Assert.Contains("AI reviewer cannot stand in", (await Assert.ThrowsAsync<UnauthorizedAccessException>(() => host2.Queue.ReviewAsync(grouped.Id, ai))).Message);
 
         // But an action the operator handed to an AI reviewer is the AI's to decide.
-        var (host3, _, handedOver) = await Queued(Policy("\"Reviewer\": \"Ai\", \"AiMaxRisk\": \"ExternalEffect\""));
+        var (host3, _, handedOver) = await Queued(Policy("\"Reviewer\": \"Ai\", \"AiReviewers\": [\"bot\"], \"AiMaxRisk\": \"ExternalEffect\""));
         Assert.Equal(ActionStatus.Succeeded, (await host3.Queue.ReviewAsync(handedOver.Id, ai)).Status);
     }
 
     [Fact]
     public async Task The_ai_reviewer_runner_stamps_an_ai_identity_the_agent_cannot_fake()
     {
-        var (host, _, a) = await Queued(Policy("\"Reviewer\": \"Either\", \"AiMaxRisk\": \"ExternalEffect\""));
+        var (host, _, a) = await Queued(Policy("\"Reviewer\": \"Either\", \"AiReviewers\": [\"bot\"], \"AiMaxRisk\": \"ExternalEffect\""));
         var runner = new ReviewerRunner(host);
         // The reviewer claims to be a person; the runner stamps who it really is.
         var liar = new DelegateReviewer("bot", (_, _) => Task.FromResult<ActionReview?>(
@@ -222,7 +222,7 @@ public class ApprovalControlTests
     [Fact]
     public async Task An_ai_approval_never_makes_up_the_numbers_when_several_are_needed()
     {
-        var (host, module, a) = await Queued(Policy("\"RequiredApprovals\": 2, \"Reviewer\": \"Either\", \"AiMaxRisk\": \"ExternalEffect\""));
+        var (host, module, a) = await Queued(Policy("\"RequiredApprovals\": 2, \"Reviewer\": \"Either\", \"AiReviewers\": [\"bot\"], \"AiMaxRisk\": \"ExternalEffect\""));
         var ai = new ActionReview("bot", ReviewDecision.Approve, null, DateTimeOffset.UtcNow) { Subject = Subjects.Ai("bot") };
         Assert.Equal(ActionStatus.Pending, (await host.Queue.ReviewAsync(a.Id, ai)).Status);            // recorded, counts for nothing
         Assert.Equal(ActionStatus.Pending, (await host.Queue.ReviewAsync(a.Id, By("rita"))).Status);    // 1 human of 2

@@ -29,8 +29,8 @@ public class AiReviewLimitsTests
     public async Task By_default_an_ai_decides_writes_only_outside_effects_need_an_opt_in_and_destructive_never()
     {
         var (host, module, audit) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Ai" },
-            "files.delete": { "Mode": "Queue", "Reviewer": "Ai" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] },
+            "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] }
             """));
         var mail = await Submit(host, "mail.send", Mail);
         Assert.Contains("above what an AI reviewer may approve", await Refused(host, mail.Id, Ai()));
@@ -42,7 +42,7 @@ public class AiReviewLimitsTests
         Assert.Contains("never approved by an AI", await Refused(host, delete.Id, Ai()));
 
         var (host2, module2, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" }
             """));
         var opted = await Submit(host2, "mail.send", Mail);
         Assert.Equal(ActionStatus.Succeeded, (await host2.Queue.ReviewAsync(opted.Id, Ai())).Status);
@@ -53,7 +53,7 @@ public class AiReviewLimitsTests
     public void A_policy_cannot_hand_destructive_actions_to_an_ai_or_set_nonsense_limits()
     {
         var ex = Assert.Throws<InvalidOperationException>(() => Hosts.Build(Policy("""
-            "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "Destructive" },
+            "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "Destructive" },
             "mail.send": { "Mode": "Queue", "AiMaxRejections": -1, "AiBudget": { "Per": "00:00:00", "MaxCount": 1 } }
             """)));
         Assert.Contains("AiMaxRisk cannot be Destructive", ex.Message);
@@ -65,7 +65,7 @@ public class AiReviewLimitsTests
     public async Task A_requester_that_read_outside_content_gets_a_person_for_outside_effects()
     {
         var (host, module, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" }
             """));
         var tainted = await Submit(host, "mail.send", Mail, tainted: true);
         Assert.True(tainted.Tainted);
@@ -78,7 +78,7 @@ public class AiReviewLimitsTests
     public async Task An_ai_cannot_approve_with_edits_but_can_ask_for_changes()
     {
         var (host, module, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true }
             """));
         var a = await Submit(host, "mail.send", Mail);
         Assert.Contains("cannot change the arguments", await Refused(host, a.Id, Ai(edited: """{"to":"boss@y.z","body":"b"}""")));
@@ -90,7 +90,7 @@ public class AiReviewLimitsTests
     public async Task An_ai_is_never_the_second_pair_of_eyes()
     {
         var (host, _, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect", "SelfApproval": "Forbid", "AiMayRefuse": true }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "SelfApproval": "Forbid", "AiMayRefuse": true }
             """));
         var a = await Submit(host, "mail.send", Mail);
         Assert.Contains("four eyes", await Refused(host, a.Id, Ai()));
@@ -101,7 +101,7 @@ public class AiReviewLimitsTests
     public async Task After_two_ai_refusals_in_a_resubmission_chain_only_a_person_decides()
     {
         var (host, module, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true }
             """));
         var first = await Submit(host, "mail.send", Mail);
         await host.Queue.ReviewAsync(first.Id, Ai(ReviewDecision.RequestChanges));
@@ -126,7 +126,7 @@ public class AiReviewLimitsTests
     {
         var clock = new ManualClock(DateTimeOffset.Parse("2026-10-16T09:00:00Z"));
         var (host, module, _) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect",
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect",
                            "AiBudget": { "Per": "01:00:00", "MaxCount": 2 } }
             """), clock);
         Task<ActionRecord> Next() => Submit(host, "mail.send", Mail);
@@ -147,8 +147,8 @@ public class AiReviewLimitsTests
     public async Task The_runner_offers_only_what_an_ai_may_decide_and_audits_model_prompt_and_checks()
     {
         var (host, _, audit) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect" },
-            "files.delete": { "Mode": "Queue", "Reviewer": "Either" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" },
+            "files.delete": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"] }
             """));
         var fine = await Submit(host, "mail.send", Mail);
         var tainted = await Submit(host, "mail.send", Mail, tainted: true);
@@ -187,7 +187,7 @@ public class AiReviewLimitsTests
     public async Task A_runner_decision_past_a_limit_is_left_for_a_person_not_an_error()
     {
         var (host, module, audit) = Hosts.Build(Policy("""
-            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect" }
+            "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" }
             """));
         var a = await Submit(host, "mail.send", Mail);
         // A reviewer that tries to slip in a changed recipient.

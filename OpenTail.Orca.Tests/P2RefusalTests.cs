@@ -29,7 +29,7 @@ public class P2RefusalTests
         Assert.Contains("may not refuse", await Refused(host, off.Id, Bot(ReviewDecision.Reject)));
         Assert.Contains(audit.Entries, e => e.Event == "review_refused" && e.ActionId == off.Id);
 
-        var (host2, module2, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
+        var (host2, module2, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiReviewers": ["bot"] } } }""");
         var on = await Submit(host2);
         Assert.Contains("needs a human reviewer", await Refused(host2, on.Id, Bot(ReviewDecision.Approve)));
         Assert.Equal(ActionStatus.Rejected, (await host2.Queue.ReviewAsync(on.Id, Bot(ReviewDecision.Reject))).Status);
@@ -40,7 +40,7 @@ public class P2RefusalTests
     [Fact]
     public async Task An_ai_may_request_changes_under_the_same_rule()
     {
-        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
+        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiReviewers": ["bot"] } } }""");
         var mail = await Submit(host);
         Assert.Equal(ActionStatus.ChangesRequested, (await host.Queue.ReviewAsync(mail.Id, Bot(ReviewDecision.RequestChanges))).Status);
     }
@@ -48,7 +48,7 @@ public class P2RefusalTests
     [Fact]
     public async Task An_ai_refuses_a_destructive_action_but_never_approves_it()
     {
-        var (host, _, _) = Hosts.Build("""{ "Tools": { "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiMayRefuse": true } } }""");
+        var (host, _, _) = Hosts.Build("""{ "Tools": { "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMayRefuse": true } } }""");
         var delete = await Submit(host, "files.delete", """{"path":"x"}""");
         Assert.Contains("never approved", await Refused(host, delete.Id, Bot(ReviewDecision.Approve)));
         Assert.Equal(ActionStatus.Rejected, (await host.Queue.ReviewAsync(delete.Id, Bot(ReviewDecision.Reject))).Status);
@@ -57,7 +57,7 @@ public class P2RefusalTests
     [Fact]
     public async Task An_ai_refuses_a_tainted_external_action_but_never_approves_it()
     {
-        var (host, module, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
+        var (host, module, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
         var tainted = await Submit(host, tainted: true);
         Assert.Contains("read outside content", await Refused(host, tainted.Id, Bot(ReviewDecision.Approve)));
         Assert.Equal(ActionStatus.Rejected, (await host.Queue.ReviewAsync(tainted.Id, Bot(ReviewDecision.Reject))).Status);
@@ -67,7 +67,7 @@ public class P2RefusalTests
     [Fact]
     public async Task An_ai_refuses_a_reviewer_group_action_but_never_approves_it()
     {
-        var (host, module, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "ReviewerGroup": "finance" } } }""");
+        var (host, module, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "ReviewerGroup": "finance" } } }""");
         var mail = await Submit(host);
         Assert.Contains("cannot stand in", await Refused(host, mail.Id, Bot(ReviewDecision.Approve)));
         Assert.Equal(ActionStatus.Rejected, (await host.Queue.ReviewAsync(mail.Id, Bot(ReviewDecision.Reject))).Status);
@@ -77,7 +77,7 @@ public class P2RefusalTests
     [Fact]
     public async Task An_ai_refusal_costs_the_requester_nothing_and_a_persons_refusal_still_does()
     {
-        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
+        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
         var byAi = await Submit(host);
         await host.Queue.ReviewAsync(byAi.Id, Bot(ReviewDecision.Reject));
         Assert.Null(host.Levels.Get("key:alice-agent"));
@@ -90,7 +90,7 @@ public class P2RefusalTests
     [Fact]
     public async Task The_runner_offers_a_refusal_capable_ai_its_human_only_action_and_takes_only_its_refusal()
     {
-        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true } } }""");
+        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiReviewers": ["bot"] } } }""");
         var mail = await Submit(host);
         var eager = new DelegateReviewer("bot", (_, _) => Task.FromResult<ActionReview?>(Bot(ReviewDecision.Approve)));
         var refusing = new DelegateReviewer("bot", (_, _) => Task.FromResult<ActionReview?>(Bot(ReviewDecision.Reject)));
@@ -120,7 +120,7 @@ public class P2RefusalTests
     [Fact]
     public async Task An_ai_refusal_budget_is_counted_per_requester_and_tool()
     {
-        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiRefusalBudget": { "Per": "01:00:00", "MaxCount": 1 } } } }""");
+        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiReviewers": ["bot"], "AiRefusalBudget": { "Per": "01:00:00", "MaxCount": 1 } } } }""");
         var first = await Submit(host);
         var second = await Submit(host);
         await host.Queue.ReviewAsync(first.Id, Bot(ReviewDecision.Reject));
@@ -135,7 +135,7 @@ public class P2RefusalTests
     [Fact]
     public async Task Two_concurrent_ai_refusals_against_one_remaining_unit_yield_exactly_one_refusal()
     {
-        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiRefusalBudget": { "Per": "01:00:00", "MaxCount": 1 } } } }""");
+        var (host, _, _) = Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect", "AiMayRefuse": true, "AiReviewers": ["bot"], "AiRefusalBudget": { "Per": "01:00:00", "MaxCount": 1 } } } }""");
         var a = await Submit(host);
         var b = await Submit(host);
 
@@ -159,14 +159,14 @@ public class P2RefusalTests
     [Fact]
     public void Aimayrefuse_belongs_to_a_queued_tool()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Execute", "AiMayRefuse": true } } }"""));
+        var ex = Assert.Throws<InvalidOperationException>(() => Hosts.Build("""{ "Tools": { "mail.send": { "Mode": "Execute", "AiMayRefuse": true, "AiReviewers": ["bot"] } } }"""));
         Assert.Contains("AiMayRefuse only applies to Mode Queue", ex.Message);
     }
 
     [Fact]
     public void A_policy_without_aimayrefuse_keeps_its_canonical_text()
     {
-        Assert.DoesNotContain("AiMayRefuse", PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai" } } }""").ToCanonicalJson());
-        Assert.Contains("\"AiMayRefuse\": true", PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMayRefuse": true } } }""").ToCanonicalJson());
+        Assert.DoesNotContain("AiMayRefuse", PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] } } }""").ToCanonicalJson());
+        Assert.Contains("\"AiMayRefuse\": true", PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMayRefuse": true, "AiReviewers": ["bot"] } } }""").ToCanonicalJson());
     }
 }

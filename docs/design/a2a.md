@@ -441,9 +441,9 @@ except the startup checks in `A2AFrontDoor.cs`.
 
 ### Open: before a first external partner
 
-- [ ] Startup: check the rules on `a2a.submit` as the reply's rules are checked. Today only the tool's own reviewer is pinned, so
-  a rule can name another reviewer (reviewer gate, G3).
-- [ ] Test: an AI reviewer may refuse an `a2a.reply` where the policy says `AiMayRefuse`, and can never approve one (reviewer gate, G8).
+- [x] Startup: check the rules on `a2a.submit` as the reply's rules are checked. Built in batch 07 (`48abef9`): a rule that names a
+  reviewer other than Human is a startup error (reviewer gate, G3).
+- [x] Test: an AI reviewer may refuse an `a2a.reply` where the policy says `AiMayRefuse`, and can never approve one (reviewer gate, G8; `P0GateTests`, E1).
 - [ ] A live run in a real Teams tenant, including whether a bare `@name` in a card becomes a mention. *Owner.*
 - [ ] Measure the throughput cost of `synchronous=full`.
 - [ ] Read the parts of the specification not yet read: §3, §4.3, §5.4, §13.1 in full, and how versions and extensions are

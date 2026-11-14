@@ -68,11 +68,16 @@ public static class ReviewAuthority
                 return ReviewVerdict.No($"This action needs a reviewer in the '{reviewerGroup}' group; an AI reviewer cannot stand in.");
         }
 
-        // D-37 (P1): an AI reviewer may not approve a request from its own identity, or from its own person (the People map). That is four eyes
-        // for AI. Refusals are not affected: a refusal cannot run anything.
-        if (isAi && subject is not null && (decision is ReviewDecision.Approve or ReviewDecision.Retry)
+        // D-37 (P1, a setting since batch 08): an AI reviewer may not approve a request from its own identity, or from its own person (the People
+        // map): four eyes for AI. Under AiOwnRequest ForbidAll it may not refuse one either; under Allow it may approve one (a loosening). The
+        // value is resolved into the snapshot when the action is queued; a snapshot without it gets the strict default.
+        var ownRequest = policy?.AiOwnRequest ?? AiOwnRequest.ForbidApproval;
+        var approving = decision is ReviewDecision.Approve or ReviewDecision.Retry;
+        if (isAi && subject is not null && ownRequest != AiOwnRequest.Allow && (approving || ownRequest == AiOwnRequest.ForbidAll)
             && (subject == r.Requester.Id || people.Same(subject, r.Requester.Id)))
-            return ReviewVerdict.No("An AI reviewer may not approve a request from its own identity or its own person.");
+            return ReviewVerdict.No(approving
+                ? "An AI reviewer may not approve a request from its own identity or its own person."
+                : "An AI reviewer may not decide a request from its own identity or its own person (AiOwnRequest ForbidAll).");
 
         // A person outside the group is refused, whatever the decision. (An AI never stands in a group for an approval: above.)
         if (!isAi && r.ReviewerGroup is { } group && !groups.Contains(group, StringComparer.Ordinal))

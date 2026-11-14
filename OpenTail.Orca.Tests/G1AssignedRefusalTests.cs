@@ -87,18 +87,13 @@ public class G1AssignedRefusalTests
     }
 
     [Fact]
-    public void The_no_list_warning_names_a_refusal_only_tool_until_it_has_a_list()
+    public void A_refusal_only_tool_with_no_list_names_no_reviewer_and_one_with_a_list_names_its_reviewers()
     {
+        // Batch 08 replaced the no-list warning (D-36): with no list, nobody may refuse the tool either, until it names reviewers.
         var unnamed = PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMayRefuse": true } } }""");
-        var warnings = AiReviewRules.UnassignedAiTools(unnamed);
-        Assert.Single(warnings);
-        Assert.Contains("mail.send", warnings[0]);
-        Assert.Contains("may refuse it", warnings[0]);
+        Assert.Null(PolicySettings.Resolve(unnamed.Tools["mail.send"], ToolRisk.ExternalEffect, unnamed).AiReviewers);
 
-        // One warning per tool, even when the tool may also be decided by AI.
-        var both = PolicyConfig.Parse("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMayRefuse": true } } }""");
-        Assert.Single(AiReviewRules.UnassignedAiTools(both));
-
-        Assert.Empty(AiReviewRules.UnassignedAiTools(PolicyConfig.Parse(HumanOnly(refuse: true))));
+        var named = PolicyConfig.Parse(HumanOnly(refuse: true));
+        Assert.Equal(["a"], PolicySettings.Resolve(named.Tools["mail.send"], ToolRisk.ExternalEffect, named).AiReviewers);
     }
 }

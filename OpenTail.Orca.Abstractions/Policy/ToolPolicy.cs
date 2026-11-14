@@ -27,6 +27,26 @@ public enum ReviewerKind
     Either = 2,
 }
 
+/// <summary>What an AI reviewer may do on a request from its own identity or its own person (D-37). <c>ForbidApproval</c>: it may not approve
+/// such a request, but may refuse it (the default, as built). <c>ForbidAll</c>: it may not decide it at all. <c>Allow</c>: it may approve it too,
+/// which loosens the gate (section 1a of the reviewer-gate plan).</summary>
+public enum AiOwnRequest
+{
+    ForbidApproval = 0,
+    ForbidAll = 1,
+    Allow = 2,
+}
+
+/// <summary>Whether a person may retry an action whose outcome is unknown (D-32). <c>Never</c>: nobody retries it. <c>Once</c>: a person may
+/// retry it once, with a reason; a second unknown outcome on the action is final (the default). <c>WithReason</c>: a person may retry it again
+/// and again, with a reason, as the Host did before this setting (a loosening).</summary>
+public enum UnknownOutcomeRetry
+{
+    Never = 0,
+    Once = 1,
+    WithReason = 2,
+}
+
 /// <summary>Per-hour / per-day ceilings. Zero means no limit for that window.</summary>
 public sealed record RateLimit(int PerHour = 0, int PerDay = 0);
 
@@ -98,8 +118,8 @@ public sealed record ToolPolicy
     public RuleBudget? AiBudget { get; init; }
 
     /// <summary>The AI reviewers assigned to this tool, by name (D-20): the part after <c>ai:</c> that an in-process reviewer runs under. When
-    /// set, only these may decide the tool, and the runner offers them nothing else. Null: any AI reviewer may decide it, as before named
-    /// reviewers existed (D-36). Left out of the canonical policy text when null, so a policy without assignments keeps its hash.</summary>
+    /// set, only these may decide the tool, and the runner offers them nothing else. Null, and no policy-wide DefaultAiReviewers: no AI
+    /// reviewer may decide it (D-36, the strict default of section 1a). Left out of the canonical policy text when null, so a policy without assignments keeps its hash.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<string>? AiReviewers { get; init; }
 
@@ -118,6 +138,16 @@ public sealed record ToolPolicy
     /// that time. Off (null) by default. Only for Mode Queue. Left out of the canonical policy text when null.</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public TimeSpan? ApproveDelay { get; init; }
+
+    /// <summary>Whether a person may retry an action whose outcome is unknown (D-32). Unset: the policy-wide default, else <c>Once</c>, and <c>Never</c>
+    /// for a Destructive tool. Left out of the canonical policy text when null, so a policy that sets none keeps its hash.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public UnknownOutcomeRetry? UnknownOutcomeRetry { get; init; }
+
+    /// <summary>What an AI reviewer may do on a request from its own identity or person (D-37). Unset: the policy-wide default, else
+    /// <c>ForbidApproval</c>. Left out of the canonical policy text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AiOwnRequest? AiOwnRequest { get; init; }
 
     /// <summary>Conditional refinements (see <see cref="PolicyRule"/>). Not copied into the per-action policy snapshot.</summary>
     public IReadOnlyList<PolicyRule>? Rules { get; init; }

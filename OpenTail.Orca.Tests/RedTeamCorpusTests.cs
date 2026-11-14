@@ -45,13 +45,13 @@ public class RedTeamCorpusTests
 
     private static (string Policy, bool Tainted, string? Edits, string Tool, string Args) Scenario(string scenario) => scenario switch
     {
-        "destructive" => ("""{ "Tools": { "files.delete": { "Mode": "Queue", "Reviewer": "Ai" } } }""", false, null, "files.delete", """{"path":"x"}"""),
-        "over-ceiling" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai" } } }""", false, null, "mail.send", Mail),
-        "tainted" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" } } }""", true, null, "mail.send", Mail),
-        "four-eyes" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "SelfApproval": "Forbid" } } }""", false, null, "mail.send", Mail),
-        "group" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect", "ReviewerGroup": "finance" } } }""", false, null, "mail.send", Mail),
+        "destructive" => ("""{ "Tools": { "files.delete": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] } } }""", false, null, "files.delete", """{"path":"x"}"""),
+        "over-ceiling" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"] } } }""", false, null, "mail.send", Mail),
+        "tainted" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" } } }""", true, null, "mail.send", Mail),
+        "four-eyes" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "SelfApproval": "Forbid" } } }""", false, null, "mail.send", Mail),
+        "group" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect", "ReviewerGroup": "finance" } } }""", false, null, "mail.send", Mail),
         "human-only" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "AiMaxRisk": "ExternalEffect" } } }""", false, null, "mail.send", Mail),
-        "edits" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" } } }""", false, """{"to":"boss@y.z","body":"b"}""", "mail.send", Mail),
+        "edits" => ("""{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" } } }""", false, """{"to":"boss@y.z","body":"b"}""", "mail.send", Mail),
         _ => throw new ArgumentOutOfRangeException(nameof(scenario)),
     };
 

@@ -201,7 +201,7 @@ public sealed class ActionQueue(
             ModuleId = tool.Descriptor.ModuleId,
             ModuleVersion = catalog.ModuleOf(tool.Descriptor.Name)?.Version,
             PolicyMode = d.Mode,
-            PolicySnapshot = d.Policy,
+            PolicySnapshot = PolicySettings.Resolve(d.Policy, tool.Descriptor.Risk, policy.Config),
             PolicyRule = d.RuleName,
             ReviewerGroup = d.Policy.ReviewerGroup,
             RequiredApprovals = d.Policy.RequiredApprovals,
@@ -439,7 +439,9 @@ public sealed class ActionQueue(
         {
             var idempotent = catalog.TryGet(existing.ToolName, out var retryTool) && retryTool.Descriptor.IdempotentByKey;
             var byAi = review.Subject is { } retrySubject && Subjects.IsAi(retrySubject);
-            if (RetryRules.Refusal(existing.Error, idempotent, byAi, review.Reason) is { } retryReason)
+            // D-32: the tool's UnknownOutcomeRetry (resolved when the action was queued) and the retries already made on this action.
+            var priorRetries = existing.Reviews.Count(p => p.Decision == ReviewDecision.Retry);
+            if (RetryRules.Refusal(existing.Error, idempotent, byAi, review.Reason, existing.PolicySnapshot?.UnknownOutcomeRetry, priorRetries) is { } retryReason)
             {
                 await audit.AppendAsync(new AuditEntry(_clock.GetUtcNow(), "review_refused", existing.Id, existing.ToolName,
                     review.Subject ?? review.Reviewer, $"Retry: {retryReason}"), ct);

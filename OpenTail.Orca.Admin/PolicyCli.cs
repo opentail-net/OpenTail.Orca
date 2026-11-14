@@ -127,6 +127,13 @@ public static class PolicyCli
                 var d = host.Policy.Simulate(host.Catalog, args[explainAt + 1], args[explainAt + 2], args.Contains("--tainted"), at);
                 await output.WriteLineAsync($"{args[explainAt + 1]} -> {d.Mode}  ({d.Rule})");
                 foreach (var line in d.Trace) await output.WriteLineAsync("  " + line);
+                // The settings a queued call would be decided under (batch 08): what the action's snapshot would hold.
+                if (host.Catalog.TryGet(args[explainAt + 1], out var settled))
+                {
+                    var resolved = PolicySettings.Resolve(d.Policy, settled.Descriptor.Risk, host.Policy.Config);
+                    var reviewers = resolved.AiReviewers is { Count: > 0 } named ? string.Join(", ", named) : "nobody (no AiReviewers, no DefaultAiReviewers)";
+                    await output.WriteLineAsync($"  AI reviewers: {reviewers}; AI on its own request: {resolved.AiOwnRequest}; unknown outcome retry: {resolved.UnknownOutcomeRetry}");
+                }
                 if (host.Catalog.TryGet(args[explainAt + 1], out var described))
                 {
                     if (host.Labels.Of(described.Descriptor) is { Count: > 0 } own)

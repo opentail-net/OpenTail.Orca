@@ -93,6 +93,21 @@ public sealed class PolicyConfig
     /// also keeps the input itself, with the action, purged with it.</summary>
     public AiInputKeep AiReviewInput { get; init; } = AiInputKeep.Hash;
 
+    /// <summary>The policy-wide default for <see cref="ToolPolicy.UnknownOutcomeRetry"/> (D-32). Unset: <c>Once</c>, and <c>Never</c> for a Destructive
+    /// tool. Left out of the canonical policy text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public UnknownOutcomeRetry? UnknownOutcomeRetry { get; init; }
+
+    /// <summary>The policy-wide default for <see cref="ToolPolicy.AiOwnRequest"/> (D-37). Unset: <c>ForbidApproval</c>. Left out of the canonical policy
+    /// text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AiOwnRequest? AiOwnRequest { get; init; }
+
+    /// <summary>The reviewers that decide every AI-decidable tool which names none of its own (D-36). Unset: no AI reviewer may decide such a tool
+    /// (section 1a). Setting it is a loosening, so startup prints a warning naming it. Left out of the canonical policy text when null.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? DefaultAiReviewers { get; init; }
+
     /// <summary>A call that runs longer than this becomes an MCP task for a client that opted in to the Tasks extension, and keeps
     /// running in the background (docs/design/mcp-tasks.md, step 3). Other clients wait as before. Default 20 seconds (provisional).</summary>
     public TimeSpan TaskInlineLimit { get; init; } = TimeSpan.FromSeconds(20);
@@ -176,6 +191,9 @@ public sealed class PolicyConfig
             Work = cfg.Work,
             Failures = cfg.Failures,
             AiReviewInput = cfg.AiReviewInput,
+            UnknownOutcomeRetry = cfg.UnknownOutcomeRetry,
+            AiOwnRequest = cfg.AiOwnRequest,
+            DefaultAiReviewers = cfg.DefaultAiReviewers,
             TaskInlineLimit = cfg.TaskInlineLimit,
             Include = cfg.Include,
             IncludedFiles = included,
@@ -359,6 +377,13 @@ public sealed class PolicyConfig
             errors.Add("AuditArchiveDays must be at least AuditLiveDays: an archive is kept at least as long as the live trail it came from.");
         if (AuditArchiveDirectory is not null && string.IsNullOrWhiteSpace(AuditArchiveDirectory))
             errors.Add("AuditArchiveDirectory cannot be blank.");
+        if (DefaultAiReviewers is { } defaults)
+        {
+            if (defaults.Count == 0)
+                errors.Add("DefaultAiReviewers needs at least one reviewer name; leave it out so that no AI reviewer decides a tool without a list.");
+            foreach (var reviewer in defaults.Where(n => !AiReviewRules.IsValidReviewerName(n)))
+                errors.Add($"DefaultAiReviewers: '{reviewer}' is not a valid AI reviewer name (letters, digits, '.', '_' and '-', starting with a letter or digit, at most 64 characters).");
+        }
         return errors;
     }
 }

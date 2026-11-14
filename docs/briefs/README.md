@@ -16,8 +16,8 @@ record of what each brief asked, and where the decisions are.
   tests. Closed by `c159639`. Its report is `a2a-reviewer-view.md`.
 - `batch-05-a2a-try-it-kit-and-teams-status.md`: the A2A kit; Teams `work` and `tasks`. Closed by `7b6003c`.
 - `batch-06-records.md`: records brought in line with the code, and one test. Closed by the commit that added this file.
-- `batch-07-gate-gaps.md`: reviewer gate gaps G1, G3 and G6, the taint message, and a test of an AI refusing an A2A reply. Open.
-- `batch-08-09-settings-tests-model-reviewer.md`: the three settings (D-32, D-36, D-37), G5, the missing tests, then the model reviewer against a fake client (R2). From this brief on the coder also owns the tests and the records. Open.
+- `batch-07-gate-gaps.md`: reviewer gate gaps G1, G3 and G6, the taint message, and a test of an AI refusing an A2A reply. Closed by `48abef9` (2026-11-14).
+- `batch-08-09-settings-tests-model-reviewer.md`: the three settings (D-32, D-36, D-37), G5, the missing tests, then the model reviewer against a fake client (R2). From this brief on the coder also owns the tests and the records. Batch 08 built, not committed (2026-11-14); batch 09 open.
 - `teams-inventory.md`, `a2a-sdk-facts.md`, `a2a-reviewer-view.md`: the inventory, the facts and the batch 04 report. They are not briefs.
 
 ## Decisions the planner made for the owner

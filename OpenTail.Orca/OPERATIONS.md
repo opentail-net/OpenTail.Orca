@@ -199,6 +199,10 @@ with UnsupportedOperation); no file parts; no continuation of a task.
   * `BlockingWait` is from 1 second to 5 minutes, and `MaxBlockingWaitsPerPartner` from 1 to 64.
 * **Warning.** `a2a.submit` in mode `Execute` with no rule runs every partner's request without a person's review. That is allowed when you
   trust every partner, and startup prints a warning saying so.
+* **Loosened settings.** A policy that sets `DefaultAiReviewers`, `UnknownOutcomeRetry` to `WithReason`, or `AiOwnRequest` to `Allow`
+  (on a tool or policy-wide) prints a startup warning naming it (section 1a of the reviewer-gate plan). `--explain <tool>` shows who
+  would decide the tool, the `AiOwnRequest` and the `UnknownOutcomeRetry` that apply. With two or more AI reviewers in the HTTP config,
+  startup refuses a tool that an AI may decide and that names no reviewer, unless `DefaultAiReviewers` is set.
 * **Agent card.** With A2A on, `GET /.well-known/agent-card.json` returns the card to a caller with the `a2a:call` role. No credential is
   401; a key without the role is 403; with A2A off the path does not exist (404). `A2A.Card` sets the name, description and version
   (defaults: "OpenTail Orca", a generic description, "1.0"). The card names one JSON-RPC 1.0 interface at `PublicBaseUrl` + `/a2a`, has no

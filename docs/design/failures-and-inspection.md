@@ -46,7 +46,7 @@ applies policy to the kind.
 | `contract` | 400, 404, 409, 422, schema mismatch, a profile that has never worked | No retry | The requester or the profile's author |
 | `auth` | 401, 403, expired or revoked credential, failed token refresh | At most one token refresh, then stop | [Credential assessment](#5-credential-failures-are-a-security-question-first) |
 | `policy` | Orca denial, a profile refusal, a guardrail or flow rule | Never retried | Not an operational failure; repeated attempts are already a signal under [adaptive limits](adaptive-limits.md) |
-| `unknown_outcome` | interrupted on a tool that is not idempotent | Never retried | A person checks whether the effect happened |
+| `unknown_outcome` | interrupted, or reported by the tool, on a tool that is not idempotent | Not retried by an AI or automatically. A person may retry it under `UnknownOutcomeRetry` (default `Once`: one retry with a reason, a second unknown outcome is final; `Never`; `WithReason`), see `POLICY.md` | A person checks whether the effect happened |
 | `bug` | an unexpected exception in a module | No retry | The module's owner |
 
 **The module contract** gains one exception beside `ToolTransientException`: `ToolFailureException(kind, code, detail)`. It only
@@ -231,7 +231,8 @@ Most failures never reach inspection: transient retries succeed, and paused rout
 - **One approval:** `transient` and `bug` redrives, `contract` after a profile fix, and `environment` when the ticket closed but the
   probe failed or there is no probe to make.
 - **Two approvals:** `auth`.
-- **A person's check:** `unknown_outcome`, always.
+- **A person's check:** `unknown_outcome`, always. The retry records the check as its reason, and `UnknownOutcomeRetry` says how
+  many retries a person may make (default: one; `POLICY.md`).
 
 An automatic redrive is audited as `redrive.automatic` with the ticket and the probe that justified it.
 

@@ -261,8 +261,8 @@ public class ReviewerRunnerTests
         .AddModule(new FakeInboxModule())
         .UsePolicy(PolicyConfig.Parse("""
             { "Tools": {
-                "mail.send":  { "Mode": "Queue", "Reviewer": "Either", "AiMaxRisk": "ExternalEffect" },
-                "flaky.op":   { "Mode": "Queue", "Reviewer": "Ai" },
+                "mail.send":  { "Mode": "Queue", "Reviewer": "Either", "AiReviewers": ["auto-reviewer", "flaky-reviewer", "slow-ai"], "AiMaxRisk": "ExternalEffect" },
+                "flaky.op":   { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["auto-reviewer", "flaky-reviewer", "slow-ai"] },
                 "ledger.append": { "Mode": "Queue", "Reviewer": "Human" } } }
             """))
         .Build();
@@ -304,7 +304,7 @@ public class ReviewerRunnerTests
     public async Task With_AiReviewInput_Full_the_reviewers_input_is_kept_and_matches_its_hash()
     {
         var host = new OpenTailHostBuilder().AddModule(new FakeInboxModule())
-            .UsePolicy(PolicyConfig.Parse("""{ "AiReviewInput": "Full", "Tools": { "flaky.op": { "Mode": "Queue", "Reviewer": "Ai" } } }""")).Build();
+            .UsePolicy(PolicyConfig.Parse("""{ "AiReviewInput": "Full", "Tools": { "flaky.op": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["auto"] } } }""")).Build();
         var a = await host.Queue.SubmitAsync(new ActionRequest("flaky.op", "{\"fail\":false}", Me));
         await new ReviewerRunner(host).RunOnceAsync(new DelegateReviewer("auto", (_, _) =>
             Task.FromResult<ActionReview?>(new ActionReview("auto", ReviewDecision.Approve, null, DateTimeOffset.UtcNow))));

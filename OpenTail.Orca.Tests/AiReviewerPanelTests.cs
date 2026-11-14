@@ -17,7 +17,7 @@ public class AiReviewerPanelTests
     private const string BotSecret = "bot-secret-0123456789abcdef";
     private static readonly ActionRequester Alice = new(RequesterKind.AiSession, "key:alice-agent");
     private const string Mail = """{"to":"x@y.z","body":"b"}""";
-    private const string Policy = """{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiMaxRisk": "ExternalEffect" } } }""";
+    private const string Policy = """{ "Tools": { "mail.send": { "Mode": "Queue", "Reviewer": "Ai", "AiReviewers": ["bot"], "AiMaxRisk": "ExternalEffect" } } }""";
 
     private static string HashOf(string secret) => "sha256:" + Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(secret)));
 

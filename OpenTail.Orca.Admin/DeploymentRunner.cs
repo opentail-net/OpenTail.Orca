@@ -61,7 +61,7 @@ public static class DeploymentRunner
             addModules(builder);
             host = builder.Build();
             foreach (var line in ModulesCli.Describe(host)) await Console.Error.WriteLineAsync(line);
-            foreach (var w in host.StartupWarnings.Concat(AiReviewRules.UnassignedAiTools(host.Policy.Config))) await Console.Error.WriteLineAsync("warning: " + w);
+            foreach (var w in host.StartupWarnings) await Console.Error.WriteLineAsync("warning: " + w);
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or IOException or System.Text.Json.JsonException)
         {

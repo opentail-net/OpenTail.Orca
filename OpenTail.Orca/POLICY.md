@@ -69,7 +69,10 @@ anything; all accept `--modules modules.json`.
 | `ApproveDelay` | `"00:10:00"`: a queued approval schedules the run this long later instead of running it at once. The run can be stopped, or refused by a person, in that time. An approval that scheduled a run cannot be approved again. The window is counted from the approval. A run more than one window late, or of a suspended requester, is held for a person; an expired run does not run. Off by default. Needs Mode `Queue`, at most 7 days. |
 | `AiMaxRejections` | After this many AI rejections or change requests along one resubmission chain, the AI may not decide it again (default 2; 0 turns it off). See *AI reviewers* for who may decide then. |
 | `AiBudget` | `{ "Per": "01:00:00", "MaxCount": n, "Scope": "Requester" }`: at most n AI approvals of this tool per requester (or `Global`) in the window; past it, the AI may not approve more in that window. |
-| `AiReviewers` | `["bot", "second"]`: the AI reviewers, by name (the part after `ai:`), that may decide this tool. A reviewer not named may not decide it, and is never shown it. Left out: any AI reviewer may decide it. Accepted on a tool with Mode `Queue` and Reviewer `Ai` or `Either`, or with `AiMayRefuse: true` (a Human-only tool whose named AI reviewers may refuse it, never approve it). Refused otherwise, at startup. |
+| `AiReviewers` | `["bot", "second"]`: the AI reviewers, by name (the part after `ai:`), that may decide this tool. A reviewer not named may not decide it, and is never shown it. Left out, with no `DefaultAiReviewers`: no AI reviewer may decide it. Accepted on a tool with Mode `Queue` and Reviewer `Ai` or `Either`, or with `AiMayRefuse: true` (a Human-only tool whose named AI reviewers may refuse it, never approve it). Refused otherwise, at startup. |
+| `UnknownOutcomeRetry` | `"Never"`, `"Once"` or `"WithReason"`: whether a person may retry an action whose outcome is unknown (its run stopped, or the tool reported it). `Once` (the default) allows one retry, with a reason; a second unknown outcome on the same action is final. `WithReason` allows any number of retries, each with a reason (what the Host did before this setting; a loosening). `Never` allows none. Set per tool, or policy-wide at the top. A Destructive tool defaults to `Never`, unless the tool sets its own value. An AI reviewer retries an unknown outcome only on a tool that is idempotent by key, whatever this says; a tool idempotent by key is not limited by it. |
+| `AiOwnRequest` | `"ForbidApproval"` (the default), `"ForbidAll"` or `"Allow"`: what an AI reviewer may do on a request from its own identity, or from its own person in `People`. `ForbidApproval`: it may refuse, not approve. `ForbidAll`: it may decide neither. `Allow`: it may approve too (a loosening; startup prints a warning). Set per tool, or policy-wide at the top. |
+| `DefaultAiReviewers` (policy-wide) | `["bot"]`: the AI reviewers that decide every tool which has an AI decision and names no `AiReviewers` of its own. Unset, no AI reviewer decides such a tool. Setting it is a loosening: startup prints a warning. With two or more AI reviewers configured in the HTTP config, a tool that an AI may decide and that names no reviewers is refused at startup unless this is set. A tool's own list replaces it. |
 | `ExpireAfter` | A pending action that nobody decides in this time expires. It can no longer be approved, even before the sweep notices. |
 | `ReviewerGroup` | Only reviewers carrying this group may decide it. |
 | `RequiredApprovals` | 1-5 distinct approvers. An edit of the arguments voids approvals given before it; one eligible rejection ends the action. |
@@ -411,8 +414,17 @@ an AI reviewer (any reviewer signed in as `ai:<name>`, such as one run by `Revie
 * be the second pair of eyes: with `SelfApproval: Forbid` only a person approves;
 * keep deciding a request it has turned down `AiMaxRejections` times along its resubmission chain;
 * approve more than `AiBudget` allows;
-* decide a tool it is not named for in `AiReviewers`, when the tool has that list. Such an action is never shown to that reviewer.
-* approve a request from its own identity, or from its own person in `People`: four eyes apply to an AI as well (a refusal is not restricted).
+* decide a tool it is not named for in `AiReviewers`, when the tool has that list. Such an action is never shown to that reviewer. With no list and no `DefaultAiReviewers`, no AI reviewer decides the tool at all.
+* approve a request from its own identity, or from its own person in `People`: four eyes apply to an AI as well (a refusal is not restricted). `AiOwnRequest` can tighten that to refusals too (`ForbidAll`), or loosen it to approvals (`Allow`, a warning at startup).
+
+**Existing policies, after batch 08 (2026-11-14).** A policy that sets none of the three settings above keeps its canonical text and its
+hash, and three behaviours change:
+
+* A queued tool with no `AiReviewers`, in a policy with no `DefaultAiReviewers`, is no longer decided by any AI reviewer. Its actions
+  wait for a person. Name the reviewers to keep AI decisions.
+* An unknown outcome is retried by a person at most once, with a reason (`Once`). Before, a person could retry it any number of
+  times, with a reason. A tool's own report of an unknown outcome is treated the same way.
+* A Destructive tool's unknown outcome is never retried (`Never`). Before, a person could retry it with a reason.
 
 **Oversight.** An admin sees each AI reviewer's record on the review page's *AI reviewers* tab: what it decided, what came of each decision, what the queue refused it, and the model and checks it reported. An admin can suspend a reviewer, or clear the suspension, and must give a reason either way; each act is audited. A suspended reviewer's decisions are refused, refusals included, and it is offered nothing. No automatic rule suspends an AI reviewer.
 

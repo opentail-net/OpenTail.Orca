@@ -84,8 +84,10 @@ public static class HttpDeploymentRunner
             addModules(builder);
             host = builder.Build();
             foreach (var line in ModulesCli.Describe(host)) await Console.Error.WriteLineAsync(line);
+            // D-36: with two or more AI reviewers configured, an AI-decidable tool must name its reviewers, or DefaultAiReviewers must.
+            if (PolicySettings.Refusals(host.Policy.Config, options.AiReviewers.Count) is { Count: > 0 } reviewerRefusals)
+                throw new ArgumentException(string.Join(" ", reviewerRefusals));
             foreach (var w in host.StartupWarnings.Concat(options.CheckProfiles(host.Policy.Config).Warnings)
-                         .Concat(AiReviewRules.UnassignedAiTools(host.Policy.Config))
                          .Concat(extensions.SelectMany(extension => extension.Warnings(host, options))))
                 await Console.Error.WriteLineAsync("warning: " + w);
             notifier?.Attach(host.Store, t => host.Catalog.TryGet(t, out var reg) ? reg.Descriptor.Risk : null, host.Audit);

@@ -1,7 +1,7 @@
 # Reviewer gate: AI reviewers on Orca
 
 **This is the current design and the plan.** It says what is true in the code now, what is open, and what waits for the owner.
-Last checked against the code at `32848f5` (2026-11-13).
+Last checked against the code at `48abef9` (2026-11-13), plus batch 08 (2026-11-14, not yet committed).
 
 **The record is in [`reviewer-gate-history.md`](reviewer-gate-history.md):** the three versions of the plan, the findings F1 to
 F23 as they were found, the two external reviews, the phase log with branches and test counts, and the review of 2026-11-13. Code
@@ -51,10 +51,13 @@ Settings proposed under this rule so far: `UnknownOutcomeRetry` (D-32), `Default
 | `AiMaxRisk` | `Write` | The highest risk an AI may approve. Never `Destructive`. |
 | `AiMaxRejections` | 2 | After this many AI refusals along the resubmission chain, an AI decides nothing more about it. 0 turns it off. |
 | `AiBudget` | none | At most n AI approvals in a window, per requester or globally. |
-| `AiReviewers` | none | The named AI reviewers that may decide this tool. With no list, any AI reviewer may (D-36). Accepted only on a Queue tool with `Ai` or `Either` (G1). |
+| `AiReviewers` | none | The named AI reviewers that may decide this tool. With no list and no `DefaultAiReviewers`, no AI reviewer may (D-36, the strict default). Accepted on a Queue tool with `Ai` or `Either`, or with `AiMayRefuse` (G1). |
 | `AiMayRefuse` | off | Lets an AI reject or ask for changes. Without it an AI refuses nothing, on any tool (G2). |
 | `AiRefusalBudget` | none | At most n AI refusals per requester and tool in a window. Needs `AiMayRefuse`. |
 | `ApproveDelay` | off | The final approval schedules the run after this window (at most 7 days) instead of running it. Queue tools only. |
+| `UnknownOutcomeRetry` | `Once`; `Never` for a Destructive tool | Whether a person may retry an action whose outcome is unknown: `Never`; `Once` (one retry with a reason, a second unknown outcome is final); `WithReason` (any number of retries with a reason; a loosening). Per tool, or policy-wide (D-32). |
+| `AiOwnRequest` | `ForbidApproval` | What an AI may do on a request from its own identity or its own person: `ForbidApproval` (it may refuse, not approve); `ForbidAll` (it may decide neither); `Allow` (it may approve too; a loosening). Per tool, or policy-wide (D-37). |
+| `DefaultAiReviewers` (policy-wide) | none | The reviewers of every AI-decidable tool that names no `AiReviewers` of its own (D-36). Setting it is a loosening. |
 
 ### 2.2 Who may decide (`ReviewAuthority.Check`, and the suspension check before it)
 
@@ -65,14 +68,19 @@ Settings proposed under this rule so far: `UnknownOutcomeRetry` (D-32), `Default
 | An AI approving or retrying a Human-only action | Refused |
 | An AI approving or retrying an action with a reviewer group | Refused |
 | An AI refusing a Human-only or group action, `AiMayRefuse` set | Allowed |
-| An AI approving or retrying a request from its own identity or its own person | Refused |
+| An AI approving or retrying a request from its own identity or its own person, unless `AiOwnRequest` is `Allow` | Refused |
+| An AI refusing a request from its own identity or its own person, `AiOwnRequest` `ForbidAll` | Refused |
+| An AI approving a request from its own identity or its own person, `AiOwnRequest` `Allow` | Allowed (a loosening) |
 | A person outside the action's reviewer group, any decision | Refused |
 | Approve or retry under `SelfApproval: Forbid`, by an unknown identity or by the requester's own person | Refused |
 | Several approvers required, identity unknown | Refused |
 | An AI on a tool whose `AiReviewers` list does not name it | Refused (in the queue, after the rows above) |
+| An AI on a tool with no list, and no `DefaultAiReviewers` (D-36) | Refused, as not assigned |
 | Otherwise | Allowed |
 
-Every refusal is audited as `review_refused`.
+Every refusal is audited as `review_refused`. The rows are checked in order, and the first refusal given is the one reported: an
+unassigned AI approving a Human-only action is refused with "needs a human reviewer", not "not assigned", because the strictest
+refusal comes first.
 
 ### 2.3 The AI limits (`AiReviewRules.Check`; the first refusal wins)
 
@@ -103,7 +111,7 @@ under a gate per requester and tool, inside one process. Across processes they c
 | Approve, enough approvals, no `ApproveDelay` | Approved and run at once |
 | Approve, enough approvals, `ApproveDelay` set | Stays pending with a run time (`approval_scheduled`); the sweep runs it |
 | Approve of a run already scheduled by an approval | Refused. Stop it to cancel the run. |
-| Retry | Runs again only if `RetryRules` allows: the failure is retryable; an AI only on a tool idempotent by key; an unknown outcome on other tools only by a person who gives a reason. Nothing limits how many times (D-32). |
+| Retry | Runs again only if `RetryRules` allows: the failure is retryable; an AI only on a tool idempotent by key; an unknown outcome (`interrupted`, or a tool's own `unknown_outcome`) on a tool not idempotent by key only by a person, under `UnknownOutcomeRetry` (default `Once`: one retry with a reason, and a second unknown outcome is final; `Never`; `WithReason`). Nothing else limits how many times. (D-32) |
 | Reject, Request changes | Rejected or sent back. A person's rejection can demote trust and raise the requester's level. An AI's does neither (D-27). |
 
 Every AI decision is audited as `ai_review` under its `ai:` subject, whichever channel brought it.
@@ -130,7 +138,8 @@ transaction, which is safe while policy cannot change in a running process (D-33
 - The identity has the review role only. It cannot call a tool, and an endpoint filter refuses it every `/api` route except list,
   read and review. An agent's key cannot review.
 - Assignment is enforced at three places: the list and the read (an action not offered is "not found"), the queue decision, and
-  the runner (no action is shown to a reviewer it is not offered to).
+  the runner (no action is shown to a reviewer it is not offered to). With no list and no `DefaultAiReviewers`, no AI reviewer is
+  assigned (D-36).
 - An AI reviewer cannot change policy, budgets, credentials, suspensions or levels.
 - The runner exists (`ReviewerRunner`, `IReviewer`). The only implementation is `DelegateReviewer`. **No model-backed reviewer
   exists**, and no deployment runs the runner.
@@ -146,9 +155,10 @@ transaction, which is safe while policy cannot change in a running process (D-33
 
 ### 2.8 A2A
 
-- Startup refuses an `a2a.submit` whose `Reviewer` is not Human. Its rules are not checked (G3).
+- Startup refuses an `a2a.submit` whose `Reviewer` is not Human, and a rule on it that names a reviewer other than Human (G3).
 - Startup requires `a2a.reply` to be Human, Queue or Deny, with no edits and no rule that executes or names another reviewer.
-  It does not look at `AiMayRefuse`, so an AI may refuse a reply where the policy says so. No test covers that.
+  It does not look at `AiMayRefuse`: an AI may refuse a reply where the policy says so, and never approves one (test E1,
+  `P0GateTests`).
 
 ### 2.9 What this does not solve
 
@@ -172,48 +182,54 @@ transaction, which is safe while policy cannot change in a running process (D-33
 - [x] **R5.** Red-team corpus, 84 cases: seven approval limits times twelve injected texts (`RedTeamCorpusTests`).
 - [x] **Overseer.** Kill switch for AI reviewers; the panel (`AiReviewerKillSwitchTests`, `AiReviewerPanelTests`).
 - [x] **Audit.** Query (schema 14) and archive (`AuditQueryTests`, `AuditArchiveTests`).
-- [x] Startup warning for an `Ai` or `Either` tool with no reviewer list (hosted server).
+- [x] Startup warning for an `Ai` or `Either` tool with no reviewer list (hosted server). Removed in batch 08 with the strict default (D-36).
+- [x] **Batch 07** (`48abef9`, 2026-11-14): G1, G3, the taint message and the A2A reply test (E1). G6 was built and then superseded in batch 08.
+- [x] **Batch 08** (2026-11-14, not yet committed): the three settings (D-32, D-36, D-37), G5, and the G8 tests listed below.
 
 Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `Ai` action (D-19, reverted by D-38).
 
 ### Open: small, no decision needed
 
-- [ ] **G1.** Accept `AiReviewers` on any Queue tool that has `AiMayRefuse`, so refusals on a Human-only tool can be limited to
-  named reviewers. Include those tools in the startup warning. Test: two reviewers, each trying the other's Human-only action.
-- [ ] **G3.** Check the rules on `a2a.submit` as the reply's rules are checked. Startup test.
-- [ ] **G6.** Print the no-list warning from the standalone runner too.
-- [ ] **G5.** Trace whether an action can be queued with no policy snapshot. If it cannot, record that and close.
-- [ ] Fix the taint message in `AiReviewRules`: an AI "may not approve this", not "may not decide this" (D-35).
+- [x] **G1.** Accept `AiReviewers` on any Queue tool that has `AiMayRefuse`, so refusals on a Human-only tool can be limited to
+  named reviewers. Test: two reviewers, each trying the other's Human-only action (`G1AssignedRefusalTests`). The warning it
+  mentioned went with D-36 in batch 08.
+- [x] **G3.** Check the rules on `a2a.submit` as the reply's rules are checked. Startup test (`P0GateTests`).
+- [x] **G6.** Print the no-list warning from the standalone runner too. Superseded in batch 08: the no-list warning went away with
+  D-36, and the standalone runner prints every startup warning, the loosenings included (`G6StandaloneWarningsTests`).
+- [x] **G5.** Trace whether an action can be queued with no policy snapshot. Closed: see section 6.
+- [x] Fix the taint message in `AiReviewRules`: an AI "may not approve this", not "may not decide this" (D-35).
 - [ ] When hot reload of policy is planned, move the recheck inside the claim first (D-33). Note this on the hot-reload item.
 - [ ] **Tests (G8):**
-  - [ ] an AI refusing an A2A reply, and failing to approve it;
-  - [ ] channel parity: one action through MCP, A2A, Teams, HTTP and the runner gets one answer;
-  - [ ] a restart during a scheduled window;
-  - [ ] pins for the decision and delay tables (2.4, 2.5);
-  - [ ] a red-team case for a side door (a tool with no policy entry);
-  - [ ] pairwise coverage for 2.2 and 2.3.
+  - [x] an AI refusing an A2A reply, and failing to approve it (`P0GateTests`, E1);
+  - [ ] channel parity: one action through MCP, A2A, Teams, HTTP and the runner gets one answer. **Partly:** the runner and a
+    direct queue decision (`Batch08SettingsTests`). The other channels are not run through here;
+  - [x] a restart during a scheduled window (`Batch08SettingsTests`; on SQLite with a clock, not a separate process);
+  - [ ] pins for the decision and delay tables (2.4, 2.5). **Partly:** five rows of 2.4 (`Batch08SettingsTests`). The delay table is not pinned here;
+  - [x] a red-team case for a side door (a tool with no policy entry is denied and never runs; `Batch08SettingsTests`). Not checked: the advertised tool list;
+  - [ ] pairwise coverage for 2.2 and 2.3 (not in batch 08).
 
 ### Open: needs a decision first (section 4)
 
 - [ ] **G2.** AI refusals on `Ai` and `Either` tools: keep the one switch, or allow them without it.
-- [ ] **D-36. A default reviewer list** (accepted by the owner for now, 2026-11-13). Ready to build.
-  - [ ] `DefaultAiReviewers` at the top of the policy: the reviewers for every AI-decidable tool that has no `AiReviewers` of its own. Part of the policy hash.
-  - [ ] A tool's own list replaces the default; it does not add to it.
-  - [ ] With no default and no list: nobody, and startup refuses the policy when two or more AI reviewers are configured. With exactly one configured reviewer, it is the default (so today's single-reviewer policies keep working).
-  - [ ] The no-list warning goes away; `--explain` shows which list applied.
-  - [ ] Tests: default applies; tool list overrides; two reviewers and no default is refused at startup.
-- [ ] **D-32. Retry of an unknown outcome becomes a setting** (decided by the owner, 2026-11-13: default `Once`, and `Never` for Destructive tools). Ready to build.
-  - [ ] The default is `Once`. A Destructive tool is `Never` unless its policy says otherwise, which is a loosening under section 1a.
-  - [ ] This is stricter than today for existing deployments (today: unlimited, with a reason). Say so in the release note and in `POLICY.md`.
-  - [ ] `UnknownOutcomeRetry` per tool, with a policy-wide default: `Never` (the failures design), `Once`, or `WithReason` (as built).
-  - [ ] `Once`: a person may retry it one time, with a reason; a second unknown outcome on the same action is final.
-  - [ ] It applies to people. An AI still retries only a tool that is idempotent by key, and a tool that is idempotent by key is not limited by the setting.
-  - [ ] `failures-and-inspection.md` and `POLICY.md` say the same thing as the code.
-  - [ ] Tests: each value, by a person, by an AI and through HTTP.
-- [ ] **D-37. An AI deciding its own person's request becomes a setting** (accepted by the owner for now, 2026-11-13). Ready to build.
-  - [ ] `AiOwnRequest` per tool, with a policy-wide default: `ForbidApproval` (as built, the default), `ForbidAll` (it may not refuse either), `Allow`.
-  - [ ] `Allow` follows the loosening rule in section 1a (in the policy hash, a startup warning, shown by `--explain`).
-  - [ ] Tests: each value, for the same identity and for the same person in `People`.
+- [ ] **D-36. A default reviewer list** (accepted by the owner for now, 2026-11-13). Built in batch 08, except the single-reviewer default below.
+  - [x] `DefaultAiReviewers` at the top of the policy: the reviewers for every AI-decidable tool that has no `AiReviewers` of its own. Part of the policy hash.
+  - [x] A tool's own list replaces the default; it does not add to it.
+  - [ ] With no default and no list: nobody (built), and startup refuses the policy when two or more AI reviewers are configured (built in `HttpDeploymentRunner`; the check is a function tested directly). **Not built:** "with exactly one configured reviewer, it is the default". A default taken from the HTTP config, not from the policy file, would be a loosening outside the policy (section 1a), so the owner decides it. Until then a single-reviewer policy must name its reviewer.
+  - [x] The no-list warning goes away; `--explain` shows which list applied.
+  - [x] Tests: default applies; tool list overrides; two reviewers and no default is refused at startup (`Batch08SettingsTests`; the HTTP wiring is not run end to end).
+- [ ] **D-32. Retry of an unknown outcome becomes a setting** (decided by the owner, 2026-11-13: default `Once`, and `Never` for Destructive tools). Built in batch 08 (2026-11-14); open only for the HTTP test below.
+  - [x] The default is `Once`. A Destructive tool is `Never` unless its policy says otherwise, which is a loosening under section 1a.
+  - [x] This is stricter than today for existing deployments (today: unlimited, with a reason). Stated in `POLICY.md`; the release note must say it too.
+  - [x] `UnknownOutcomeRetry` per tool, with a policy-wide default: `Never`, `Once` (the default), or `WithReason` (the old rule).
+  - [x] `Once`: a person may retry it one time, with a reason; a second unknown outcome on the same action is final.
+  - [x] It applies to people. An AI still retries only a tool that is idempotent by key, and a tool that is idempotent by key is not limited by the setting.
+  - [x] `failures-and-inspection.md` and `POLICY.md` say the same thing as the code.
+  - [ ] Tests: each value, by a person, by an AI and through HTTP. Built: each value by a person through the queue, and by an AI at the rule (`Batch08SettingsTests`). Not built: through HTTP.
+  - Found in batch 08 and fixed with it: a tool's own unknown outcome (`unknown_outcome`) bypassed the setting and the reason, because the rule matched only `interrupted`. The rule now reads the error's kind.
+- [ ] **D-37. An AI deciding its own person's request becomes a setting** (accepted by the owner for now, 2026-11-13). Built in batch 08 (2026-11-14).
+  - [x] `AiOwnRequest` per tool, with a policy-wide default: `ForbidApproval` (as built, the default), `ForbidAll` (it may not refuse either), `Allow`.
+  - [x] `Allow` follows the loosening rule in section 1a (in the policy hash, a startup warning, shown by `--explain`).
+  - [x] Tests: each value, for the same identity and for the same person in `People` (`Batch08SettingsTests`).
 - [ ] **G4.** An audited "run now" for a scheduled approval, or strike it from the design.
 - [ ] **G7 / D-12.** Whether `ApproveDelay` is allowed on irreversible tools.
 - [ ] **D-28.** Give `Ai` and `Either` different meanings, or drop one.
@@ -267,7 +283,7 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
 | By | Decisions |
 |---|---|
 | The owner | D-32 retry of an unknown outcome is a setting, `UnknownOutcomeRetry`: default `Once`, `Never` for Destructive tools (2026-11-13; replaces the implementer's rule; not built yet); D-1 one authority model (agreed in principle); D-5 undo window 10 minutes, stop by the reviewer group; D-38 people keep their authority over every policy; D-39 an AI approval may run with no person, for experimentation; D-41 audit retention |
-| The owner, provisionally (2026-11-13: "go with what you have for now"; not reviewed in detail, not built yet) | The rule for settings and its list of rules that are not settings (section 1a); D-36 as `DefaultAiReviewers`; D-37 as `AiOwnRequest`, default `ForbidApproval` |
+| The owner, provisionally (2026-11-13: "go with what you have for now"; not reviewed in detail; built in batch 08, 2026-11-14) | The rule for settings and its list of rules that are not settings (section 1a); D-36 as `DefaultAiReviewers`; D-37 as `AiOwnRequest`, default `ForbidApproval` |
 | The implementer, while the owner was away; checked in the history file, 14.1 | D-33 the recheck stays before the claim; D-34 no AI decision without a snapshot; D-35 message wording. (D-32, D-36 and D-37 were the implementer's too; the owner has since replaced them, rows above) |
 | Built on the recommended default, not confirmed by the owner | D-2 and D-3 (refusals ignore taint and the ceiling); D-20 several named reviewers; D-21 and D-31 refusals per tool with a budget per requester and tool; D-23 `ApproveDelay`, default off; D-25 one authority model, two hosts; D-26 refusals cross the Human-only and group lines; D-27 no penalty from an AI refusal; D-29 AI decisions labelled as AI; D-30 the credential; D-40 the panel |
 | Unchanged from the code as found | D-8 a retry counts as an AI approval; D-14 the default ceiling is Write |
@@ -330,12 +346,16 @@ agent identity, or both), and the block expires unless a person renews it.
 
 ## 6. Not verified
 
-- Whether an action can be queued with no policy snapshot (G5).
+- G5, closed in batch 08. Every queued action gets its snapshot from `PolicyDecision.Policy` (a non-null `ToolPolicy`) in
+  `ActionQueue.WithDecision`, so no queue path creates one. Rows written before snapshots were stored can still have none; for
+  those an AI decides nothing (`AiVerdictAsync` refuses first, tested in `Batch08SettingsTests`). Not checked: whether any old
+  database holds such rows.
 - F11 and F14 (retry of an interrupted run, retry through the endpoint) were read from the code and fixed in P0, never reproduced
   before the fix.
 - No real external session has used an AI reviewer credential.
 - The review page's AI label and the panel were not checked in a browser.
-- A restart during a scheduled window: the schedule is in the stored record, and no test restarts Orca.
+- A restart during a scheduled window: tested in batch 08 on SQLite with a clock (`Batch08SettingsTests`), not against a separate
+  process that is killed and started again.
 - This file's section 2 was written from the code read on 2026-11-13: `ReviewAuthority.cs`, `AiReviewRules.cs`,
   `ReviewerRunner.cs`, `RetryRules.cs`, the review path and sweeps of `ActionQueue.cs`, the claim in `ActionExecutor.cs`, the
   startup checks in `A2AFrontDoor.cs`, and the new fields' validation in `PolicyConfig.cs`. The admin endpoints, the panel, the
