@@ -146,7 +146,7 @@ public class CharacterisationTests
     public void B3_a_tainted_external_action_is_not_approved_by_an_ai_but_may_be_refused()
     {
         var rec = Rec(P(ReviewerKind.Ai, ceiling: ToolRisk.ExternalEffect), tainted: true);
-        Assert.Contains("may not decide this", AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null).Reason);
+        Assert.Contains("may not approve this", AiReviewRules.Check(rec, ReviewDecision.Approve, ToolRisk.ExternalEffect, false, null).Reason);
         Assert.True(AiReviewRules.Check(rec, ReviewDecision.Reject, ToolRisk.ExternalEffect, false, null).Allowed);
     }
 

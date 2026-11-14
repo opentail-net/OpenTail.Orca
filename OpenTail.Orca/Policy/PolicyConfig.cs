@@ -289,8 +289,9 @@ public sealed class PolicyConfig
                     errors.Add($"Tool '{name}': AiReviewers needs at least one reviewer name; leave it out to let any AI reviewer decide.");
                 foreach (var reviewer in assigned.Where(n => !AiReviewRules.IsValidReviewerName(n)))
                     errors.Add($"Tool '{name}': '{reviewer}' is not a valid AI reviewer name (letters, digits, '.', '_' and '-', starting with a letter or digit, at most 64 characters).");
-                if (p.Mode != ToolMode.Queue || p.Reviewer == ReviewerKind.Human)
-                    errors.Add($"Tool '{name}': AiReviewers only applies to Mode Queue with Reviewer Ai or Either.");
+                // G1: a Human-only queued tool may name reviewers when AiMayRefuse lets them refuse it (they may never approve it).
+                if (p.Mode != ToolMode.Queue || (p.Reviewer is not (ReviewerKind.Ai or ReviewerKind.Either) && !p.AiMayRefuse))
+                    errors.Add($"Tool '{name}': AiReviewers only applies to Mode Queue with Reviewer Ai or Either, or with AiMayRefuse (the named AI reviewers may then refuse the tool's queued actions).");
             }
         }
         var seenSubjects = new Dictionary<string, string>(StringComparer.Ordinal);

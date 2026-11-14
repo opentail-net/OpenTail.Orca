@@ -63,6 +63,11 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
             errors.Add("A2A is enabled, so Work.Enabled must be true: an approved partner request becomes a work item for an inbox profile.");
         if (policy.Tools.TryGetValue(A2ASubmitModule.Tool, out var submit) && submit.Reviewer != ReviewerKind.Human)
             errors.Add($"\"{A2ASubmitModule.Tool}\" must have Reviewer Human: a person decides each partner request.");
+        // B1 (G3): a rule can name its own reviewer, so a submit rule must leave a person deciding each partner request. An Execute rule stays allowed.
+        if (policy.Tools.TryGetValue(A2ASubmitModule.Tool, out var submitTool))
+            foreach (var rule in submitTool.Rules ?? [])
+                if (rule.Reviewer is { } ruleKind && ruleKind != ReviewerKind.Human)
+                    errors.Add($"\"{A2ASubmitModule.Tool}\" rule \"{rule.Name}\" names reviewer {ruleKind}: a person must decide each partner request.");
         if (!policy.Tools.ContainsKey(A2ASubmitModule.Tool))
             errors.Add($"A2A is enabled, so the policy needs an entry for \"{A2ASubmitModule.Tool}\": its mode decides whether a person reviews each partner request.");
         if (policy.Tools.TryGetValue(A2ASubmitModule.ReplyTool, out var reply))
