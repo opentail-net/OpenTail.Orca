@@ -1,8 +1,13 @@
 # Design: A2A as a second front door
 
-**Status:** proposed 2026-11-11; the phase 0 work and the thin slice are built (2026-11-13; see "What is built" at the end). Phases 2 to 4 are not built. Written from reading [`opentail-orca`](https://github.com/opentail-net/OpenTail.Orca)
-at `4b8a8b7` (branch `standard-skill-files`; the approval naming and the re-check changed some lines it cites, see the corrections below), the A2A v1.0 specification and the official .NET SDK as published in November 2026.
-Protocol and SDK facts were checked on 2026-11-11. The SDK is a preview: re-check the facts marked *verify* before building.
+**Status:** the current design and the checkbox plan. Phase 0 and the thin slice of phase 1 are built (2026-11-13); the rest of phase 1 and
+phases 2 to 4 are not. **What to do next is in [The plan](#the-plan).**
+
+**The record is in [`a2a-history.md`](a2a-history.md):** the corrections from the external review of 2026-11-11 (the text below cites them
+as "correction 1" to "correction 8"), the build order as it was argued, the verification notes and the commit-by-commit account of what was built.
+
+**Provenance.** Proposed 2026-11-11, from reading Orca at `4b8a8b7`, the A2A v1.0 specification and the official .NET SDK as published in
+November 2026. The contract sections below keep the line references of that reading. The SDK is a preview: re-check the facts marked *verify* before building.
 
 **Where it fits:** a way in for agents that are not ours, beside MCP. It adds a protocol edge and two internal tools. It does not
 change how a call is decided. It depends on [work items](work-and-continuations.md) (the inbox), [where data goes](data-flow.md)
@@ -24,33 +29,6 @@ concrete.
   a caller sees lists only what its profile may use.
 - **Recommended first cut:** an inbound inbox plus curated skills, JSON-RPC, polling only (no streaming, no push), API-key partners,
   every reply reviewed. Outbound calls to other agents, push, card signing and HTTP+JSON come later, in phases below.
-
-## Corrections from external review (2026-11-11)
-
-An external review was checked against the A2A v1.0 specification (`https://a2a-protocol.org/latest/specification/`) and the SDK's
-documentation. Each correction is now reflected in the body above. This is the change log.
-
-1. **Task ids.** Reflected in section 4 (step 5) and section 10 (`a2a_tasks`). The task id is server-generated and is not the work item
-   id. First-message handling is crash-safe and idempotent.
-2. **`returnImmediately`.** Reflected in "Who decides" and in section 4. `true` returns once the task is created. `false` and an omitted
-   value block until a terminal or interrupted state. **Open:** how many blocking waits one partner may hold open at once. That is an
-   operational limit, and it must not change what a blocked request returns.
-3. **The Agent Card.** Reflected in section 8. The card requires authentication. There is no public card.
-4. **Skill selection.** Reflected in section 4 and the contracts. The extension URI is `https://opentail.net/a2a/extensions/skill-selection/v1`.
-5. **ListTasks.** Reflected in section 4. Cursor pagination, newest first.
-6. **A2A-Version. Still open, for the owner to confirm.** Reflected in sections 1 and 11: 1.0 is the only version served. The two sources
-   disagree on an empty value:
-   - **The spec** says an empty value is interpreted as 0.3 (§3.6.2). The server then answers `VersionNotSupportedError`, because it
-     supports only 1.0.
-   - **The SDK's migration guide** (`docs/migration-guide-v1.md` in a2a-dotnet) says empty or missing is accepted and defaults to the
-     current version, 1.0. It accepts `0.3` and `1.0` and answers any other value with `VersionNotSupported` (-32009).
-   - **A missing header** is not stated in the spec at all. The SDK's rule is the only written answer.
-   - **Recommended, for the owner to confirm:** follow the spec for empty (reject as 0.3), and follow the SDK for missing (treat as 1.0).
-     Reject `0.3` as this Orca does not serve it. Interoperability tests run against the SDK-mapped endpoint for empty, missing, `0.3` and
-     `1.0`, and record the SDK's actual result for each.
-7. **Partner identity.** Reflected in section 2 and the summary. The `partnerId` is a server-generated, immutable UUID, stored separately
-   from the API key name.
-8. **Order.** Reflected in the build order. Whole-action binding lands before the inbox is exposed to external partners.
 
 ## Who decides, and who is asked
 
@@ -432,124 +410,103 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 | Card spoofing of a remote agent (phase 4) | Pinning; signature verification when present. |
 | A human approver manipulated by partner text | The review page shows partner text whole and as text: the page writes every value with `textContent`, and the API gives the whole summary (batch 04 B1, RUN). Teams cards escape it, so no markup, link or line break from the partner survives (B2, RUN), and a card does not offer approve on a preview it has cut, on the card or on the click (B3, RUN). Approval stays with a person; self-approval is forbidden for administration tools. By default Teams may approve an `a2a.reply` (B4, RUN; a record for the owner). |
 
-## Build order
+## The plan
 
-**Revised 2026-11-12 (owner agreed).** Phase 0 first, then a thin slice of phase 1: one inbox skill end to end, driven by the SDK's own
-client, with `returnImmediately=true`, the task id table, `a2a.submit` and `a2a.reply`. The slice also records the SDK's real answer for
-each `A2A-Version` case. A per-partner trust rule and a cap on blocking waits are part of the first cut. The rest of phase 1 (pagination,
-the card, the skill-selection extension) follows the slice. The checklist ([governance-checklist.md](governance-checklist.md)) has the items.
+Tick a box when the work is merged, and add a line to the record in [`a2a-history.md`](a2a-history.md). The item-level record of
+phases 0 and 1 (each check, with its commit) is in the [governance checklist](governance-checklist.md), sections B and C. The
+boxes ticked here come from that record and from the code check of batch 06; they were not re-checked when this list was written
+(2026-11-13), except the startup checks in `A2AFrontDoor.cs`.
 
-- **Phase 0, prerequisites (no A2A yet):** the `a2a:call` role and scope; a startup check that `DataFlowMode` is `Enforce` when A2A is on;
-  the durability setting documented and warned; a conditional rule on the `partner` argument, proven in a test; the whole-action
-  binding in place, before the inbox is exposed to any external partner (correction 8).
-  **Status (batch 06): built and committed in `f24f8c5`**, with the tests in `A2aPhase0Tests`.
-- **Phase 1, inbound inbox:** `SendMessage`, `GetTask`, `CancelTask` over JSON-RPC; the authenticated card; `a2a.submit`
-  and `a2a.reply` with previews; the context and message tables; the work-item mapping; the projection of work items. Tests: the
-  authorisation matrix; `messageId` reuse; taint; the exit check for labelled replies; foreign and unknown ids; rate limits; out-of-profile
-  trips; a context surviving a session expiry with its labels.
-  - **Built** (checked against the code and tests, batch 06): `SendMessage` (`returnImmediately` true; false and omitted wait, with a
-    cap), `GetTask`, `CancelTask`, `ListTasks`, over JSON-RPC (`A2ARequestHandler`); the authenticated card (`A2ACard`, batch 04);
-    `a2a.submit` and `a2a.reply` with previews (`A2ASubmitModule`); the work-item mapping (`A2AWork`: the thread `a2a:<contextId>`
-    and `work_item_id`, batch 03b-2).
-  - **Partly built.** The context and message tables: there is one table, `a2a_tasks` (schema 13), with `context_id` and
-    `message_id` columns; there are no separate context or message tables. The projection of work items is the state mapping
-    `A2ARequestHandler.StateOf`, which reads the item's status and returns no text; it is not a separate type.
-  - **Tests built:** the authorisation matrix (`A2aSliceTests`, `A2aPhase0Tests`); `messageId` reuse
-    (`The_same_messageId_with_different_content_is_refused`); taint (`returnImmediately_creates_a_SUBMITTED_task...`); the exit check for
-    labelled replies (`A_label_the_completer_held_is_checked_at_the_exit...`); foreign and unknown ids
-    (`Another_partners_key_gets_TaskNotFound...`); rate limits (`The_body_limit_and_the_rate_limit_apply...`).
-  - **Two tests cannot be written as stated, and why.**
-    - *Out-of-profile trips.* A partner names no tool. The two tool calls it causes are `a2a.submit` (the handler refuses a caller
-      whose profile does not list it, before it submits) and `a2a.reply` (submitted with the profile of the submit). Startup refuses an
-      `a2a:call` key whose profile lacks either tool (`A2AFrontDoor.Check`). The queue's own trip, a `not_in_profile` refusal that
-      suspends the requester (`ActionQueue.cs`, around line 92 to 102), is reached from A2A only if a profile loses a tool while Orca
-      runs. This build has no hot reload of the policy, so that does not happen. Checked: no partner-driven path makes a call outside its
-      profile.
-    - *A context surviving a session expiry with its labels.* Contexts are not built. One task has one submit session (created at the
-      submit, `host.Sessions.Start`), and there is no context table. The nearest test is
-      `A_submit_session_that_expires_before_the_item_completes...` (batch 06, R5): the submit's session is removed, the reply is queued
-      on a new session that holds the item's labels, and a labelled reply to a partner with no allowed destination is still refused.
-  - **Not built:** contexts and multi-turn; more than one skill; tool skills (phase 2).
-- **Phase 2, curated skills:** tool skills with data parts; the extended card; card signing; HTTP+JSON; 0.3 compatibility if needed.
-- **Phase 3, push and `INPUT_REQUIRED`:** status-only push to registered hosts; `work.ask_partner` for `INPUT_REQUIRED`.
-- **Phase 4, outbound:** remote agents as modules; card pinning; callbacks, once external waits exist.
+### Done
 
-- **Phases 2 to 4:** not built.
+- [x] **Phase 0, prerequisites** (`f24f8c5`; `A2aPhase0Tests`).
+  - [x] The `a2a:call` role and scope.
+  - [x] Startup checks: `DataFlowMode` is `Enforce`; `OPENTAIL_DB_SYNCHRONOUS=full`; work items on; the policy has `a2a.submit` and `a2a.reply`.
+  - [x] Partner ids, one or more credentials each.
+  - [x] A conditional rule on the `partner` argument, proven by a test.
+  - [x] The whole-action binding, before any partner reaches the inbox.
+- [x] **Phase 1, the thin slice** (`fae2725` to `7b6003c`; `A2aSliceTests`, `A2aKitTests`, `ReviewViewTests`).
+  - [x] `/a2a` over JSON-RPC behind the `a2a:call` role; `A2A-Version` enforced before the SDK.
+  - [x] `SendMessage`: `returnImmediately` true; false or omitted waits up to `BlockingWait`, with a cap per partner.
+  - [x] `GetTask`; `CancelTask` (a pending submit or an open work item); `ListTasks` (own tasks, keyset paging).
+  - [x] The task id table (`a2a_tasks`, schema 13), holding no text.
+  - [x] `a2a.submit`: queued for a person; on approval one tainted work item for the skill's inbox profile.
+  - [x] `a2a.reply`: one queued reply per finished item; an exit, reviewed by a person, no edits; the item's taint and labels apply.
+  - [x] The authenticated agent card, with a `card_served` audit.
+  - [x] Partner text on the review page and in Teams: shown as text; a cut Teams preview cannot be approved.
+  - [x] The kit: sample config and policy, `scripts/a2a-smoke.ps1`, `docs/guides/a2a.md`.
+  - [x] Teams `tasks` and `work` commands, read-only.
+  - [x] `ApprovePartnerRepliesInChat` (default true): the switch that stops Teams approving a partner reply.
 
-Each phase gets its own check against the code before it is built, as the work design did.
+### Open: before a first external partner
+
+- [ ] Startup: check the rules on `a2a.submit` as the reply's rules are checked. Today only the tool's own reviewer is pinned, so
+  a rule can name another reviewer (reviewer gate, G3).
+- [ ] Test: an AI reviewer may refuse an `a2a.reply` where the policy says `AiMayRefuse`, and can never approve one (reviewer gate, G8).
+- [ ] A live run in a real Teams tenant, including whether a bare `@name` in a card becomes a mention. *Owner.*
+- [ ] Measure the throughput cost of `synchronous=full`.
+- [ ] Read the parts of the specification not yet read: §3, §4.3, §5.4, §13.1 in full, and how versions and extensions are
+  negotiated; whether `skills` may be empty.
+- [ ] Decide which profiles may use an inbox skill. *Owner.*
+
+### Open: the rest of phase 1
+
+- [ ] More than one skill per Orca (today a request is served only when exactly one skill is configured).
+- [ ] The skill-selection extension, so a partner can name the skill.
+- [ ] Contexts and multi-turn (today a continuation is refused).
+  - [ ] A context table; taint and labels stored with the context and re-applied on every message.
+  - [ ] Test: a context survives a session expiry with its labels.
+- [ ] Partners authenticated by JWT (today an API key only).
+
+### Open: phase 2, curated skills
+
+- [ ] Tool skills, with data parts.
+- [ ] The extended card (`GetExtendedAgentCard` answers UnsupportedOperation today).
+- [ ] Card signing. *Verify first:* whether the card can be canonicalised for signing.
+- [ ] HTTP+JSON, when a partner asks.
+- [ ] 0.3 compatibility, only if a partner needs it.
+- [ ] File parts, with their own size and type limits (refused today).
+
+### Open: phase 3, push and `INPUT_REQUIRED`
+
+- [ ] *Verify first:* whether the SDK lets a push payload be limited to the task id and state. If not, no push.
+- [ ] Status-only push, to registered hosts only: HTTPS, no loopback, an ownership challenge before the first delivery.
+- [ ] `work.ask_partner` for `INPUT_REQUIRED`.
+- [ ] Streaming and resubscribe, if a partner needs them.
+
+### Open: phase 4, outbound
+
+- [ ] A remote agent as a module: allowed hosts, module credentials, the guarded HTTP client.
+- [ ] One tool per remote skill, risk `ExternalEffect`; responses are outside content and taint the session.
+- [ ] Card pinning, and signature verification when a signature is present.
+- [ ] Callbacks, once external waits exist in the work design.
+
+### Not planned as stated
+
+- The "out-of-profile trip" test: no partner-driven path makes a call outside its profile, and a profile cannot lose a tool while
+  Orca runs. The reasoning is in the history file.
+- Relaxing the human-only pins on submits and replies is the reviewer gate's P7, not this plan's.
+
+Each phase gets its own check against the code before it is built.
 
 ## Decisions
 
-Decided by the owner on 2026-11-11 ("no idea" on card access was taken as the default):
+### Waiting for the owner
 
-- **Timing (10):** the owner is asking for A2A now, which is the "asked for" the work design waits on. This is a plan only: nothing
-  is built, and Phase 0 and Phase 1 wait for the owner's review of this document.
-- **Card (1):** requires authentication (default).
-- **Replies (2):** every reply is reviewed in v1.
-- **Durability (6):** `OPENTAIL_DB_SYNCHRONOUS=full` is required when A2A is on, for now. Revisit when Orca runs on a server
-  database.
+- [ ] Review of this design before phases 2 to 4.
+- [ ] Which profiles may use an inbox skill.
+- [ ] The live Teams tenant check (needs a tenant).
+- [ ] Confirm the planner's decisions made while the owner was away, listed in [`docs/briefs/README.md`](../briefs/README.md).
+  One of them is the `A2A-Version` rule (D6): a missing header is 1.0; `1.0` is accepted; an empty value and `0.3` are refused.
 
-Still the proposed defaults, unchanged:
+### Settled
 
-3. **One partner, one `partnerId`, one or more credentials** (replaces the one-key rule; see correction 7). Partner-specific trust through rules on the `partner` argument, not separate tools.
-4. **JSON-RPC first**, HTTP+JSON when a partner asks.
-5. **A2A-Version 1.0 only**, until a partner needs 0.3.
-7. **A generic error for a skill the caller may not use.**
-8. **Card and skill changes are configuration only**, not through `skills.publish`.
-9. **Reviewer reasons stay internal.**
-11. **File parts** are refused in v1; attachments later, with their own size and type limits.
-
-## Verification before building
-
-Status after batch 06. "Closed" names where the point was checked.
-
-- **SDK, on the pinned version.** Closed: `MapA2A` takes `RequireAuthorization` and gives 401 without a credential
-  (`a2a-sdk-facts.md` section 2, RUN); the default card path and its cache header (section 7, RUN); the version outcomes (section 5, RUN).
-  Not used: `IAgentHandler` and `ITaskStore`; the handler is ours (`IA2ARequestHandler`, decision D4). Open: whether a push payload can be
-  limited to status (phase 3, not built); whether the card can be canonicalised for signing (phase 2, not built).
-- **Specification, still unread.** Open: §3 (abstract definitions), §4.3 (push objects), §5.4 (error table), §13.1 in full, and how
-  negotiation works for versions and extensions. Partly: whether `skills` may be empty. The SDK serves an empty list (RUN, section 7);
-  the specification text is not read.
-- **Orca, in code.** Closed: the rule syntax for a condition on a top-level argument (phase 0 test, `Policy/Rules/Conditions.cs`); the
-  review page's rendering of partner text (`ReviewViewTests.B1`, RUN: `textContent` throughout, no cut). Open: the throughput cost of
-  `synchronous=full` (not measured).
-- **Vendor claims not used.** Closed: neither the Gravitee pages nor agentgateway is relied on for a design decision.
-
-## What is built
-
-Built, by commit. The brief that asked for each batch is listed in `docs/briefs/README.md`.
-
-- **Phase 0** (`f24f8c5`): the `a2a:call` role and scope; the startup checks; the partner ids; the conditional rule on `partner`, proven
-  by a test.
-- **The thin slice** (`fae2725`, `23020b1`, `00b52ce`, `c159639`, `7b6003c`). `OpenTail.Orca.A2A` is referenced only by a server or a
-  test; the HTTP host takes it through an extension seam and never names it. It serves `/a2a` (JSON-RPC: our `IA2ARequestHandler` over
-  the SDK's `MapA2A`) behind the `a2a:call` role, and enforces `A2A-Version` before the SDK (D6).
-  - `SendMessage` with `returnImmediately` true. With false or omitted, a blocking wait (`BlockingWait`, default 30 seconds) that answers
-    the task when it is terminal, or an error naming the task when the wait passes. A per-partner cap (`MaxBlockingWaitsPerPartner`,
-    default 4).
-  - The task id table (`a2a_tasks`, schema 13): Orca's id, the partner, the content hash, the submit, work-item and reply links,
-    and no text.
-  - `a2a.submit` as the partner, with the task id as the idempotency key. On approval it creates one work item for the skill's inbox
-    profile, on the task's thread, tainted, carrying what the submit's session holds. The work item's id never goes to the partner.
-  - A finished item is reconciled into one queued `a2a.reply` for its summary (or "Done."), in the submit's session and profile, with
-    the item's taint and labels put on that session first. `a2a.reply` is an exit: Queue or Deny, reviewed by a person, no edits.
-  - `GetTask`; `CancelTask` (a pending submit, or an open work item only); `ListTasks` (the caller's own tasks, keyset paging, newest
-    first by creation).
-  - The authenticated agent card (`/.well-known/agent-card.json`), with `private` caching and a `card_served` audit.
-  - Startup checks, and the review-view rules: a cut Teams preview cannot be approved, on the card or on the click.
-  - The completer's labels: `WorkService.CompleteAsync` carries the session's taint and labels onto the item (E1). `WorkService`
-    raises `Completed` (E2) and cancels only an open item when asked (E7).
-  - The kit: a sample config and policy (`docs/guides/a2a-sample/`), `scripts/a2a-smoke.ps1`, and `docs/guides/a2a.md`.
-  - Teams: `tasks` (A2A, through the extension seam) and `work` (generic), read-only, for listed reviewers.
-- **Reused without change:** the decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body
-  limit and the HTTP sign-in.
-
-**Not built:** the skill-selection extension; more than one skill (a request is served only when exactly one skill is configured);
-contexts and multi-turn (a task has its own context, and a continuation is refused); tool skills; the extended card (`GetExtendedAgentCard`
-answers UnsupportedOperation); card signing; HTTP+JSON (only JSON-RPC); push; outbound calls; partners authenticated by JWT (a partner
-comes from an API key only); streaming and resubscribe; file parts.
-
-The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
+| By | Decisions |
+|---|---|
+| The owner, 2026-11-11 | A2A is asked for now. The card requires authentication. Every reply is reviewed in v1. `OPENTAIL_DB_SYNCHRONOUS=full` is required when A2A is on, until Orca runs on a server database. |
+| The owner, 2026-11-12 | A thin slice first, with a per-partner trust rule and a cap on blocking waits in the first cut. |
+| The owner, 2026-11-13 | A2A ships inside `OpenTail.Orca.Server`, not as its own package. Teams may approve a partner reply by default, with a switch to turn that off. The 400-character card preview limit is kept. |
+| Proposed defaults, unchanged | One partner, one `partnerId`, one or more credentials; trust through rules on the `partner` argument. JSON-RPC first. A2A-Version 1.0 only. A generic error for a skill the caller may not use. Card and skill changes are configuration only. Reviewer reasons stay internal. File parts refused in v1. |
 
 ## Sources
 

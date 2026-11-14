@@ -189,7 +189,7 @@ C.1 Blockers:
   expiry. **Covered now:** the crash, `messageId` reuse, `returnImmediately` (true, false, omitted), `A2A-Version`, taint on submit, the
   labelled reply refused, foreign and unknown ids, the rate limit, the work item, the reply (approved and rejected), cancel, dead and
   expired items, the restart, ListTasks, the startup checks, and a submit session that expires before its item completes (batch 06, R5).
-  **Not covered, and not written as stated:** contexts (not built), and the out-of-profile trip (`a2a.md`, build order, phase 1, with the reason).
+  **Not covered, and not written as stated:** contexts (not built), and the out-of-profile trip (`a2a-history.md`, build order, phase 1, with the reason).
 
 C.2 Verify before building:
 
