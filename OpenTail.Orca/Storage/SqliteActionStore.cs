@@ -13,8 +13,8 @@ namespace OpenTail.Orca;
 public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditStore
 {
     /// <summary>Schema 2: requester-scoped idempotency, sessions, subject taint, trust promotions. Schema 3: notices. Schema 4: daily
-    /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals. Schema 13: A2A task ids (a2a_tasks; OpenTail.Orca.A2A owns the rows).</summary>
-    private const int SchemaVersion = 15;
+    /// usage rollups, entity hashes and the settings table (the entity salt). Schema 5: the audit hash chain. Schema 6: identity levels. Schema 7: session labels. Schema 8: access grants. Schema 9: policy versions. Schema 10: work items, continuations, thread notes. Schema 11: decision records. Schema 12: policy proposals. Schema 13: A2A task ids (a2a_tasks; OpenTail.Orca.A2A owns the rows). Schema 16: A2A contexts (a2a_contexts, the taint and labels of a conversation).</summary>
+    private const int SchemaVersion = 16;
 
     private static readonly JsonSerializerOptions Json = new()
     {
@@ -375,6 +375,25 @@ public sealed class SqliteActionStore : IActionStore, IUsageStore, IAtomicAuditS
                     archived_at  TEXT NOT NULL,
                     removed      INTEGER NOT NULL DEFAULT 0
                 );
+                """);
+        }
+
+        if (version < 16)
+        {
+            // The A2A contexts (batch 13): a partner's conversation. Its taint and labels are stored here, so every later message on the
+            // context re-applies them, whatever session the message comes in on. A context that already has tasks gets its row now.
+            Exec(c, tx, """
+                CREATE TABLE IF NOT EXISTS a2a_contexts (
+                    context_id TEXT PRIMARY KEY,
+                    partner_id TEXT NOT NULL,
+                    tainted    INTEGER NOT NULL DEFAULT 0,
+                    labels     TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_a2a_contexts_partner ON a2a_contexts(partner_id);
+                INSERT OR IGNORE INTO a2a_contexts (context_id, partner_id, tainted, labels, created_at, updated_at)
+                    SELECT context_id, partner_id, 0, '[]', MIN(created_at), MAX(updated_at) FROM a2a_tasks GROUP BY context_id, partner_id;
                 """);
         }
 

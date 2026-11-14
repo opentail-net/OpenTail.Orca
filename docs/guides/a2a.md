@@ -110,8 +110,14 @@ is `https`, or `http` on loopback; `BlockingWait` is from 1 second to 5 minutes;
 
 - No streaming, no resubscribe, no push notifications, and no extended card. Each is refused with `UnsupportedOperation`.
 - No file parts: a message with a file is refused.
-- One skill in this release: a request is served only when exactly one skill is configured; with several, every request is refused as
-  "not available".
+- Skills: with exactly one skill configured, a message that names none is served. With several, a message names its skill through the
+  skill-selection extension: list `https://opentail.net/a2a/extensions/skill-selection/v1` in the message's extensions, and give the skill id
+  as the string value under the same URI in its metadata. A message that names none, or a skill the caller may not use, is refused as
+  "not available". A skill's optional `Profiles` lists the profiles that may use it (each must list `a2a.submit`); without it, any profile
+  that lists `a2a.submit` may.
+- Contexts: a message with a `contextId` of one of the partner's own contexts is a new task on that context, and the context's taint and
+  labels apply to it. Another partner's context, or an unknown one, is refused as an unknown task. A first message gets a context id from the
+  Host; a `contextId` the partner makes up on a first message is refused.
 - A blocking send waits at most `BlockingWait` (30 seconds by default, 5 minutes at most), then answers an error.
 - A partner may have at most `MaxBlockingWaitsPerPartner` (4 by default) blocking sends waiting at once.
 - `ListTasks` is served for the partner's own tasks only, newest first by creation time, in pages of up to 100.
@@ -119,7 +125,7 @@ is `https`, or `http` on loopback; `BlockingWait` is from 1 second to 5 minutes;
 
 ## Not built
 
-The skill-selection extension, signing of the card, push notifications, outbound calls from Orca to other agents, and file parts.
+Tool skills, the extended card, signing of the card, push notifications, outbound calls from Orca to other agents, and file parts.
 The design lists them, with the reasons, in [../design/a2a.md](../design/a2a.md).
 
 ## Where the details are

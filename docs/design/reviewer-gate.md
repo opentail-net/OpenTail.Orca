@@ -270,6 +270,8 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
   the committed history (D-11). **Not a separate counter table:** the decision rows are the counter, so nothing needs seeding, expiry or
   a reset on upgrade. The store interface is unchanged. Test: two stores on one database file, one remaining unit, exactly one decision
   succeeds (approval and refusal), `Batch10Tests`. For the planner to confirm that this meets D-11's "a counter in the store".
+  **Still open:** a real two-process test (two processes, and a database on a shared file). The test above holds two stores in one process
+  on one file, which does not prove the cross-process case. Batch 15 builds the two-process test; this box stays as the reference for it.
 - [ ] **R3, R4. Measurement** (shadow mode; sampling, demotion, drift), as D-9 decides. Uses "Watching the reviewers" in
   `more-extensions.md`.
 - [ ] **P5. An AI block proposal** that a person confirms (D-4, D-22).

@@ -89,12 +89,15 @@ public sealed record A2aCardOptions
     public string Version { get; init; } = "1.0";
 }
 
-/// <summary>An A2A skill the operator offers. <see cref="Inbox"/> names the profile whose work the skill's requests go to.</summary>
+/// <summary>An A2A skill the operator offers. <see cref="Inbox"/> names the profile whose work the skill's requests go to.
+/// <see cref="Profiles"/>, when set, lists the profiles that may use the skill; each must also list <c>a2a.submit</c>. Unset, any profile that
+/// lists <c>a2a.submit</c> may use it.</summary>
 public sealed class A2aSkill
 {
     public string Name { get; init; } = "";
     public string Description { get; init; } = "";
     public string Inbox { get; init; } = "";
+    public IReadOnlyList<string>? Profiles { get; init; }
 }
 
 public sealed class HostHttpOptions

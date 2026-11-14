@@ -169,10 +169,17 @@ Built, by commit. The brief that asked for each batch is listed in `docs/briefs/
 - **Reused without change:** the decision path, profiles, taint, labels, the audit trail, identity levels, the rate limits, the body
   limit and the HTTP sign-in.
 
-**Not built:** the skill-selection extension; more than one skill (a request is served only when exactly one skill is configured);
-contexts and multi-turn (a task has its own context, and a continuation is refused); tool skills; the extended card (`GetExtendedAgentCard`
-answers UnsupportedOperation); card signing; HTTP+JSON (only JSON-RPC); push; outbound calls; partners authenticated by JWT (a partner
-comes from an API key only); streaming and resubscribe; file parts.
+- **Batch 13 (the rest of phase 1, planner's brief):** more than one skill, and the skill-selection extension (a message names its skill in
+  its metadata, under the extension's URI; the card lists the caller's skills and declares the extension); a per-skill `Profiles` list
+  (planner's decision); contexts and multi-turn (`a2a_contexts`, schema 16, backfilled from the tasks; a continuation on a known context is
+  a new task on it; taint and labels kept on the context and re-applied to each later message's session; each task has its own thread, so
+  a context's tasks never share a work item). Tests in `A2aSliceTests`. Changed existing tests: the schema assertion (15 to 16), the card
+  test (it now expects the caller's one skill, not none), and the URL test (the card builder takes the skill list). Decisions for the owner
+  are in `a2a.md`, "Waiting for the owner": the metadata key, the card listing skills, the unknown-context answer, the profile list.
+
+**Not built:** tool skills; the extended card (`GetExtendedAgentCard` answers UnsupportedOperation); card signing; HTTP+JSON (only
+JSON-RPC); push; outbound calls; partners authenticated by JWT (a partner comes from an API key only); streaming and resubscribe; file
+parts; the messages table (`a2a_messages`, which section 10 once named: the messageId hash is in `a2a_tasks`).
 
 The thin slice's version gate and the SDK facts are in `docs/briefs/a2a-sdk-facts.md`.
 

@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using A2A;
 using A2A.AspNetCore;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
@@ -19,6 +22,9 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
 {
     /// <summary>The route of the JSON-RPC endpoint.</summary>
     public const string Path = "/a2a";
+
+    /// <summary>The route of the agent card (the well-known location the SDK's own card mapping used).</summary>
+    private const string CardPath = "/.well-known/agent-card.json";
 
     // The tools are registered before the host exists, so their bodies reach the work through this, bound in MapEndpoints.
     private A2AWork? _work;
@@ -92,8 +98,19 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         if (config.Skills.Count == 0)
             errors.Add("A2A is enabled with no skills: add at least one under \"Skills\" in the A2A section.");
         foreach (var (id, skill) in config.Skills)
+        {
             if (!policy.Agents.ContainsKey(skill.Inbox))
                 errors.Add($"A2A skill '{id}' names inbox profile '{skill.Inbox}', which the policy's \"Agents\" does not define.");
+            // Batch 13: a skill's Profiles, when set, name profiles that may use it, and each must list a2a.submit to do so.
+            if (skill.Profiles is { } profiles)
+            {
+                if (profiles.Count == 0)
+                    errors.Add($"A2A skill '{id}' has an empty \"Profiles\" list: leave it out to let any profile that lists a2a.submit use it, or name the profiles that may.");
+                foreach (var profile in profiles)
+                    if (!policy.Agents.TryGetValue(profile, out var agent) || !agent.Tools.Contains(A2ASubmitModule.Tool, StringComparer.Ordinal))
+                        errors.Add($"A2A skill '{id}' lists profile '{profile}', which the policy's \"Agents\" does not define with \"{A2ASubmitModule.Tool}\".");
+            }
+        }
         // A3: the card names the address clients reach the Host at. The message is the one HostHttpOptions gives for a missing PublicBaseUrl,
         // extended with the A2A rule (https, or http on loopback), which only A2A needs.
         if (options.PublicBaseUrl is null || !Uri.TryCreate(options.PublicBaseUrl, UriKind.Absolute, out var publicUri)
@@ -151,23 +168,25 @@ public sealed class A2AFrontDoor : IHttpDeploymentExtension
         var work = new A2AWork(host, config, tasks);
         _work = work;
         host.Work.Completed += work.OnCompleted;
-        // A1, A4, A5: the card is the same for every caller, but it is not public. It takes the same sign-in and role as /a2a. Its cache header
-        // is private (the SDK's default is public). A partner's read is audited at most once per partner in each 10 minutes.
-        app.MapWellKnownAgentCard(A2ACard.Build(config.Card, options.PublicBaseUrl!), "", new AgentCardCacheOptions { MaxAge = CardMaxAge })
-            .RequireAuthorization(policy => policy.RequireAuthenticatedUser().RequireRole(Roles.A2aCall))
-            .Add(endpoint => endpoint.FilterFactories.Add((_, next) => async invocation =>
+        // A1, A4, A5 and batch 13: the card is not public. It takes the same sign-in and role as /a2a. It lists the skills this caller's profile
+        // may use, so it is built per request, with the SDK's JSON options. Its cache header is private (the SDK's default is public), and its
+        // ETag is the hash of the body. A partner's read is audited at most once per partner in each 10 minutes.
+        app.MapGet(CardPath, async (HttpContext http, CancellationToken ct) =>
             {
-                var response = invocation.HttpContext.Response;
-                response.OnStarting(() =>
-                {
-                    response.Headers["Cache-Control"] = $"private, max-age={(int)CardMaxAge.TotalSeconds}";
-                    return Task.CompletedTask;
-                });
-                if (invocation.HttpContext.User.FindFirst(HostClaims.Partner)?.Value is { } partner && CardAuditDue(partner))
-                    await host.Audit.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow, "a2a.card_served", null, null, A2AWork.SubjectOf(partner), null),
-                        invocation.HttpContext.RequestAborted);
-                return await next(invocation);
-            }));
+                http.Response.Headers.CacheControl = $"private, max-age={(int)CardMaxAge.TotalSeconds}";
+                var user = http.User;
+                var profile = user.FindFirst(HostClaims.Profile)?.Value;
+                var visible = config.Skills.Where(s => A2ASkillSelection.MayUse(host, s.Value, profile)).Select(s => (s.Key, s.Value));
+                var body = JsonSerializer.SerializeToUtf8Bytes(A2ACard.Build(config.Card, options.PublicBaseUrl!, visible), A2AJsonUtilities.DefaultOptions);
+                var etag = "\"" + Convert.ToHexString(SHA256.HashData(body)).ToLowerInvariant() + "\"";
+                http.Response.Headers.ETag = etag;
+                if (user.FindFirst(HostClaims.Partner)?.Value is { } partner && CardAuditDue(partner))
+                    await host.Audit.AppendAsync(new AuditEntry(DateTimeOffset.UtcNow, "a2a.card_served", null, null, A2AWork.SubjectOf(partner), null), ct);
+                if (http.Request.Headers.IfNoneMatch.ToString() == etag)
+                    return Results.StatusCode(StatusCodes.Status304NotModified);
+                return Results.Bytes(body, "application/json");
+            })
+            .RequireAuthorization(policy => policy.RequireAuthenticatedUser().RequireRole(Roles.A2aCall));
 
         var pause = PollDelay ?? ((delay, ct) => Task.Delay(delay, ct));
         var handler = new A2ARequestHandler(host, config, app.ServiceProvider.GetRequiredService<IHttpContextAccessor>(), tasks, work, pause);

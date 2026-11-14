@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using A2A;
 using Microsoft.AspNetCore.Http;
@@ -38,10 +39,15 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         var returnImmediately = request.Configuration?.ReturnImmediately == true;
         var message = request.Message ?? throw await RefuseAsync(caller, "no_message", A2AErrorCode.InvalidParams, "A message is required.", cancellationToken);
 
-        // Continuing a task (a taskId, or a contextId that names one of this partner's tasks) is not served in this slice.
-        if (!string.IsNullOrEmpty(message.TaskId)
-            || (!string.IsNullOrEmpty(message.ContextId) && tasks.FindByContext(caller.PartnerId, message.ContextId) is not null))
+        // A taskId continues a task, which is not served yet. A contextId names a context of this partner: the new task goes on it (batch 13).
+        // A context that is another partner's, or unknown, gets the answer an unknown task gets, so it cannot be told apart.
+        if (!string.IsNullOrEmpty(message.TaskId))
             throw await RefuseAsync(caller, "continuation", A2AErrorCode.UnsupportedOperation, "Continuing a task is not served yet.", cancellationToken);
+        var suppliedContext = string.IsNullOrEmpty(message.ContextId) ? "" : message.ContextId;
+        var known = suppliedContext.Length == 0
+            ? null
+            : tasks.FindContext(caller.PartnerId, suppliedContext)
+              ?? throw await RefuseAsync(caller, "unknown_context", A2AErrorCode.TaskNotFound, NotFound, cancellationToken);
         if (string.IsNullOrWhiteSpace(message.MessageId) || message.MessageId.Length > MaxMessageIdLength)
             throw await RefuseAsync(caller, "message_id", A2AErrorCode.InvalidParams, "A messageId of 1 to 256 characters is required.", cancellationToken);
 
@@ -83,10 +89,8 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         if (inputBytes > workConfig.InputsMaxBytes)
             throw await RefuseAsync(caller, "inputs_too_large", A2AErrorCode.InvalidParams, "The inputs are too large.", cancellationToken);
 
-        // The skill: the caller's profile must list a2a.submit, and exactly one skill must be configured (decision D10).
-        if (config.Skills.Count != 1 || !ProfileLists(caller.Profile, A2ASubmitModule.Tool))
-            throw await RefuseAsync(caller, "skill_unavailable", A2AErrorCode.InvalidParams, "That capability is not available to you.", cancellationToken);
-        var skillId = config.Skills.Keys.Single();
+        // The skill: named through the skill-selection extension, or the one configured skill (decision D10, batch 13).
+        var skillId = await SkillOfAsync(caller, message, cancellationToken);
 
         // F3: a blocking send takes one of the partner's waiting places before any row exists, and gives it back when it answers. A partner
         // at its cap is refused here, so the refusal leaves nothing behind.
@@ -96,20 +100,21 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         try
         {
             // Step 2: one transaction finds or creates the row for (partner, messageId).
-            var hash = ContentHash(skillId, goal, inputs);
+            var hash = ContentHash(skillId, goal, inputs, suppliedContext);
             var now = DateTimeOffset.UtcNow;
-            var (row, outcome) = tasks.GetOrCreate(caller.PartnerId, message.MessageId, hash, skillId, now);
+            var (row, outcome) = tasks.GetOrCreate(caller.PartnerId, message.MessageId, hash, skillId, known?.ContextId ?? Guid.NewGuid().ToString("D"), now);
             if (outcome == A2ATaskTable.Outcome.ReusedWithOtherContent)
                 throw await RefuseAsync(caller, "message_id_reused", A2AErrorCode.InvalidParams, "This messageId was already used for a different request.", cancellationToken);
             if (outcome == A2ATaskTable.Outcome.Created)
                 await host.Audit.AppendAsync(new AuditEntry(now, "a2a.received", null, A2ASubmitModule.Tool, caller.Subject,
-                    $"task={row.TaskId} partner={caller.PartnerId} skill={skillId} hash={hash} bytes={goalBytes + inputBytes}"), cancellationToken);
+                    $"task={row.TaskId} context={row.ContextId} continued={known is not null} partner={caller.PartnerId} skill={skillId} hash={hash} bytes={goalBytes + inputBytes}"), cancellationToken);
 
             // Step 3: submit the action with the task id as its idempotency key. A crash after the insert is healed here: the retry submits
             // the same arguments with the same key, and the store returns the action it already has.
             if (row.SubmitActionId is null)
             {
                 var session = host.Sessions.Start(caller.Subject);
+                if (known is not null) ReapplyContext(known, session, caller.Subject);
                 var args = new JsonObject
                 {
                     ["partner"] = caller.PartnerId,
@@ -273,6 +278,49 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         return new A2AException("This credential cannot use A2A.", A2AErrorCode.InvalidRequest);
     }
 
+    /// <summary>The skill a message asks for. A skill named through the skill-selection extension must exist and be usable by the caller's
+    /// profile. With no name, the one configured skill serves; with several, a message that names none is refused. Refusals carry the generic
+    /// answer, so a partner cannot tell an unknown skill from one it may not use.</summary>
+    private async Task<string> SkillOfAsync(A2ACaller caller, Message message, CancellationToken ct)
+    {
+        var named = NamedSkill(message);
+        if (named is not null)
+        {
+            if (!config.Skills.ContainsKey(named) || !MayUse(caller, named))
+                throw await RefuseAsync(caller, "skill_unavailable", A2AErrorCode.InvalidParams, "That capability is not available to you.", ct);
+            return named;
+        }
+
+        if (config.Skills.Count != 1)
+            throw await RefuseAsync(caller, "skill_unavailable", A2AErrorCode.InvalidParams, "That capability is not available to you.", ct);
+        var only = config.Skills.Keys.Single();
+        if (!MayUse(caller, only))
+            throw await RefuseAsync(caller, "skill_unavailable", A2AErrorCode.InvalidParams, "That capability is not available to you.", ct);
+        return only;
+    }
+
+    /// <summary>The skill a message names through the skill-selection extension: the message lists the extension, and the extension's metadata
+    /// holds the skill id. Null when the message names none.</summary>
+    private static string? NamedSkill(Message message)
+    {
+        if (message.Extensions is null || !message.Extensions.Contains(A2ASkillSelection.Uri, StringComparer.Ordinal)) return null;
+        return message.Metadata is not null && message.Metadata.TryGetValue(A2ASkillSelection.Uri, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    /// <summary>Whether the caller's profile may use this skill: it lists <c>a2a.submit</c>, and the skill's <see cref="A2aSkill.Profiles"/>, when
+    /// set, names it.</summary>
+    private bool MayUse(A2ACaller caller, string skillId) => A2ASkillSelection.MayUse(host, config.Skills[skillId], caller.Profile);
+
+    /// <summary>Batch 13: a message on a context re-applies the context's taint and labels to its new session, so the submit, and the work it
+    /// makes, carry them whatever session the earlier messages were on.</summary>
+    private void ReapplyContext(A2ATaskTable.ContextState context, string session, string subject)
+    {
+        if (context.Tainted) host.Sessions.Taint(session);
+        if (context.Labels.Count > 0) host.Labels.GainCarried(session, subject, context.Labels);
+    }
+
     private bool ProfileLists(string? profile, string tool) =>
         profile is not null && host.Policy.Config.Agents.TryGetValue(profile, out var agent) && agent.Tools.Contains(tool, StringComparer.Ordinal);
 
@@ -431,10 +479,12 @@ internal sealed class A2ARequestHandler(OpenTailHost host, A2aOptions config, IH
         }
     }
 
-    /// <summary>The content hash kept in the table: skill, goal and inputs, each length-prefixed so no two requests share an encoding.</summary>
-    internal static string ContentHash(string skill, string goal, string inputs)
+    /// <summary>The content hash kept in the table: skill, goal and inputs, each length-prefixed so no two requests share an encoding. A context the
+    /// partner named is part of it too (batch 13), so a retry must name the same context; a request without one hashes as before.</summary>
+    internal static string ContentHash(string skill, string goal, string inputs, string context = "")
     {
         var encoded = $"{skill.Length}:{skill}|{goal.Length}:{goal}|{inputs.Length}:{inputs}";
+        if (context.Length > 0) encoded += $"|{context.Length}:{context}";
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(encoded))).ToLowerInvariant();
     }
 

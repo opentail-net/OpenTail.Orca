@@ -545,8 +545,9 @@ public class A2aSliceTests
             backup = ((SqliteActionStore)rig.Host.Store).MigrationBackupPath;
             Assert.NotNull(backup);
             Assert.True(File.Exists(backup));
-            Assert.Equal(15, rig.Count("SELECT user_version FROM pragma_user_version"));
+            Assert.Equal(16, rig.Count("SELECT user_version FROM pragma_user_version")); // batch 13: schema 16 adds a2a_contexts
             Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM sqlite_master WHERE name='a2a_tasks'"));
+            Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM sqlite_master WHERE name='a2a_contexts'"));
             Assert.Equal(actionsBefore, rig.Count("SELECT COUNT(*) FROM actions"));
         }
         finally
@@ -593,6 +594,221 @@ public class A2aSliceTests
         (await rig.Host.Store.GetAsync(rig.Table.FindByTask(partner, taskId)?.ReplyActionId ?? throw new InvalidOperationException("no reply")))!;
 
     /// <summary>Submits for the partner and has the reviewer approve the submit. Returns the task id and, once approval created it, the item id.</summary>
+    // ---------------------------------------------------------------------------------------------------------- batch 13: skills, contexts
+
+    /// <summary>The default policy with a second profile that may submit, so a skill can be limited to it (batch 13).</summary>
+    private const string PolicyWithAnalyst = """
+        { "DefaultReadMode": "Execute", "TaintWindow": "00:00:00", "DataFlowMode": "Enforce", "Work": { "Enabled": true },
+          "Tools": { "a2a.submit": { "Mode": "Queue" }, "a2a.reply": { "Mode": "Queue", "AllowEdits": false } },
+          "Agents": { "clerk": { "Tools": [ "a2a.submit", "a2a.reply", "work.*" ] },
+                      "analyst": { "Tools": [ "a2a.submit", "a2a.reply", "work.*" ] },
+                      "reply-assistant": { "Tools": [ "clock.now" ] } } }
+        """;
+
+    private const string SkillSelection = "https://opentail.net/a2a/extensions/skill-selection/v1";
+    private const string TokenC = "analyst-partner-token-0123456789";
+
+    /// <summary>A send on a context (or none), naming a skill through the skill-selection extension when one is given.</summary>
+    private static SendMessageRequest Turn(string messageId, string goal, string? contextId = null, string? skill = null) => new()
+    {
+        Message = SkillMessage(messageId, goal, contextId, skill),
+        Configuration = new SendMessageConfiguration { ReturnImmediately = true },
+    };
+
+    private static Message SkillMessage(string messageId, string goal, string? contextId, string? skill)
+    {
+        var message = new Message { MessageId = messageId, Role = Role.User, Parts = [Part.FromText(goal)], ContextId = contextId };
+        if (skill is not null)
+        {
+            message.Extensions = [SkillSelection];
+            message.Metadata = new Dictionary<string, JsonElement> { [SkillSelection] = JsonSerializer.SerializeToElement(skill) };
+        }
+        return message;
+    }
+
+    private static A2aOptions TwoSkills() => A2aWith(new Dictionary<string, A2aSkill>
+    {
+        ["draft-reply"] = new A2aSkill { Name = "Draft a reply", Description = "Drafts a reply.", Inbox = "clerk" },
+        ["reviews"] = new A2aSkill { Name = "Reviews", Description = "Reviews a document.", Inbox = "analyst", Profiles = ["analyst"] },
+    });
+
+    [Fact]
+    public async Task A_named_skill_is_served_and_the_task_records_which_skill_it_was()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, a2a: TwoSkills(), policy: PolicyWithAnalyst,
+            keys: [new ApiKeyEntry("acme-agent", ApiKeys.Hash(TokenA), ["a2a:call"], "clerk", PartnerA)]);
+        using var client = rig.Client(TokenA);
+
+        var task = (await client.SendMessageAsync(Turn("m-named", "Draft it.", skill: "draft-reply"))).Task!;
+
+        Assert.Equal("draft-reply", rig.Table.FindByTask(PartnerA, task.Id)!.SkillId);
+    }
+
+    [Fact]
+    public async Task A_named_skill_the_profile_may_not_use_or_that_does_not_exist_is_refused_with_the_generic_answer()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, a2a: TwoSkills(), policy: PolicyWithAnalyst,
+            keys: [new ApiKeyEntry("acme-agent", ApiKeys.Hash(TokenA), ["a2a:call"], "clerk", PartnerA)]);
+        using var client = rig.Client(TokenA);
+
+        var notAllowed = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Turn("m-no-1", "Review it.", skill: "reviews")));
+        var unknown = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Turn("m-no-2", "Review it.", skill: "missing")));
+
+        Assert.Equal(("That capability is not available to you.", A2AErrorCode.InvalidParams), (notAllowed.Message, notAllowed.ErrorCode));
+        Assert.Equal((notAllowed.Message, notAllowed.ErrorCode), (unknown.Message, unknown.ErrorCode));
+        Assert.Equal(2, Refusals(rig).Count(r => r == "skill_unavailable"));
+        Assert.Equal(0, rig.Count("SELECT COUNT(*) FROM a2a_tasks"));
+    }
+
+    [Fact]
+    public async Task The_card_lists_only_the_skills_the_callers_profile_may_use_and_never_the_profile_names()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db, a2a: TwoSkills(), policy: PolicyWithAnalyst, keys:
+        [
+            new ApiKeyEntry("acme-agent", ApiKeys.Hash(TokenA), ["a2a:call"], "clerk", PartnerA),
+            new ApiKeyEntry("analyst-agent", ApiKeys.Hash(TokenC), ["a2a:call"], "analyst", PartnerB),
+        ]);
+
+        var (clerkStatus, _, clerkBody) = await GetCard(rig, TokenA);
+        var (analystStatus, _, analystBody) = await GetCard(rig, TokenC);
+        var clerkCard = JsonSerializer.Deserialize<AgentCard>(clerkBody, A2AJsonUtilities.DefaultOptions)!;
+        var analystCard = JsonSerializer.Deserialize<AgentCard>(analystBody, A2AJsonUtilities.DefaultOptions)!;
+
+        Assert.Equal((HttpStatusCode.OK, HttpStatusCode.OK), (clerkStatus, analystStatus));
+        Assert.Equal(["draft-reply"], clerkCard.Skills.Select(s => s.Id));
+        Assert.Equal(["draft-reply", "reviews"], analystCard.Skills.Select(s => s.Id).OrderBy(id => id, StringComparer.Ordinal));
+        Assert.Contains(SkillSelection, clerkCard.Capabilities!.Extensions!.Select(e => e.Uri));
+        Assert.DoesNotContain("clerk", clerkBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("analyst", clerkBody, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("clerk", analystBody, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_continuation_on_a_known_context_is_a_new_task_on_that_context()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var first = (await client.SendMessageAsync(Turn("m-first", "First question."))).Task!;
+
+        var second = (await client.SendMessageAsync(Turn("m-second", "Follow up.", contextId: first.ContextId))).Task!;
+
+        Assert.NotEqual(first.Id, second.Id);
+        Assert.Equal(first.ContextId, second.ContextId);
+        var listed = await client.ListTasksAsync(new ListTasksRequest { ContextId = first.ContextId });
+        Assert.Equal(2, listed.Tasks.Count);
+    }
+
+    [Fact]
+    public async Task A_context_of_another_partner_or_an_unknown_one_gets_the_answer_an_unknown_task_gets()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        var acme = rig.Client(TokenA);
+        var beta = rig.Client(TokenB);
+        var acmeContext = (await acme.SendMessageAsync(Turn("m-owned", "Mine."))).Task!.ContextId;
+
+        var foreign = await Assert.ThrowsAsync<A2AException>(() => beta.SendMessageAsync(Turn("m-foreign", "Not mine.", contextId: acmeContext)));
+        var unknown = await Assert.ThrowsAsync<A2AException>(() => beta.SendMessageAsync(Turn("m-unknown", "Nobody's.", contextId: Guid.NewGuid().ToString("D"))));
+        var unknownTask = await Assert.ThrowsAsync<A2AException>(() => beta.GetTaskAsync(new GetTaskRequest { Id = Guid.NewGuid().ToString("D") }));
+
+        Assert.Equal((foreign.Message, foreign.ErrorCode), (unknown.Message, unknown.ErrorCode));
+        Assert.Equal((unknownTask.Message, unknownTask.ErrorCode), (unknown.Message, unknown.ErrorCode));
+        Assert.Equal(A2AErrorCode.TaskNotFound, unknown.ErrorCode);
+        Assert.Equal(2, Refusals(rig).Count(r => r == "unknown_context"));
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM a2a_tasks"));
+    }
+
+    [Fact]
+    public async Task A_retry_that_names_a_different_context_is_refused_as_a_reused_messageId()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var first = (await client.SendMessageAsync(Turn("m-retry", "Same words."))).Task!;
+        var other = (await client.SendMessageAsync(Turn("m-other", "Another thread."))).Task!;
+
+        var reused = await Assert.ThrowsAsync<A2AException>(() => client.SendMessageAsync(Turn("m-retry", "Same words.", contextId: other.ContextId)));
+
+        Assert.Equal("This messageId was already used for a different request.", reused.Message);
+        Assert.Equal(first.Id, rig.Table.FindByTask(PartnerA, first.Id)!.TaskId);
+        Assert.Contains("message_id_reused", Refusals(rig));
+    }
+
+    [Fact]
+    public async Task A_context_keeps_its_taint_and_labels_after_its_session_is_gone_and_the_next_item_carries_them()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var label = new CarriedLabel("customer-pii", "test");
+
+        var first = (await client.SendMessageAsync(Turn("m-label-1", "Look at the file."))).Task!;
+        var firstSubmit = await SubmitOfAsync(rig, PartnerA, first.Id);
+        rig.Host.Labels.GainCarried(firstSubmit.SessionId, A2AWork.SubjectOf(PartnerA), [label]);
+        await rig.Host.Queue.ReviewAsync(firstSubmit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        var firstItem = rig.Host.Work.Store.Get(rig.Table.FindByTask(PartnerA, first.Id)!.WorkItemId!)!;
+        Exec(rig, $"DELETE FROM sessions WHERE id = '{firstSubmit.SessionId}'");   // the session is gone: it has expired
+
+        var second = (await client.SendMessageAsync(Turn("m-label-2", "And the next one.", contextId: first.ContextId))).Task!;
+        var secondSubmit = await SubmitOfAsync(rig, PartnerA, second.Id);
+        await rig.Host.Queue.ReviewAsync(secondSubmit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+        var secondItem = rig.Host.Work.Store.Get(rig.Table.FindByTask(PartnerA, second.Id)!.WorkItemId!)!;
+
+        Assert.True(firstItem.Tainted);
+        Assert.Contains(label, firstItem.Labels);
+        Assert.True(secondItem.Tainted);
+        Assert.Contains(label, secondItem.Labels);
+        Assert.NotEqual(firstItem.Id, secondItem.Id);
+        Assert.Equal(1, rig.Count("SELECT COUNT(*) FROM a2a_contexts WHERE tainted = 1 AND labels LIKE '%customer-pii%'"));
+    }
+
+    [Fact]
+    public async Task A_finished_item_answers_its_own_task_on_a_shared_context()
+    {
+        using var db = new TempDb();
+        await using var rig = await StartAsync(db);
+        using var client = rig.Client(TokenA);
+        var (firstTask, firstItem) = await ApprovedTaskAsync(rig, client, PartnerA, "m-own-1", "Check the first invoice.");
+        var second = (await client.SendMessageAsync(Turn("m-own-2", "Check the second invoice.", contextId: rig.Table.FindByTask(PartnerA, firstTask)!.ContextId))).Task!;
+        var secondSubmit = await SubmitOfAsync(rig, PartnerA, second.Id);
+        await rig.Host.Queue.ReviewAsync(secondSubmit.Id, new ActionReview("rita", ReviewDecision.Approve, null, DateTimeOffset.UtcNow));
+
+        await CompleteAsInboxAsync(rig, "The first invoice is fine.");   // the oldest open item: the first task's
+        await client.GetTaskAsync(new GetTaskRequest { Id = firstTask });  // a read reconciles the finished item into its reply, at once
+
+        Assert.NotNull(rig.Table.FindByTask(PartnerA, firstTask)!.ReplyActionId);
+        Assert.Null(rig.Table.FindByTask(PartnerA, second.Id)!.ReplyActionId);
+        Assert.Equal(firstItem, rig.Table.FindByTask(PartnerA, firstTask)!.WorkItemId);
+        // The second task has its own item: a shared thread would have handed it the first task's.
+        var secondItem = rig.Table.FindByTask(PartnerA, second.Id)!.WorkItemId;
+        Assert.NotNull(secondItem);
+        Assert.NotEqual(firstItem, secondItem);
+    }
+
+    [Fact]
+    public void A_skill_names_only_profiles_that_list_a_2a_submit_and_an_empty_list_is_refused()
+    {
+        using var db = new TempDb();
+        var reply = A2aWith(new Dictionary<string, A2aSkill>
+        {
+            ["reviews"] = new A2aSkill { Name = "Reviews", Inbox = "analyst", Profiles = ["reply-assistant"] },
+        });
+        var refusedProfile = Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db, policy: PolicyWithAnalyst, a2a: reply));
+        Assert.Contains("reply-assistant", refusedProfile.Message);
+
+        using var db2 = new TempDb();
+        var empty = A2aWith(new Dictionary<string, A2aSkill>
+        {
+            ["reviews"] = new A2aSkill { Name = "Reviews", Inbox = "analyst", Profiles = [] },
+        });
+        var refusedEmpty = Assert.Throws<ArgumentException>(() => StartIsRefusedWith(db2, policy: PolicyWithAnalyst, a2a: empty));
+        Assert.Contains("empty", refusedEmpty.Message);
+    }
+
     private static async Task<(string TaskId, string ItemId)> ApprovedTaskAsync(Rig rig, A2AClient client, string partner, string messageId, string goal)
     {
         var task = (await client.SendMessageAsync(Send(messageId, goal))).Task!;
@@ -1235,7 +1451,9 @@ public class A2aSliceTests
         Assert.Equal((false, false, false), (card.Capabilities!.Streaming, card.Capabilities.PushNotifications, card.Capabilities.ExtendedAgentCard));
         Assert.Equal(["text/plain", "application/json"], card.DefaultInputModes);
         Assert.Equal(["text/plain", "application/json"], card.DefaultOutputModes);
-        Assert.Empty(card.Skills);
+        // Batch 13: the card lists the skills this caller's profile may use, and declares the skill-selection extension.
+        Assert.Equal("draft-reply", Assert.Single(card.Skills).Id);
+        Assert.Equal("https://opentail.net/a2a/extensions/skill-selection/v1", Assert.Single(card.Capabilities.Extensions!).Uri);
         Assert.Equal(new[] { "apiKey", "bearer" }, card.SecuritySchemes!.Keys.OrderBy(k => k, StringComparer.Ordinal).ToArray());
     }
 
@@ -1254,7 +1472,7 @@ public class A2aSliceTests
     [Fact]
     public void The_interface_URL_follows_PublicBaseUrl_and_the_card_is_only_what_it_is_configured_to_be()
     {
-        var card = A2ACard.Build(new A2aCardOptions { Name = "Lab", Description = "A test host.", Version = "2.1" }, "https://host.example/base/");
+        var card = A2ACard.Build(new A2aCardOptions { Name = "Lab", Description = "A test host.", Version = "2.1" }, "https://host.example/base/", []);
 
         Assert.Equal("https://host.example/base/a2a", Assert.Single(card.SupportedInterfaces).Url);
         Assert.Equal(("Lab", "A test host.", "2.1"), (card.Name, card.Description, card.Version));

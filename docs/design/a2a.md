@@ -98,7 +98,8 @@ Read from the package's XML documentation (2026-11-11), which changes the plan:
   with the message, and the skill id is carried in the extension's metadata key (correction 4).
 - **No reply trigger exists yet.** `WorkService.CompleteAsync` raises no event. Phase 1 needs an additive `Completed` event, and
   `GetTask` must also create the reply when the item is done, in case the event handler fails.
-- **Schema.** `SqliteActionStore` is at schema 12. The A2A tables take 13, with the migration pattern used for `work_items`.
+- **Schema.** `SqliteActionStore` is at schema 16. The A2A tables took 13, with the migration pattern used for `work_items`; batch 13 added
+  `a2a_contexts` at 16.
 - **Startup checks the plan adds:** `a2a.submit` and `a2a.reply` must be Queue or Deny, never Execute; `a2a.reply` must be reviewed
   by a person with `AllowEdits: false`; `DataFlowMode` must be `Enforce`; the database must be `synchronous=full`; every `a2a:call` key
   must name a profile.
@@ -213,6 +214,9 @@ A skill is declared by the operator in configuration. It is never generated from
 - **A tool skill** (`Tool`) runs one tool. It takes `data` parts only, validated against the tool's parameters. Text parts are refused:
   free text never becomes a tool argument.
 - **An inbox skill** (`Inbox`) creates a work item for a profile. The partner cannot choose the profile; the skill decides it.
+- **Which profiles may use a skill** (batch 13; the planner's decision, for the owner to confirm). `Profiles`, when set, lists the profiles
+  that may use the skill; each must list `a2a.submit`, which startup checks. Unset, any profile that lists `a2a.submit` may use it. The
+  card and the request handler use the same rule (`A2ASkillSelection.MayUse`).
 - **Changing skills** is a configuration change, reviewed in version control. No A2A operation can change skills, cards, profiles or
   policy. Whether card changes should go through the skills review instead is decision 8.
 
@@ -222,6 +226,18 @@ A skill is declared by the operator in configuration. It is never generated from
 `https://opentail.net/a2a/extensions/skill-selection/v1`: the message names the extension in its extensions (the `A2A-Extensions`
 header, spec §14.2.2) and carries the skill id under the extension's metadata key (correction 4). The extension is versioned, and its
 specification is published at that URI before any partner is onboarded.
+
+**Built (batch 13): the skill-selection metadata.** The message lists the extension's URI in its extensions, and carries the skill id as a
+string under the same URI in its metadata. The extension's specification is not yet published at its URI, so this key is the Host's choice
+until it is (owner, before a partner is onboarded). With several skills configured, a message that names none is refused; with one, a
+message that names none is served as before. A named skill that does not exist, or that the caller's profile may not use, gets the
+generic answer.
+
+**Built (batch 13): contexts.** A message with a `contextId` names a context of its partner. The new task goes on that context, and the
+context's taint and labels are re-applied to the session of the new submit, so the submit and the work it makes carry them. A `contextId`
+that is another partner's, or unknown, gets the answer an unknown task gets (`TaskNotFound`). A first message with no `contextId` starts a
+new context under a server-generated id; a partner's own id on a first message is refused the same way (a change: before batch 13 it was
+ignored). The content hash includes the named context, so a retry must name the same one. A `taskId` still gets UnsupportedOperation.
 
 1. The adapter checks `(owner, messageId)` in its own tables (section 10). A repeat with the same content returns the existing task. A
    repeat with different content is refused, so `messageId` cannot be reused for a second request. This check comes first, because
@@ -325,7 +341,10 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 - **The card requires authentication (correction 3).** `/.well-known/agent-card.json` is served only to an authenticated caller. It
   has the name, a generic description, the version, the JSON-RPC interface with `protocolVersion: "1.0"`, the capabilities (no
   streaming, no push), the input and output modes, and the security schemes Orca really accepts: `apiKey` in the `X-API-Key`
-  header and `http` bearer. With Entra, an `openIdConnect` scheme. It lists no skills. Partners receive the card's location and their
+  header and `http` bearer. With Entra, an `openIdConnect` scheme. **Batch 13 changed this:** the card lists the skills the caller's profile may use, with each one's id, name and description (never its
+  inbox), and declares the skill-selection extension. The first draft listed none; the planner's batch 13 brief asked for this, and the
+  owner confirms it (it shows skill names to an authenticated partner). The card is built per request, so it uses the SDK's JSON options
+  and its own route, not the SDK's fixed card mapping. Partners receive the card's location and their
   credentials out of band. The specification allows direct configuration as a discovery mechanism.
 - **Extended card.** `GET /extendedAgentCard` returns, for an authenticated caller, the skills its profile may use, built by the same
   code that builds `tools/list`. Its capabilities say `extendedAgentCard: true`.
@@ -352,7 +371,10 @@ item, but the A2A adapter must not use that path: it would stop an agent mid-wor
 ### 10. Persistence and durability
 
 - **Tables.** `a2a_contexts`: owner, context id, session id, thread id, and the taint and labels the context has gathered.
-  `a2a_messages`: owner, `messageId` hash, task id, content hash. `a2a_tasks`: task id, owner, the `a2a.submit` action id, the work
+  **Built (batch 13) with differences:** the table holds the partner, the context id, the taint flag, the labels and two times. It holds no
+  session id: a session is made per message, and the labels are what carries over. It holds no thread id: each task has its own thread
+  (`a2a:<context>:<task>`), so a context's tasks do not share a work item. `a2a_messages` is **not built**: the `messageId` and its content
+  hash are in `a2a_tasks`, which is where the one-message-per-id rule already holds them. `a2a_tasks`: task id, owner, the `a2a.submit` action id, the work
   item id (empty until the item exists) and the `a2a.reply` action id (empty until there is one). The task id is the one the partner
   is given. It is not the work item id (section 4, step 5). All three are in the same SQLite file, with a schema bump.
 - **Contexts outlive sessions.** A session idles out after 14 days and takes its labels with it. Subject taint lasts 30 minutes. So
@@ -456,11 +478,20 @@ except the startup checks in `A2AFrontDoor.cs`.
 
 ### Open: the rest of phase 1
 
-- [ ] More than one skill per Orca (today a request is served only when exactly one skill is configured).
-- [ ] The skill-selection extension, so a partner can name the skill.
-- [ ] Contexts and multi-turn (today a continuation is refused).
-  - [ ] A context table; taint and labels stored with the context and re-applied on every message.
-  - [ ] Test: a context survives a session expiry with its labels.
+- [x] More than one skill per Orca, and the skill-selection extension, so a partner can name the skill. **Built in batch 13:** a message
+  that names none is served only when one skill is configured; with several it gets the generic answer, as does a named skill the
+  caller's profile may not use. The card lists the caller's skills and declares the extension (section 8). The extension's metadata key
+  is the Host's choice until its specification is published (waiting for the owner).
+- [x] Which profiles may use an inbox skill: an optional `Profiles` list on each skill (section 3). **Built in batch 13,** as the planner's
+  decision; the owner confirms it. Without the list, any profile that lists `a2a.submit`, as before.
+- [x] Contexts and multi-turn. **Built in batch 13:** a continuation on a known context of the same partner is a new task on that context;
+  another partner's context, and an unknown one, get the unknown-task answer (section 4).
+  - [x] A context table (`a2a_contexts`, schema 16, backfilled from the tasks); taint and labels stored with the context, updated when a
+    work item is created, and re-applied to the session of every later message on the context.
+  - [x] Test: a context keeps its taint and labels after its session is gone, and the next item carries them
+    (`A_context_keeps_its_taint_and_labels_after_its_session_is_gone_and_the_next_item_carries_them`). Also: the card per profile, the
+    unknown-task answer for a foreign or unknown context, a retry that names another context, a finished item answering its own task on a
+    shared context, and the startup check of `Profiles` (`A2aSliceTests`).
 - [ ] Partners authenticated by JWT (today an API key only).
 
 ### Open: phase 2, curated skills
@@ -570,8 +601,8 @@ C.1 Blockers:
   its authorisation (401, 403, and 200 for a2a:call), its cache and its audit. Decided (option c, `a2a.md` section 8): an anonymous caller
   gets 401 with A2A on and 404 with it off, so it can tell that A2A is on; that is accepted. The extended card is not built:
   `GetExtendedAgentCard` answers UnsupportedOperation.
-- [ ] Skill selection extension at `https://opentail.net/a2a/extensions/skill-selection/v1`, declared in the card and sent in the message
-  (correction 4). The extension's specification is published at that URI before any partner is onboarded. **Not built.**
+- [x] Skill selection extension at `https://opentail.net/a2a/extensions/skill-selection/v1`, declared in the card and sent in the message
+  (correction 4). The extension's specification is published at that URI before any partner is onboarded. **Built in batch 13,** with the metadata key the Host's choice until the specification is published (waiting for the owner).
 - [x] Tools `a2a.submit` (reads outside content, queued) and `a2a.reply` (an exit, queued, edits not allowed), each with a preview.
   **Done (03b-1 and 03b-2):** both are built with a preview. At startup `a2a.reply` must be Queue or Deny, Reviewer Human, `AllowEdits` false,
   and no rule may be Execute or name a reviewer that is not a person.
@@ -584,7 +615,7 @@ C.1 Blockers:
   expiry. **Covered now:** the crash, `messageId` reuse, `returnImmediately` (true, false, omitted), `A2A-Version`, taint on submit, the
   labelled reply refused, foreign and unknown ids, the rate limit, the work item, the reply (approved and rejected), cancel, dead and
   expired items, the restart, ListTasks, the startup checks, and a submit session that expires before its item completes (batch 06, R5).
-  **Not covered, and not written as stated:** contexts (not built), and the out-of-profile trip (`a2a-history.md`, build order, phase 1, with the reason).
+  **Not covered, and not written as stated:** contexts (built in batch 13; see its tests in the plan), and the out-of-profile trip (`a2a-history.md`, build order, phase 1, with the reason).
 
 C.2 Verify before building:
 
@@ -611,7 +642,7 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
   the lease. **Done (03b-2):** `A2AWork` and the handler read `host.Work.Store`.
 - [x] Caller identity comes from `IHttpContextAccessor`, which needs registering. **Done (03b-1):** registered by the HTTP host; the caller is
   read from the partner and profile claims, never from the request object.
-- [x] Schema: one bump for both the binding and A2A, or two. **One bump (03b-1):** schema 13 creates `a2a_tasks`; the binding has no table of its own.
+- [x] Schema: one bump for both the binding and A2A, or two. **One bump (03b-1):** schema 13 creates `a2a_tasks`; the binding has no table of its own. **Batch 13:** schema 16 creates `a2a_contexts`; the migration backfills one row per existing context.
 - [x] Owner decision: how many blocking waits one partner may hold open at once. **Decided (planner, 2026-11-13): 4**, from 1 to 64 (under Decided).
 - [ ] Plan defaults that the owner has not yet confirmed: JSON-RPC first (decision 4); a generic error for a skill the caller may not use
   (7); card and skill changes are configuration only (8); reviewer reasons stay internal (9); file parts refused in v1 (11). **What the code
@@ -624,7 +655,14 @@ C.3 Still to decide while building (not blockers if the first partner accepts th
 ### Waiting for the owner
 
 - [ ] Review of this design before phases 2 to 4.
-- [ ] Which profiles may use an inbox skill.
+- [ ] Which profiles may use an inbox skill: built as a per-skill `Profiles` list in batch 13 (planner's decision); confirm it, or name a
+  different rule.
+- [ ] The skill-selection metadata key: the extension's URI, with the skill id as a string value. Publish the extension's specification at
+  its URI, and confirm or change the key, before any partner is onboarded.
+- [ ] The card lists the caller's skills (id, name, description), where section 8 first said it listed none. It shows no profile or inbox
+  name. Confirm, or return to listing none.
+- [ ] A `contextId` a partner invents on a first message is refused as an unknown task (batch 13). Before, it was ignored and the Host made
+  its own. Confirm.
 - [ ] The live Teams tenant check (needs a tenant).
 - [ ] Confirm the planner's decisions made while the owner was away, listed in [`docs/briefs/README.md`](../briefs/README.md).
   One of them is the `A2A-Version` rule (D6): a missing header is 1.0; `1.0` is accepted; an empty value and `0.3` are refused.

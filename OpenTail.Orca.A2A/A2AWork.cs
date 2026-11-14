@@ -19,8 +19,9 @@ internal sealed class A2AWork(OpenTailHost host, A2aOptions config, A2ATaskTable
     /// <summary>The subject a partner's requests are recorded under. The handler uses the same form.</summary>
     public static string SubjectOf(string partnerId) => "partner:" + partnerId;
 
-    /// <summary>The thread every work item of one A2A task is on.</summary>
-    public static string ThreadOf(string contextId) => "a2a:" + contextId;
+    /// <summary>The thread of one A2A task's work item. Per task, not per context: a context can have several tasks, and the crash heal and the
+    /// completion both look for this task's item. Threads written before batch 13 are "a2a:&lt;context&gt;" (one task per context).</summary>
+    public static string ThreadOf(string contextId, string taskId) => "a2a:" + contextId + ":" + taskId;
 
     private static object Accepted => new { accepted = true };
 
@@ -32,7 +33,7 @@ internal sealed class A2AWork(OpenTailHost host, A2aOptions config, A2ATaskTable
         if (row.WorkItemId is not null) return Accepted;
 
         var subject = SubjectOf(partner);
-        var thread = ThreadOf(row.ContextId);
+        var thread = ThreadOf(row.ContextId, row.TaskId);
         // A crash between the create and the link leaves the item without its id in the row: the thread finds it again, so there is one.
         var item = host.Work.Store.Query(thread: thread).FirstOrDefault(i => i.From == subject);
         if (item is null)
@@ -43,6 +44,8 @@ internal sealed class A2AWork(OpenTailHost host, A2aOptions config, A2ATaskTable
                 inputs.Length == 0 ? null : inputs, tainted: true, carried: carried, thread: thread);
         }
         tasks.SetWorkItem(taskId, item.Id, DateTimeOffset.UtcNow);
+        // Batch 13: the item's taint and labels are kept on the context, so the next message on it re-applies them.
+        tasks.AbsorbContext(row.ContextId, item.Tainted, item.Labels, DateTimeOffset.UtcNow);
         return Accepted;
     }
 
@@ -118,18 +121,25 @@ internal sealed class A2AWork(OpenTailHost host, A2aOptions config, A2ATaskTable
     {
         if (!item.From.StartsWith("partner:", StringComparison.Ordinal) || !item.Thread.StartsWith("a2a:", StringComparison.Ordinal)) return;
         var partner = item.From["partner:".Length..];
-        var context = item.Thread["a2a:".Length..];
+        var thread = item.Thread["a2a:".Length..];
         _ = Task.Run(async () =>
         {
             try
             {
-                if (tasks.FindByContext(partner, context) is { } row) await TryReconcileAsync(row, CancellationToken.None);
+                if (RowOfThread(partner, thread) is { } row) await TryReconcileAsync(row, CancellationToken.None);
             }
             catch (Exception)
             {
                 // Nothing to report from here: GetTask reconciles again when it is asked.
             }
         });
+    }
+
+    /// <summary>The task a thread belongs to: "context:task" names the task; a thread with no task id is a context from before batch 13.</summary>
+    private A2ATaskTable.Row? RowOfThread(string partner, string thread)
+    {
+        var colon = thread.IndexOf(':', StringComparison.Ordinal);
+        return colon < 0 ? tasks.FindByContext(partner, thread) : tasks.FindByTask(partner, thread[(colon + 1)..]);
     }
 
     /// <summary>Checks the requester and the row. Each tool body passes its own link check: submit (the row has no action or this one) and

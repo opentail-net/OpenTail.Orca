@@ -233,8 +233,12 @@ Built (its commits are in the batch table in `a2a-history.md`):
   page and in Teams; and the kit (`docs/guides/a2a-sample/`, `scripts/a2a-smoke.ps1`, `docs/guides/a2a.md`).
 - Tests: `A2aSliceTests`, `A2aPhase0Tests`, `A2aKitTests` and `ReviewViewTests`, and the Teams tests in `TeamsBotTests`.
 
-Not built: the skill-selection extension; more than one skill per Orca; contexts and multi-turn; tool skills; the extended card; card
-signing; HTTP+JSON; push and `INPUT_REQUIRED`; outbound calls; partners authenticated by JWT; streaming and resubscribe; file parts.
+Built in batch 13 (the rest of phase 1): more than one skill per Orca, with the skill-selection extension (a named skill; the card lists the
+caller's skills and declares the extension); a per-skill `Profiles` list; contexts and multi-turn (`a2a_contexts`, schema 16; a
+continuation on a known context is a new task on it, and its taint and labels are re-applied to each message). Tests in `A2aSliceTests`.
+
+Not built: tool skills; the extended card; card signing; HTTP+JSON; push and `INPUT_REQUIRED`; outbound calls; partners authenticated by
+JWT; streaming and resubscribe; file parts.
 
 The decisions the planner made, and where each is recorded, are in [`docs/briefs/README.md`](../docs/briefs/README.md).
 

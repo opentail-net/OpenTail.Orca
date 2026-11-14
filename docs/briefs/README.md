@@ -21,6 +21,10 @@ record of what each brief asked, and where the decisions are.
 - `batch-09b-model-reviewer-review.md` (on main at `2eccce1`): the planner's review of the model reviewer, nine items. Built and pushed as `50c705c`.
 - `batch-10` (in `batch-10-11-shared-budgets-and-dolphin-failures.md`): P6 and the G8 tests. Built in the working tree (2026-11-14), not yet committed.
 - `batch-10-11-shared-budgets-and-dolphin-failures.md` (on main at `b9051ff`): batch 10, the store-level counter for the AI budgets across processes (P6) and the remaining G8 tests (Orca); batch 11, Dolphin's failure handling (A1, A2, B4). Open.
+- `batch-12-13-dolphin-retrieval-and-a2a-phase1.md`: batch 12, retrieval quality in Dolphin (measured with the quality gate; reported
+  as Dolphin `f20e751` with 12b), and batch 13, the rest of A2A phase 1 in Orca: several skills and the skill-selection extension, a
+  per-skill `Profiles` list, and contexts with multi-turn (schema 16). Batch 13 is built in the working tree and reported, not yet
+  committed. Its decisions for the owner are in `a2a.md`, "Waiting for the owner".
 - `teams-inventory.md`, `a2a-sdk-facts.md`, `a2a-reviewer-view.md`: the inventory, the facts and the batch 04 report. They are not briefs.
 
 ## Decisions the planner made for the owner

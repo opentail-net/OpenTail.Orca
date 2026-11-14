@@ -1,5 +1,7 @@
 using System.Globalization;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
+using OpenTail.Orca;
 
 namespace OpenTail.Orca.A2A;
 
@@ -43,19 +45,81 @@ internal sealed class A2ATaskTable
         ReusedWithOtherContent,
     }
 
-    /// <summary>The row for a partner's messageId, creating it in the same transaction when there is none.</summary>
-    public (Row Row, Outcome Outcome) GetOrCreate(string partnerId, string messageId, string contentHash, string skillId, DateTimeOffset now)
+    /// <summary>The row for a partner's messageId, creating it in the same transaction when there is none. The new task is on
+    /// <paramref name="contextId"/>: an existing context of this partner (a continuation, checked by the caller), or a new one, whose row is
+    /// created here too.</summary>
+    public (Row Row, Outcome Outcome) GetOrCreate(string partnerId, string messageId, string contentHash, string skillId, string contextId, DateTimeOffset now)
     {
         using var c = Open();
         using var tx = c.BeginTransaction(deferred: false);
         if (Find(c, tx, "partner_id=$p AND message_id=$m", p => { p.AddWithValue("$p", partnerId); p.AddWithValue("$m", messageId); }) is { } existing)
             return (existing, existing.ContentHash == contentHash ? Outcome.Existing : Outcome.ReusedWithOtherContent);
 
-        var row = new Row(Guid.NewGuid().ToString("D"), partnerId, Guid.NewGuid().ToString("D"), messageId, contentHash, skillId, null, now, now);
+        InsertContextIfNew(c, tx, contextId, partnerId, now);
+        var row = new Row(Guid.NewGuid().ToString("D"), partnerId, contextId, messageId, contentHash, skillId, null, now, now);
         Insert(c, tx, row);
         tx.Commit();
         return (row, Outcome.Created);
     }
+
+    /// <summary>A context of this partner, with the taint and labels it holds. Another partner's context and an unknown one both give null.</summary>
+    public ContextState? FindContext(string partnerId, string contextId)
+    {
+        using var c = Open();
+        using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT tainted, labels FROM a2a_contexts WHERE context_id=$c AND partner_id=$p";
+        cmd.Parameters.AddWithValue("$c", contextId);
+        cmd.Parameters.AddWithValue("$p", partnerId);
+        using var r = cmd.ExecuteReader();
+        if (!r.Read()) return null;
+        return new ContextState(contextId, partnerId, r.GetInt64(0) != 0, ParseLabels(r.GetString(1)));
+    }
+
+    /// <summary>Puts a work item's taint and labels on its context, so the next message re-applies them. A label is kept once; the taint is kept
+    /// once set. Only the given context row changes.</summary>
+    public void AbsorbContext(string contextId, bool tainted, IReadOnlyList<CarriedLabel> labels, DateTimeOffset now)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction(deferred: false);
+        string? stored;
+        using (var read = c.CreateCommand())
+        {
+            read.Transaction = tx;
+            read.CommandText = "SELECT labels FROM a2a_contexts WHERE context_id=$c";
+            read.Parameters.AddWithValue("$c", contextId);
+            stored = read.ExecuteScalar() as string;
+        }
+        if (stored is null) return;
+        var merged = ParseLabels(stored).Concat(labels).Distinct().ToList();
+        using (var write = c.CreateCommand())
+        {
+            write.Transaction = tx;
+            write.CommandText = "UPDATE a2a_contexts SET tainted = (tainted OR $t), labels=$l, updated_at=$n WHERE context_id=$c";
+            write.Parameters.AddWithValue("$t", tainted ? 1 : 0);
+            write.Parameters.AddWithValue("$l", JsonSerializer.Serialize(merged));
+            write.Parameters.AddWithValue("$n", now.ToString("O", CultureInfo.InvariantCulture));
+            write.Parameters.AddWithValue("$c", contextId);
+            write.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    private static IReadOnlyList<CarriedLabel> ParseLabels(string json) =>
+        JsonSerializer.Deserialize<List<CarriedLabel>>(json) ?? [];
+
+    private static void InsertContextIfNew(SqliteConnection c, SqliteTransaction tx, string contextId, string partnerId, DateTimeOffset now)
+    {
+        using var cmd = c.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = "INSERT OR IGNORE INTO a2a_contexts (context_id, partner_id, tainted, labels, created_at, updated_at) VALUES ($c, $p, 0, '[]', $n, $n)";
+        cmd.Parameters.AddWithValue("$c", contextId);
+        cmd.Parameters.AddWithValue("$p", partnerId);
+        cmd.Parameters.AddWithValue("$n", now.ToString("O", CultureInfo.InvariantCulture));
+        cmd.ExecuteNonQuery();
+    }
+
+    /// <summary>A context as the store holds it: what a new message on it must re-apply.</summary>
+    public sealed record ContextState(string ContextId, string PartnerId, bool Tainted, IReadOnlyList<CarriedLabel> Labels);
 
     /// <summary>Inserts a row without an action. Used by the crash test to stand in for a crash between the two steps.</summary>
     internal Row InsertWithoutAction(string partnerId, string messageId, string contentHash, string skillId, DateTimeOffset now)
