@@ -750,7 +750,14 @@ public sealed class ActionQueue(
             {
                 // The held approval is withdrawn: it no longer counts, so the next approval (by anyone eligible) schedules a new window.
                 await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending,
-                    x => x with { RunAt = null, Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Withdraw, "held: the approval is withdrawn", now)] },
+                    // 10b: a held run waits for a person, so it gets the tool's ExpireAfter from the hold, unless it already has an expiry from submission
+                    // (a run scheduled by an approval keeps that).
+                    x => x with
+                    {
+                        RunAt = null,
+                        ExpiresAt = x.ExpiresAt ?? (x.PolicySnapshot?.ExpireAfter is { } wait ? now + wait : null),
+                        Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Withdraw, "held: the approval is withdrawn", now)],
+                    },
                     EntryOf("delay_held", $"{(now - at).TotalMinutes:0} min past its time: a person decides"), ct);
                 continue;
             }
@@ -758,7 +765,14 @@ public sealed class ActionQueue(
             if (levels?.Effective(r.Requester.Id) == IdentityLevel.Suspended)
             {
                 await ChangeAudited(r.Id, ActionStatus.Pending, ActionStatus.Pending,
-                    x => x with { RunAt = null, Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Withdraw, "held: the approval is withdrawn", now)] },
+                    // 10b: a held run waits for a person, so it gets the tool's ExpireAfter from the hold, unless it already has an expiry from submission
+                    // (a run scheduled by an approval keeps that).
+                    x => x with
+                    {
+                        RunAt = null,
+                        ExpiresAt = x.ExpiresAt ?? (x.PolicySnapshot?.ExpireAfter is { } wait ? now + wait : null),
+                        Reviews = [.. x.Reviews, new ActionReview("system", ReviewDecision.Withdraw, "held: the approval is withdrawn", now)],
+                    },
                     EntryOf("delay_held", "the requester is suspended: a person decides"), ct);
                 continue;
             }

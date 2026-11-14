@@ -124,7 +124,7 @@ Every AI decision is audited as `ai_review` under its `ai:` subject, whichever c
 | Stopped before its time, by the requester or the reviewer group | Cancelled |
 | Its time passed, within the allowance | System approval (`delay_elapsed`), then the claim and the run |
 | Late by more than the allowance, or the requester is suspended | Held (`delay_held`). For a run scheduled by an approval, the approval is withdrawn, and the next approval schedules a new window. |
-| Expired | Does not run |
+| Expired | Does not run. An undo-window run has no expiry while its window runs. A run held for a person expires `ExpireAfter` after the hold, if its tool has one, and does not run (batch 10b). A run scheduled by an approval keeps the expiry it had from submission. |
 
 The allowance is the length of the window: the run time minus the last approval, or minus creation when no one approved. Before
 any run, the claim rechecks expiry, the policy hash, the argument digest and the binding. That recheck is before the claim
@@ -211,7 +211,7 @@ Dropped: **P4**, delayed rejection (D-24). A person may not be blocked from an `
     runner and the HTTP review route (`Batch08SettingsTests`, `Batch10ChannelParityTests`), for approve and for reject. Not covered:
     MCP (it has no review route), A2A (a partner submits; a person decides elsewhere), and Teams (needs a live tenant);
   - [x] a restart during a scheduled window (`Batch08SettingsTests`; on SQLite with a clock, not a separate process);
-  - [ ] pins for the decision and delay tables (2.4, 2.5). **Partly:** five rows of 2.4 (`Batch08SettingsTests`); for 2.5, a stop that is Cancelled, the window passing within the allowance, and a suspended requester's run held (`Batch10DelayPinsTests`). **Defect, skipped:** an expired delayed run is run anyway (the table says it does not run);
+  - [ ] pins for the decision and delay tables (2.4, 2.5). **Partly:** five rows of 2.4 (`Batch08SettingsTests`); for 2.5, a stop that is Cancelled, the window passing within the allowance, and a suspended requester's run held (`Batch10DelayPinsTests`). Expiry (batch 10b): an undo window runs past a shorter `ExpireAfter`, and a held run expires `ExpireAfter` after the hold;
   - [x] a red-team case for a side door (a tool with no policy entry is denied and never runs; `Batch08SettingsTests`). Not checked: the advertised tool list;
   - [x] pairwise coverage for 2.2 and 2.3 (`Batch10PairwiseTests`): covering arrays generated in the test from the factors; the expected result of each row comes from an oracle written from the tables. No row disagreed with the code.
 
@@ -392,7 +392,8 @@ agent identity, or both), and the block expires unless a person renews it.
 - The review page's AI label and the panel were not checked in a browser.
 - P6 (batch 10): the two stores were two in one process on one database file. Two real processes, and a database on a network share, were not
   tried. The budget check reads through the store in the write transaction; it is safe for SQLite in WAL mode on one machine.
-- The delay table's expiry row is a known defect (skipped test, `Batch10DelayPinsTests`): an expired delayed run is run.
+- The delay table's expiry row was a wording gap and one real hole, both closed in batch 10b: a held run now gets an expiry; the table says when
+  expiry applies (`Batch10DelayPinsTests`).
 - R2 (batch 09): the model reviewer has not been run against any real model, and its prompt has not been judged on real content.
   The `AiReviewer` section is checked at startup but starts nothing; the HTTP startup path is not run end to end in a test.
 - A restart during a scheduled window: tested in batch 08 on SQLite with a clock (`Batch08SettingsTests`), not against a separate

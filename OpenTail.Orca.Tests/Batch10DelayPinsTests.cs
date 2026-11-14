@@ -52,20 +52,46 @@ public class Batch10DelayPinsTests
         Assert.Contains((await host.Store.GetAsync(r.Id))!.Reviews, v => v.Reviewer == "system");
     }
 
-    // DEFECT (batch 10, not fixed here): plan 2.5 says an expired delayed run does not run. The code runs it when its time comes, after its
-    // ExpireAfter has passed. Left in place, skipped, for the planner's decision.
-    [Fact(Skip = "Plan 2.5 says an expired delayed run does not run; the code runs it after ExpireAfter has passed. Defect reported in batch 10.")]
-    public async Task An_expired_delayed_run_does_not_run()
+    // 10b: the plan (2.5) says an undo-window run has no expiry while its window runs, and an action waiting for a person expires after its
+    // ExpireAfter. The two pins below are the two halves of that rule.
+
+    [Fact]
+    public async Task An_undo_window_run_with_an_expiry_shorter_than_its_delay_still_runs_when_its_window_ends()
     {
         var (host, clock, module) = Build("""{ "TaintWindow": "00:00:00", "SessionlessTainted": false, "Tools": { "mail.send": { "Mode": "Execute", "DelayFor": "00:10:00", "ExpireAfter": "00:05:00" } } }""");
         var r = await host.Queue.SubmitAsync(Send());
+        Assert.Null(r.ExpiresAt);
 
-        clock.Advance(TimeSpan.FromMinutes(11));
+        clock.Advance(TimeSpan.FromMinutes(10));
+        await host.RunMaintenanceOnceAsync();
+
+        Assert.Equal(1, module.SendCalls);
+        Assert.Equal(ActionStatus.Succeeded, (await host.Store.GetAsync(r.Id))!.Status);
+    }
+
+    [Fact]
+    public async Task A_held_run_expires_after_expire_after_from_the_hold_and_never_runs()
+    {
+        var (host, clock, module) = Build("""{ "TaintWindow": "00:00:00", "SessionlessTainted": false, "Tools": { "mail.send": { "Mode": "Execute", "DelayFor": "00:10:00", "ExpireAfter": "00:05:00" } } }""");
+        var r = await host.Queue.SubmitAsync(Send());
+        Assert.True(await host.Levels.SuspendAsync(Bot.Id, "rita", "incident for the test"));
+
+        // The window ends while the requester is suspended: the run is held for a person, and the hold starts the five-minute wait.
+        clock.Advance(TimeSpan.FromMinutes(10));
+        await host.RunMaintenanceOnceAsync();
+        var held = (await host.Store.GetAsync(r.Id))!;
+        Assert.Equal(ActionStatus.Pending, held.Status);
+        Assert.Null(held.RunAt);
+        Assert.Equal(clock.GetUtcNow() + TimeSpan.FromMinutes(5), held.ExpiresAt);
+
+        // Nobody decides within the wait: the action expires and nothing runs.
+        clock.Advance(TimeSpan.FromMinutes(6));
         await host.RunMaintenanceOnceAsync();
 
         Assert.Equal(0, module.SendCalls);
         Assert.Equal(ActionStatus.Expired, (await host.Store.GetAsync(r.Id))!.Status);
     }
+
 
     [Fact]
     public async Task A_run_whose_requester_is_suspended_is_held_for_a_person_and_does_not_run()
