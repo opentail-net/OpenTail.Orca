@@ -16,7 +16,7 @@
     <!-- Database drivers for the real-server Sql tests only; deployments reference their own. -->
     <PackageVersion Include="Microsoft.Data.SqlClient" Version="7.1.1" />
     <PackageVersion Include="Npgsql" Version="10.0.3" />
-    <PackageVersion Include="MySqlConnector" Version="2.6.2" />
+    <PackageVersion Include="MySqlConnector" Version="3.0.0" />
     <PackageVersion Include="Snowflake.Data" Version="6.3.0" />
     <PackageVersion Include="Oracle.ManagedDataAccess.Core" Version="23.26.301" />
     <PackageVersion Include="Microsoft.Extensions.AI.Abstractions" Version="10.11.0" />
