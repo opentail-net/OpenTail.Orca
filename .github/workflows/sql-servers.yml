@@ -16,13 +16,14 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: sql-servers-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  GITHUB_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}
   # Throwaway passwords for throwaway containers; they guard nothing.
   SA_PASSWORD: Ci_Admin_Pass_1234x
   READ_PASSWORD: Ci_Read_Pass_1234x

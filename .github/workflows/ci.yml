@@ -2,7 +2,8 @@ name: CI
 
 # The OpenTail Host: Host*, the modules, the profiles, the container image.
 # The Connectivity libraries come as packages from opentail-connectivity (GitHub Packages); reading them needs a token with
-# read:packages in the PACKAGES_READ_TOKEN secret (nuget.config reads it as GITHUB_PACKAGES_TOKEN).
+# read:packages in the PACKAGES_READ_TOKEN secret (nuget.config reads it as GITHUB_PACKAGES_TOKEN). When that secret is not set,
+# the workflow's own GITHUB_TOKEN is used instead, which needs packages: read below.
 
 on:
   push:
@@ -16,13 +17,14 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  GITHUB_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+  GITHUB_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}
 
 jobs:
   build-test:
