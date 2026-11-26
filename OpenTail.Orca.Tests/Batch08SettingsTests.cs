@@ -33,8 +33,8 @@ public class Batch08SettingsTests
     private const string TenMinutes = """{ "Tools": { "mail.send": { "Mode": "Queue", "ApproveDelay": "00:10:00" } } }""";
     private static readonly DateTimeOffset Start = DateTimeOffset.Parse("2026-11-14T09:00:00Z");
 
-    private static ActionReview PersonDecides(ReviewDecision d, string name = "rita") =>
-        new(name, d, d is ReviewDecision.Approve ? null : "not this one", DateTimeOffset.UtcNow) { Subject = Subjects.Admin(name) };
+    private static ActionReview PersonDecides(ReviewDecision d, string name = "rita", DateTimeOffset? at = null) =>
+        new(name, d, d is ReviewDecision.Approve ? null : "not this one", at ?? DateTimeOffset.UtcNow) { Subject = Subjects.Admin(name) };
 
     private static ActionReview AiDecides(string name, ReviewDecision d) =>
         new(name, d, d is ReviewDecision.Approve ? null : "not this one", DateTimeOffset.UtcNow) { Subject = Subjects.Ai(name) };
@@ -274,7 +274,8 @@ public class Batch08SettingsTests
         var before = new FakeInboxModule();
         var first = Hosts.BuildSqlite(before, TenMinutes, db.Path, clock);
         var mail = await first.Queue.SubmitAsync(new ActionRequest("mail.send", Mail, Alice, first.Sessions.Start("key:alice-agent")));
-        var scheduled = await first.Queue.ReviewAsync(mail.Id, PersonDecides(ReviewDecision.Approve));
+        // The approval is stamped on the scenario's clock, so its late allowance is measured on the same timeline as the run.
+        var scheduled = await first.Queue.ReviewAsync(mail.Id, PersonDecides(ReviewDecision.Approve, at: clock.GetUtcNow()));
         Assert.Equal(Start + TimeSpan.FromMinutes(10), scheduled.RunAt);
         Assert.Equal(0, before.SendCalls);
 
