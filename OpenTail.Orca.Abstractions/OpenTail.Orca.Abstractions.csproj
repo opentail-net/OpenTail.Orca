@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Orca.Abstractions</PackageId>
     <Description>Contracts for the OpenTail MCP Host: tool contract and guardrails, risk and policy model, action queue records and lifecycle. Depends only on Microsoft.Extensions.AI.Abstractions.</Description>
   </PropertyGroup>

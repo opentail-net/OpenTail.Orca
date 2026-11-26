@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <AssemblyName>opentail-orca-team</AssemblyName>
     <Description>Sample deployment for a small team: files and an imported API over signed-in HTTP, with an approval queue. Run it as stdio (no flags) or over HTTP (--http).</Description>
     <IsPackable>false</IsPackable>

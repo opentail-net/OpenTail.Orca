@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.GitHubIssues</PackageId>
     <Description>OpenTail Host module: search and read GitHub issues and comments, and comment, create, update or close issues, in allow-listed repositories only. Writes are ExternalEffect, so a caller that read issue text is always held for a reviewer. No dependency on OpenTail.Core.</Description>
   </PropertyGroup>

@@ -1039,7 +1039,7 @@ public sealed class SkillsModuleTests : IDisposable
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         var config = dir.FullName.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "OpenTail.Orca.slnx"))) dir = dir.Parent;
-        return Path.Combine(dir!.FullName, "OpenTail.Orca.Tests.LockHolder", "bin", config, "net10.0", "OpenTail.Orca.Tests.LockHolder.dll");
+        return Path.Combine(dir!.FullName, "OpenTail.Orca.Tests.LockHolder", "bin", config, new DirectoryInfo(AppContext.BaseDirectory).Name, "OpenTail.Orca.Tests.LockHolder.dll");
     }
 
     /// <summary>An audit trail that refuses one event, as a failing disk would.</summary>

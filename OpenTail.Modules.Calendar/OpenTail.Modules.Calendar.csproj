@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Calendar</PackageId>
     <Description>OpenTail Host module: read calendars and events; create, delete and answer invitations as previewed, queued actions. Works with any OpenTail ICalendarAdapter (Google, Microsoft Graph, ICS).</Description>
   </PropertyGroup>

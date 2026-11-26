@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Files</PackageId>
     <Description>OpenTail Host module: list, read and write files inside one configured root folder. Reads PDF and Office documents as text through OpenTail.Connectivity.Files. No dependency on OpenTail.Core.</Description>
   </PropertyGroup>

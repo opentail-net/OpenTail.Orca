@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Email.Imap</PackageId>
     <Description>OpenTail Host module provider: the Email module over IMAP and SMTP (MailKit), enabled from modules.json as "email-imap". Sending is ExternalEffect, so the Host queues it for review by policy.</Description>
   </PropertyGroup>

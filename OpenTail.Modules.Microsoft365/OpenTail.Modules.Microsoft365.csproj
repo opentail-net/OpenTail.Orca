@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Microsoft365</PackageId>
     <Description>OpenTail Host module providers: the Email and Calendar modules over Microsoft Graph (an app registration with application permissions on one mailbox), enabled from modules.json as "email-graph" and "calendar-graph"; and "files-graph", read-only search and text of files in allowed SharePoint libraries and OneDrives; and "pages-graph", the pages of allowed SharePoint sites.</Description>
   </PropertyGroup>

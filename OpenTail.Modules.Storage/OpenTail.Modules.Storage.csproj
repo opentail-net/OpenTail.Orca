@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Storage</PackageId>
     <Description>OpenTail Host module: list and read objects in one S3 bucket (or an S3-compatible store), inside a prefix allow-list, with capped reads and text extraction, through OpenTail.Connectivity.Storage. Read only.</Description>
   </PropertyGroup>

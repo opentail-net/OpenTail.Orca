@@ -15,7 +15,7 @@ public class IsolationTests
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
         var config = dir.FullName.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.Ordinal) ? "Release" : "Debug";
         while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "OpenTail.Orca.slnx"))) dir = dir.Parent;
-        return Path.Combine(dir!.FullName, "OpenTail.Orca.Tests.Worker", "bin", config, "net10.0", "OpenTail.Orca.Tests.Worker.dll");
+        return Path.Combine(dir!.FullName, "OpenTail.Orca.Tests.Worker", "bin", config, new DirectoryInfo(AppContext.BaseDirectory).Name, "OpenTail.Orca.Tests.Worker.dll");
     }
 
     private static async Task<(OpenTailHost Host, IsolatedModule Module)> HostFor(string isolation = "", string network = "", string credentials = "",

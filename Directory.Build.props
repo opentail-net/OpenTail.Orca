@@ -1,4 +1,9 @@
 <Project>
+  <!-- Target frameworks of every project in this repo. Both are built and tested; the net11.0 target
+       needs the .NET 11 SDK, which global.json pins. -->
+  <PropertyGroup>
+    <OrcaTargetFrameworks>net10.0;net11.0</OrcaTargetFrameworks>
+  </PropertyGroup>
   <PropertyGroup>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

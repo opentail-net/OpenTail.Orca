@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Skills</PackageId>
     <Description>OpenTail Host module: serves published business skills (skills.find, skills.get) from the Host's own store, and publishes a skill version by moving a label (skills.publish, an approved action).</Description>
   </PropertyGroup>

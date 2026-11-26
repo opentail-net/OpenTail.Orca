@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Calendar.Ics</PackageId>
     <Description>OpenTail Host module provider: the Calendar module over an ICS feed (read only), enabled from modules.json as "calendar-ics". Fetched through the Host's guarded HTTP client.</Description>
   </PropertyGroup>

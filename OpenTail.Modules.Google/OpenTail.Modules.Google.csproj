@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFrameworks>$(OrcaTargetFrameworks)</TargetFrameworks>
     <PackageId>OpenTail.Modules.Google</PackageId>
     <Description>OpenTail Host module providers: the Email and Calendar modules over Gmail and Google Calendar (OAuth with a refresh token for one account), enabled from modules.json as "email-gmail" and "calendar-google"; and "drive-google", read-only search and text of files in allowed shared drives (service account).</Description>
   </PropertyGroup>
